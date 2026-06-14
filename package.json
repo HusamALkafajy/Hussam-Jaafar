@@ -1,0 +1,31 @@
+{
+  "name": "studyai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-powered educational platform for students — StudyAI",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "dev:web": "turbo dev --filter=@studyai/web",
+    "dev:api": "turbo dev --filter=@studyai/api",
+    "db:generate": "turbo db:generate --filter=@studyai/database",
+    "db:migrate": "turbo db:migrate --filter=@studyai/database",
+    "db:push": "turbo db:push --filter=@studyai/database",
+    "db:studio": "turbo db:studio --filter=@studyai/database",
+    "clean": "turbo clean && rimraf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "prettier": "^3.4.0",
+    "rimraf": "^6.0.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

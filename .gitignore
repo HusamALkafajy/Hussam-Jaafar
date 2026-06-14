@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# Turbo
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+
+# Database
+*.sqlite
+*.sqlite3
+
+# Uploads (local dev)
+uploads/
+
+# Docker volumes
+pgdata/
+redisdata/
+
+# Drizzle
+drizzle/meta/
+
+# TypeScript
+*.tsbuildinfo

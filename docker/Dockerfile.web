@@ -1,0 +1,60 @@
+# Production Dockerfile for Next.js 15 Web Application
+# Multi-stage build leveraging Turborepo pruning for minimal image size.
+
+# Stage 1: Prune monorepo
+FROM node:20-alpine AS pruner
+RUN apk add --no-cache libc6-compat
+RUN npm install -g turbo
+WORKDIR /app
+COPY . .
+RUN turbo prune @studyai/web --docker
+
+# Stage 2: Install dependencies
+FROM node:20-alpine AS installer
+RUN apk add --no-cache libc6-compat
+RUN npm install -g pnpm@9.15.0
+WORKDIR /app
+
+# First copy lockfile and package.json files
+COPY --from=pruner /app/out/json/ .
+COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=pruner /app/out/pnpm-workspace.yaml ./pnpm-workspace.yaml
+
+# Install dependencies (frozen-lockfile for production)
+RUN pnpm install --frozen-lockfile
+
+# Stage 3: Build the application
+FROM node:20-alpine AS builder
+RUN apk add --no-cache libc6-compat
+RUN npm install -g pnpm@9.15.0
+WORKDIR /app
+
+COPY --from=installer /app/ .
+COPY --from=pruner /app/out/full/ .
+COPY turbo.json turbo.json
+
+# Build NestJS API & web app to ensure shared packages are built
+RUN pnpm run build --filter=@studyai/web...
+
+# Stage 4: Production runner
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy Next.js standalone build output files
+COPY --from=builder /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+# Start the Next.js production server using standalone output launcher
+CMD ["node", "apps/web/server.js"]

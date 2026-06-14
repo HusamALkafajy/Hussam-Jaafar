@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: studyai-prod-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE_NAME:-studyai}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata-prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: studyai-prod-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata-prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: studyai-prod-api
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@db:5432/${DATABASE_NAME:-studyai}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key-12345}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-super-secret-refresh-key-54321}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      FRONTEND_URL: http://localhost:3000
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${DATABASE_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM:-"StudyAI <noreply@studyai.com>"}
+    ports:
+      - "4000:4000"
+    volumes:
+      - api-uploads:/app/apps/api/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: studyai-prod-web
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata-prod:
+  redisdata-prod:
+  api-uploads:
