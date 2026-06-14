@@ -193,6 +193,12 @@ export class FilesService {
         throw new Error('Unsupported file type in pipeline');
       }
 
+      // If extraction returned no text, use a friendly fallback so UI stops loading
+      if (!extractedText || extractedText.trim() === '') {
+        this.logger.warn(`Empty extracted text for File ID: ${fileId}. Saving fallback message.`);
+        extractedText = 'No extractable text found in this document.';
+      }
+
       await db
         .update(files)
         .set({

@@ -106,8 +106,11 @@ export class AiService {
       }
 
 
+      // If Gemini returns no text, handle gracefully by returning an empty string
+      // Caller (FilesService) will decide how to handle empty extraction results
       if (!response.text) {
-        throw new InternalServerErrorException('No text returned from Gemini API');
+        this.logger.warn('Gemini returned empty text for file extraction');
+        return '';
       }
 
       return response.text;
