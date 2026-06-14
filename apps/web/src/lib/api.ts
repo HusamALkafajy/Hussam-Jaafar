@@ -21,9 +21,13 @@ const BASE_URL = typeof window === 'undefined'
  * - GET   /admin/ai-usage/logs  -> Returns AICallLog[]
  */
 
+type ExtendedRequestInit = RequestInit & {
+  timeout?: number;
+};
+
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {},
+  options: ExtendedRequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers || {});
   if (!(options.body instanceof FormData)) {
@@ -32,6 +36,10 @@ async function request<T>(
 
   // Ensure cookies are sent (HttpOnly tokens)
   options.credentials = 'include';
+  const timeoutMs = options.timeout ?? 10 * 60 * 1000; // 10 minutes
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  options.signal = controller.signal;
 
   // Attach access_token globally as Bearer token in the Authorization header
   let accessToken: string | undefined;
@@ -72,24 +80,33 @@ async function request<T>(
 
   options.headers = headers;
 
-  const response = await fetch(`${BASE_URL}/api${endpoint}`, options);
+  try {
+    const response = await fetch(`${BASE_URL}/api${endpoint}`, options);
 
-  if (!response.ok) {
-    let errorData: Partial<ErrorResponse> = {};
-    try {
-      errorData = await response.json();
-    } catch (e) {
-      errorData = { message: response.statusText };
+    if (!response.ok) {
+      let errorData: Partial<ErrorResponse> = {};
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { message: response.statusText };
+      }
+      throw new Error(errorData.message || `API error status: ${response.status}`);
     }
-    throw new Error(errorData.message || `API error status: ${response.status}`);
-  }
 
-  const result: ApiResponse<T> = await response.json();
-  if (!result.success) {
-    throw new Error(result.message || 'Action failed');
-  }
+    const result: ApiResponse<T> = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || 'Action failed');
+    }
 
-  return result.data;
+    return result.data;
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out while waiting for AI response. Please try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export const api = {

@@ -452,6 +452,16 @@ export default function FileDetailPage({ params }: PageProps) {
               </div>
             </Card>
 
+            {generatingExplain && !explainResult && (
+              <Card className="p-6 bg-slate-900/20 border border-slate-800/60 text-slate-300 flex items-center gap-3">
+                <Spinner className="w-5 h-5 text-indigo-400 animate-spin" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Still generating your explanation...</p>
+                  <p className="text-xs text-slate-400">Academic explanations can take longer to create. Please keep this page open.</p>
+                </div>
+              </Card>
+            )}
+
             {explainResult && (
               <div className="flex flex-col gap-6">
                 {/* Main Explanation */}

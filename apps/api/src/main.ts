@@ -78,6 +78,23 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
 
+  // 6. Increase request timeouts for longer Gemini response times
+  const extendedTimeout = 10 * 60 * 1000; // 10 minutes
+  const server = app.getHttpServer();
+  if (server && typeof server.setTimeout === 'function') {
+    server.setTimeout(extendedTimeout);
+  }
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (typeof req.setTimeout === 'function') {
+      req.setTimeout(extendedTimeout);
+    }
+    if (typeof res.setTimeout === 'function') {
+      res.setTimeout(extendedTimeout);
+    }
+    next();
+  });
+
   await app.listen(port);
   logger.log(`StudyAI NestJS API Gateway successfully running on port: ${port}`);
   logger.log(`CORS allowed origins configured for: ${frontendUrl}`);
