@@ -150,6 +150,24 @@ export class AiService {
     }
   }
 
+  async getCompletion(prompt: string, systemPrompt?: string, jsonMode = false): Promise<string> {
+    if (this.isMockMode()) {
+      return jsonMode ? '{}' : 'This is a mock completion from the AI Service.';
+    }
+    try {
+      const messages: Array<{ role: string; content: any }> = [];
+      if (systemPrompt) {
+        messages.push({ role: 'system', content: systemPrompt });
+      }
+      messages.push({ role: 'user', content: prompt });
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, jsonMode));
+      return responseText;
+    } catch (error: any) {
+      this.logger.error('Error in getCompletion:', error);
+      throw new InternalServerErrorException(`AI completion failed: ${error.message}`);
+    }
+  }
+
   async generateSummary(text: string, level: string, language: string): Promise<any> {
     if (this.isMockMode()) {
       return {

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
@@ -17,6 +18,8 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { PaymentsModule } from './modules/payments/payments.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { StudyCoachModule } from './modules/study-coach/study-coach.module';
+import { RecommendationModule } from './modules/recommendations/recommendation.module';
 
 @Module({
   imports: [
@@ -25,6 +28,7 @@ import { AdminModule } from './modules/admin/admin.module';
       envFilePath: '../../.env',
       load: [appConfig, databaseConfig, authConfig, aiConfig, stripeConfig],
     }),
+    ScheduleModule.forRoot(),
     // Use static throttler config to avoid runtime init ordering issues.
     ThrottlerModule.forRoot({
       throttlers: [
@@ -46,6 +50,8 @@ import { AdminModule } from './modules/admin/admin.module';
     PaymentsModule,
     AnalyticsModule,
     AdminModule,
+    StudyCoachModule,
+    RecommendationModule,
   ],
   providers: [
     {

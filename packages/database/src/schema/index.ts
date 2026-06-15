@@ -10,3 +10,5 @@ export * from './flashcards';
 export * from './chat';
 export * from './payments';
 export * from './analytics';
+export * from './study_coach';
+

@@ -8,6 +8,13 @@
       "when": 1781116822784,
       "tag": "0000_powerful_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781534419669,
+      "tag": "0001_stormy_thaddeus_ross",
+      "breakpoints": true
     }
   ]
 }
