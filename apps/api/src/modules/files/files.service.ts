@@ -3,6 +3,7 @@ import { db, users, files, subjects, subscriptions, eq, and, or, sql, desc } fro
 
 import { FileType, ProcessingStatus, UserRole } from '@studyai/types';
 import { AiService } from '../ai/ai.service';
+import { RagService } from '../rag/rag.service';
 import { FileQueryDto } from './dto/file-query.dto';
 
 import * as fs from 'fs/promises';
@@ -15,7 +16,10 @@ export class FilesService {
   private readonly logger = new Logger(FilesService.name);
   private uploadDir = path.resolve(__dirname, '../../../../uploads');
 
-  constructor(private readonly aiService: AiService) {
+  constructor(
+    private readonly aiService: AiService,
+    private readonly ragService: RagService,
+  ) {
     this.ensureUploadDir();
   }
 
@@ -207,6 +211,12 @@ export class FilesService {
           processedAt: new Date(),
         })
         .where(eq(files.id, fileId));
+
+      try {
+        await this.ragService.indexFile(fileId, extractedText);
+      } catch (ragErr) {
+        this.logger.error(`Failed to index file ${fileId} in RAG`, ragErr);
+      }
 
       // Increment subject fileCount
       const fileRecord = await db
@@ -416,7 +426,16 @@ export class FilesService {
       }
     }
 
-    const chatResult = await this.aiService.chatWithDocument(file.extractedText, question, []);
+    const chunks = await this.ragService.searchChunks(fileId, question, 5);
+    const contextText = chunks
+      .map((c) => `[Page ${c.pageNumber}] ${c.content}`)
+      .join('\n\n');
+
+    const chatResult = await this.aiService.chatWithDocument(
+      contextText || file.extractedText || '',
+      question,
+      [],
+    );
 
     // Increment questions count inside subscription
     if (sub.length > 0) {

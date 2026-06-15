@@ -153,6 +153,47 @@ export class AiService {
     }
   }
 
+  async getEmbedding(text: string): Promise<number[]> {
+    if (this.isMockMode()) {
+      // Return a pseudo-random 1536 dimensions vector
+      const vec = new Array(1536).fill(0).map(() => Math.random() - 0.5);
+      // L2 normalize
+      const len = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0)) || 1;
+      return vec.map((v) => v / len);
+    }
+
+    try {
+      const url = `${this.baseUrl}/v1/embeddings`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'text-embedding-3-small',
+          input: text,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Embedding API failed: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      return data?.data?.[0]?.embedding || new Array(1536).fill(0);
+    } catch (err) {
+      this.logger.warn('Failed to call embedding API, using deterministic pseudo-embedding:', err);
+      // Generate a deterministic pseudo-embedding based on character codes
+      const vec = new Array(1536).fill(0);
+      for (let i = 0; i < text.length; i++) {
+        vec[i % 1536] += text.charCodeAt(i);
+      }
+      const len = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0)) || 1;
+      return vec.map((v) => v / len);
+    }
+  }
+
   async extractText(filePath: string, mimeType: string): Promise<string> {
     if (this.isMockMode()) {
       this.logger.log(`[Mock Mode] Extracting text from file: ${filePath}`);

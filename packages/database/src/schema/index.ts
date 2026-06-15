@@ -11,4 +11,5 @@ export * from './chat';
 export * from './payments';
 export * from './analytics';
 export * from './study_coach';
+export * from './learning_paths';
 

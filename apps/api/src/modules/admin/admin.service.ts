@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { db, users, payments, activityLogs, files, exams, eq, and, or, desc, sql } from '@studyai/database';
+import { db, users, payments, activityLogs, files, exams, aiTokenUsage, subscriptions, eq, and, or, desc, sql } from '@studyai/database';
 import { UserRole, SubscriptionTier } from '@studyai/types';
 import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
 
@@ -108,6 +108,33 @@ export class AdminService {
       ));
     const monthlyRevenue = parseFloat(Number(monthlyRevResult?.total || 0).toFixed(2));
 
+    // Calculate MRR / ARR from active subscriptions
+    const activeSubscriptions = await db
+      .select({
+        plan: subscriptions.plan,
+        count: sql<number>`count(*)`,
+      })
+      .from(subscriptions)
+      .where(eq(subscriptions.status, 'active'))
+      .groupBy(subscriptions.plan);
+
+    let mrr = 0;
+    for (const sub of activeSubscriptions) {
+      if (sub.plan === 'pro') {
+        mrr += Number(sub.count) * 15.00;
+      } else if (sub.plan === 'institution') {
+        mrr += Number(sub.count) * 150.00;
+      }
+    }
+    const arr = mrr * 12;
+
+    // Calculate net profit = totalRevenue - totalAiCost
+    const [totalAiCostResult] = await db
+      .select({ total: sql<number>`coalesce(sum(cast(${aiTokenUsage.costUSD} as decimal)), 0)` })
+      .from(aiTokenUsage);
+    const totalAiCost = parseFloat(Number(totalAiCostResult?.total || 0).toFixed(6));
+    const netProfit = parseFloat((totalRevenue - totalAiCost).toFixed(2));
+
     const recentPayments = await db
       .select({
         id: payments.id,
@@ -131,6 +158,10 @@ export class AdminService {
     return {
       totalRevenue,
       monthlyRevenue,
+      mrr,
+      arr,
+      totalAiCost,
+      netProfit,
       recentPayments,
     };
   }
@@ -162,6 +193,26 @@ export class AdminService {
 
     const totalRequests = Object.values(promptCounts).reduce((a, b) => a + b, 0);
 
+    const agentAggregates = await db
+      .select({
+        agentType: aiTokenUsage.agentType,
+        totalPromptTokens: sql<number>`coalesce(sum(${aiTokenUsage.promptTokens}), 0)`,
+        totalCompletionTokens: sql<number>`coalesce(sum(${aiTokenUsage.completionTokens}), 0)`,
+        totalCostUSD: sql<number>`coalesce(sum(cast(${aiTokenUsage.costUSD} as decimal)), 0)`,
+        requestCount: sql<number>`count(*)`,
+      })
+      .from(aiTokenUsage)
+      .groupBy(aiTokenUsage.agentType);
+
+    const modelAggregates = await db
+      .select({
+        model: aiTokenUsage.model,
+        totalCostUSD: sql<number>`coalesce(sum(cast(${aiTokenUsage.costUSD} as decimal)), 0)`,
+        requestCount: sql<number>`count(*)`,
+      })
+      .from(aiTokenUsage)
+      .groupBy(aiTokenUsage.model);
+
     const errorLogs = await db
       .select({
         id: activityLogs.id,
@@ -191,6 +242,8 @@ export class AdminService {
     return {
       totalRequests,
       promptCounts,
+      agentAggregates,
+      modelAggregates,
       errorLogs,
     };
   }
@@ -259,5 +312,105 @@ export class AdminService {
       totalRevenue,
       subscriptionBreakdown: tierBreakdown,
     };
+  }
+
+  async getRetentionCohortStats() {
+    // 1. Fetch all users sign up dates
+    const allUsers = await db
+      .select({
+        id: users.id,
+        createdAt: users.createdAt,
+      })
+      .from(users);
+
+    // 2. Fetch all activity logs timestamps
+    const logs = await db
+      .select({
+        userId: activityLogs.userId,
+        createdAt: activityLogs.createdAt,
+      })
+      .from(activityLogs);
+
+    // Group logs by userId
+    const userLogsMap = new Map<string, Date[]>();
+    for (const log of logs) {
+      if (!log.userId) continue;
+      if (!userLogsMap.has(log.userId)) {
+        userLogsMap.set(log.userId, []);
+      }
+      userLogsMap.get(log.userId)!.push(new Date(log.createdAt));
+    }
+
+    // Group users into weekly cohorts
+    const cohortsMap = new Map<string, string[]>(); // cohortKey -> userIds[]
+    const userSignupMap = new Map<string, Date>(); // userId -> signupDate
+
+    for (const u of allUsers) {
+      const signupDate = new Date(u.createdAt);
+      userSignupMap.set(u.id, signupDate);
+
+      // Start of week (Sunday)
+      const startOfWeek = new Date(signupDate);
+      startOfWeek.setDate(signupDate.getDate() - signupDate.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      const cohortKey = startOfWeek.toISOString().split('T')[0];
+
+      if (!cohortsMap.has(cohortKey)) {
+        cohortsMap.set(cohortKey, []);
+      }
+      cohortsMap.get(cohortKey)!.push(u.id);
+    }
+
+    const cohortRetentionList = [];
+
+    // Calculate retention for each cohort up to 4 weeks
+    for (const [cohortKey, userIds] of cohortsMap.entries()) {
+      const cohortSize = userIds.length;
+      if (cohortSize === 0) continue;
+
+      // Track how many unique users are active in week 0, 1, 2, 3, 4
+      const activeInWeek = [0, 0, 0, 0, 0];
+
+      for (const userId of userIds) {
+        const signupDate = userSignupMap.get(userId)!;
+        const userLogs = userLogsMap.get(userId) || [];
+
+        // Check which weeks this user was active
+        const activeWeeksForUser = new Set<number>();
+        for (const logDate of userLogs) {
+          const diffMs = logDate.getTime() - signupDate.getTime();
+          const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+          const weekIndex = Math.floor(diffDays / 7);
+          
+          if (weekIndex >= 0 && weekIndex <= 4) {
+            activeWeeksForUser.add(weekIndex);
+          }
+        }
+
+        // Increment counts for each week user was active
+        // A user is always active in Week 0 because they signed up
+        activeWeeksForUser.add(0);
+
+        for (const w of activeWeeksForUser) {
+          activeInWeek[w]++;
+        }
+      }
+
+      // Convert to percentages
+      const retentionPercentages = activeInWeek.map((count) =>
+        parseFloat(((count / cohortSize) * 100).toFixed(1)),
+      );
+
+      cohortRetentionList.push({
+        cohort: cohortKey,
+        size: cohortSize,
+        retention: retentionPercentages,
+      });
+    }
+
+    // Sort cohorts chronologically
+    cohortRetentionList.sort((a, b) => b.cohort.localeCompare(a.cohort));
+
+    return cohortRetentionList;
   }
 }

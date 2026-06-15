@@ -47,4 +47,9 @@ export class AdminController {
   async getOverview() {
     return this.adminService.getSystemOverviewStats();
   }
+
+  @Get('retention')
+  async getRetention() {
+    return this.adminService.getRetentionCohortStats();
+  }
 }

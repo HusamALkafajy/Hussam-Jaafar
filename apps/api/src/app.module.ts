@@ -20,6 +20,10 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { StudyCoachModule } from './modules/study-coach/study-coach.module';
 import { RecommendationModule } from './modules/recommendations/recommendation.module';
+import { RagModule } from './modules/rag/rag.module';
+import { LearningPathsModule } from './modules/learning-paths/learning-paths.module';
+import { ProjectSubmissionsModule } from './modules/project-submissions/project-submissions.module';
+import { CertificationsModule } from './modules/certifications/certifications.module';
 
 @Module({
   imports: [
@@ -52,6 +56,10 @@ import { RecommendationModule } from './modules/recommendations/recommendation.m
     AdminModule,
     StudyCoachModule,
     RecommendationModule,
+    RagModule,
+    LearningPathsModule,
+    ProjectSubmissionsModule,
+    CertificationsModule,
   ],
   providers: [
     {
