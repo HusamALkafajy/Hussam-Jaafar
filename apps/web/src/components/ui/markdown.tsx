@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-react';
 import { useLocale } from '../../hooks/use-locale';
 
 interface MarkdownProps {
@@ -71,6 +71,8 @@ function getClassForType(type: string): string {
 // macOS style custom code block component
 const CodeBlock = ({ language, value }: { language: string; value: string }) => {
   const [copied, setCopied] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(value).then(() => {
@@ -81,51 +83,102 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
 
   const tokens = tokenize(value);
 
-  return (
-    <div className="w-full bg-[#030712] border border-slate-800/80 rounded-xl overflow-hidden my-6 shadow-xl text-left" dir="ltr">
-      {/* Top Window Control Bar */}
-      <div className="bg-[#0b0f19]/80 border-b border-slate-800/40 px-4 py-3 flex items-center justify-between">
+  const codeContent = (
+    <pre className="p-4 overflow-x-auto font-mono text-[12px] leading-relaxed text-slate-350 bg-slate-950/20 select-text flex-1">
+      <code className="block select-text font-mono">
+        {tokens.map((token, i) => (
+          <span key={i} className={getClassForType(token.type)}>
+            {token.text}
+          </span>
+        ))}
+      </code>
+    </pre>
+  );
+
+  const blockLayout = (
+    <div className={`w-full bg-[#030712] border border-slate-800/80 rounded-xl overflow-hidden my-6 shadow-xl text-left flex flex-col ${isFullscreen ? 'fixed inset-4 sm:inset-10 z-50 max-w-5xl mx-auto h-[calc(100vh-5rem)]' : ''}`} dir="ltr">
+      {/* Top Header Bar */}
+      <div className="bg-[#0b0f19]/80 border-b border-slate-800/40 px-4 py-3 flex items-center justify-between select-none">
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
           <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+          <span className="ml-2 text-[10px] text-slate-500 uppercase font-mono font-bold tracking-widest leading-none">
+            {language || 'code'}
+          </span>
         </div>
-        
-        <span className="text-[10px] text-slate-500 uppercase font-mono font-bold tracking-widest leading-none select-none">
-          {language || 'code'}
-        </span>
 
-        <button
-          onClick={handleCopy}
-          type="button"
-          className="text-slate-400 hover:text-white p-1 rounded-lg border border-slate-800 hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
-        >
-          {copied ? (
-            <>
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="font-semibold px-0.5">Copied!</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3.5 h-3.5" />
-              <span className="font-semibold px-0.5">Copy</span>
-            </>
+        <div className="flex items-center gap-2">
+          {/* Collapse/Expand Toggle */}
+          {!isFullscreen && (
+            <button
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              type="button"
+              title={isCollapsed ? 'Expand Code' : 'Collapse Code'}
+              className="text-slate-400 hover:text-white p-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center"
+            >
+              {isCollapsed ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronUp className="w-3.5 h-3.5" />
+              )}
+            </button>
           )}
-        </button>
+
+          {/* Fullscreen Toggle */}
+          <button
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            type="button"
+            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center"
+          >
+            {isFullscreen ? (
+              <Minimize2 className="w-3.5 h-3.5 text-indigo-400" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          {/* Copy Button */}
+          <button
+            onClick={handleCopy}
+            type="button"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center gap-1 text-[11px]"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="font-semibold px-0.5 text-emerald-400">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5" />
+                <span className="font-semibold px-0.5">Copy</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Code Text Window */}
-      <pre className="p-4 overflow-x-auto font-mono text-[12px] leading-relaxed text-slate-350 bg-slate-950/20">
-        <code className="block select-text font-mono">
-          {tokens.map((token, i) => (
-            <span key={i} className={getClassForType(token.type)}>
-              {token.text}
-            </span>
-          ))}
-        </code>
-      </pre>
+      {(!isCollapsed || isFullscreen) && (
+        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+          {codeContent}
+        </div>
+      )}
     </div>
   );
+
+  if (isFullscreen) {
+    return (
+      <>
+        <div className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-md" onClick={() => setIsFullscreen(false)} />
+        {blockLayout}
+      </>
+    );
+  }
+
+  return blockLayout;
 };
 
 // Custom ReactMarkdown elements mapping
