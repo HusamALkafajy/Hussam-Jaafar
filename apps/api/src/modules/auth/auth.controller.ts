@@ -94,7 +94,7 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
-  async googleAuthCallback(@Req() req: Request & { user?: { email: string; firstName?: string; lastName?: string; picture?: string; id?: string } }, @Res() res: Response) {
+  async googleAuthCallback(@Req() req: Request & { user?: { email: string; firstName?: string; lastName?: string; picture?: string; providerId?: string } }, @Res() res: Response) {
     if (!req.user) {
       return res.status(HttpStatus.UNAUTHORIZED).json({ success: false, message: 'Authentication failed' });
     }
@@ -103,7 +103,7 @@ export class AuthController {
       firstName: req.user.firstName,
       lastName: req.user.lastName,
       picture: req.user.picture,
-      providerId: req.user.id,
+      providerId: req.user.providerId,
     });
     this.authService.setAuthCookies(res, logged);
     // Redirect to frontend dashboard
@@ -121,7 +121,7 @@ export class AuthController {
   @Public()
   @All('apple/callback')
   @UseGuards(AuthGuard('apple'))
-  async appleAuthCallback(@Req() req: Request & { user?: { email: string; firstName?: string; lastName?: string; id?: string } }, @Res() res: Response) {
+  async appleAuthCallback(@Req() req: Request & { user?: { email: string; firstName?: string; lastName?: string; providerId?: string } }, @Res() res: Response) {
     if (!req.user) {
       return res.status(HttpStatus.UNAUTHORIZED).json({ success: false, message: 'Authentication failed' });
     }
@@ -129,7 +129,7 @@ export class AuthController {
       email: req.user.email,
       firstName: req.user.firstName,
       lastName: req.user.lastName,
-      providerId: req.user.id,
+      providerId: req.user.providerId,
     });
     this.authService.setAuthCookies(res, logged);
     const frontendUrl = this.authService['configService'].get<string>('FRONTEND_URL') || 'http://localhost:3000';
