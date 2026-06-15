@@ -24,8 +24,7 @@ import {
   HelpCircle,
   X,
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Markdown } from '../../../../components/ui/markdown';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -330,11 +329,7 @@ export default function LearningPathDetailPage({ params }: PageProps) {
                       <Card className="p-5 bg-slate-900/10 border-slate-850 flex flex-col gap-4">
                         <div className="flex flex-col gap-1">
                           <h5 className="text-base font-bold text-white">{selectedStage.project.title}</h5>
-                          <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-slate-300">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {selectedStage.project.description}
-                            </ReactMarkdown>
-                          </div>
+                          <Markdown content={selectedStage.project.description} className="text-xs" />
                         </div>
 
                         {selectedStage.project.starterCode && (
@@ -369,11 +364,7 @@ export default function LearningPathDetailPage({ params }: PageProps) {
                             </div>
                           </div>
 
-                          <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-slate-300">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {selectedStage.project.feedbackText}
-                            </ReactMarkdown>
-                          </div>
+                          <Markdown content={selectedStage.project.feedbackText} className="text-xs" />
 
                           {/* Knowledge Gaps if failed */}
                           {selectedStage.gaps && selectedStage.gaps.length > 0 && (
@@ -466,10 +457,8 @@ export default function LearningPathDetailPage({ params }: PageProps) {
             </div>
 
             {/* Modal Scrollable Body */}
-            <div className="flex-1 overflow-y-auto p-6 leading-relaxed font-serif text-slate-200 prose prose-sm dark:prose-invert max-w-none border-b border-slate-800/30">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {activeLesson.content}
-              </ReactMarkdown>
+            <div className="flex-1 overflow-y-auto p-6 border-b border-slate-800/30">
+              <Markdown content={activeLesson.content} />
             </div>
 
             {/* Modal Action Footer */}

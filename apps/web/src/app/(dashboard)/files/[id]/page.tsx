@@ -26,8 +26,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatBytes, formatDate } from '../../../../lib/utils';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Markdown } from '../../../../components/ui/markdown';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -378,11 +377,7 @@ export default function FileDetailPage({ params }: PageProps) {
                 {/* Main Summary */}
                 <Card className="p-6 bg-slate-900/10 leading-relaxed font-serif">
                   <h3 className="text-lg font-bold text-white mb-4">الملخص</h3>
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-slate-200">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {summaryResult.content}
-                    </ReactMarkdown>
-                  </div>
+                  <Markdown content={summaryResult.content} />
                 </Card>
 
                 {/* Key Points */}
@@ -474,11 +469,7 @@ export default function FileDetailPage({ params }: PageProps) {
                 {/* Main Explanation */}
                 <Card className="p-6 bg-slate-900/10 leading-relaxed font-serif">
                   <h3 className="text-lg font-bold text-white mb-4">الشرح والتوضيح</h3>
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-slate-200">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {explainResult.content}
-                    </ReactMarkdown>
-                  </div>
+                  <Markdown content={explainResult.content} />
                 </Card>
 
                 {/* Practical Examples */}
@@ -779,15 +770,13 @@ export default function FileDetailPage({ params }: PageProps) {
                       className={`p-3.5 rounded-2xl text-sm leading-relaxed ${
                         msg.role === 'user'
                           ? 'bg-indigo-600 text-white rounded-br-none shadow-md shadow-indigo-600/10'
-                          : 'bg-slate-900/80 border border-slate-800/60 text-slate-200 rounded-bl-none prose prose-sm dark:prose-invert max-w-none'
+                          : 'bg-slate-900/80 border border-slate-800/60 text-slate-200 rounded-bl-none'
                       }`}
                     >
                       {msg.role === 'user' ? (
                         msg.content
                       ) : (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
+                        <Markdown content={msg.content} />
                       )}
                     </div>
 
