@@ -20,6 +20,8 @@ import {
   ChevronLeft,
   User,
   Globe,
+  Compass,
+  Award,
 } from 'lucide-react';
 
 export default function DashboardLayout({
@@ -60,7 +62,9 @@ export default function DashboardLayout({
     { label: t('dashboard.sidebarHome'), href: '/dashboard', icon: LayoutDashboard },
     { label: t('dashboard.sidebarFiles'), href: '/files', icon: FolderOpen },
     { label: t('dashboard.sidebarExams'), href: '/exams', icon: GraduationCap },
+    { label: t('dashboard.sidebarLearningPaths'), href: '/learning-paths', icon: Compass },
     { label: t('dashboard.sidebarFlashcards'), href: '/flashcards', icon: HelpCircle },
+    { label: t('dashboard.sidebarCertifications'), href: '/certifications', icon: Award },
     { label: t('dashboard.sidebarAnalytics'), href: '/analytics', icon: BarChart2 },
     { label: t('dashboard.sidebarSettings'), href: '/settings', icon: Settings },
     { label: t('dashboard.sidebarSubscription'), href: '/subscription', icon: CreditCard },

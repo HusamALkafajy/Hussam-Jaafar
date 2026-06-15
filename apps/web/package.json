@@ -10,21 +10,23 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@studyai/types": "workspace:*",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.460.0",
     "next": "^15.0.3",
     "react": "^19.0.0-rc-6625d9f17-20241021",
     "react-dom": "^19.0.0-rc-6625d9f17-20241021",
-    "lucide-react": "^0.460.0",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.4",
-    "@studyai/types": "workspace:*"
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0-alpha.30",
     "@types/node": "^22.10.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.2",
-    "@tailwindcss/postcss": "^4.0.0-alpha.30",
     "postcss": "^8.4.49",
-    "tailwindcss": "^4.0.0-alpha.30"
+    "tailwindcss": "^4.0.0-alpha.30",
+    "typescript": "^5.7.2"
   }
 }

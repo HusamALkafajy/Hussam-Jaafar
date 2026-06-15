@@ -26,6 +26,8 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatBytes, formatDate } from '../../../../lib/utils';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -55,6 +57,7 @@ export default function FileDetailPage({ params }: PageProps) {
   const [chatMessage, setChatMessage] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; references?: any }>>([]);
+  const [expandedCitation, setExpandedCitation] = useState<string | null>(null);
 
   // AI Exam Tab State
   const router = useRouter();
@@ -375,7 +378,11 @@ export default function FileDetailPage({ params }: PageProps) {
                 {/* Main Summary */}
                 <Card className="p-6 bg-slate-900/10 leading-relaxed font-serif">
                   <h3 className="text-lg font-bold text-white mb-4">الملخص</h3>
-                  <div className="whitespace-pre-wrap text-slate-200">{summaryResult.content}</div>
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-slate-200">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {summaryResult.content}
+                    </ReactMarkdown>
+                  </div>
                 </Card>
 
                 {/* Key Points */}
@@ -467,7 +474,11 @@ export default function FileDetailPage({ params }: PageProps) {
                 {/* Main Explanation */}
                 <Card className="p-6 bg-slate-900/10 leading-relaxed font-serif">
                   <h3 className="text-lg font-bold text-white mb-4">الشرح والتوضيح</h3>
-                  <div className="whitespace-pre-wrap text-slate-200">{explainResult.content}</div>
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-slate-200">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {explainResult.content}
+                    </ReactMarkdown>
+                  </div>
                 </Card>
 
                 {/* Practical Examples */}
@@ -768,20 +779,54 @@ export default function FileDetailPage({ params }: PageProps) {
                       className={`p-3.5 rounded-2xl text-sm leading-relaxed ${
                         msg.role === 'user'
                           ? 'bg-indigo-600 text-white rounded-br-none shadow-md shadow-indigo-600/10'
-                          : 'bg-slate-900/80 border border-slate-800/60 text-slate-200 rounded-bl-none'
+                          : 'bg-slate-900/80 border border-slate-800/60 text-slate-200 rounded-bl-none prose prose-sm dark:prose-invert max-w-none'
                       }`}
                     >
-                      {msg.content}
+                      {msg.role === 'user' ? (
+                        msg.content
+                      ) : (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      )}
                     </div>
 
                     {msg.references && msg.references.length > 0 && (
-                      <div className="flex flex-wrap gap-1 text-[10px] text-slate-400 font-semibold uppercase">
-                        <span>المرجع:</span>
-                        {msg.references.map((ref: any, rIdx: number) => (
-                          <span key={rIdx} className="bg-slate-900 px-1.5 py-0.5 rounded text-indigo-400 border border-slate-800">
-                            صفحة {ref.page || 1}
-                          </span>
-                        ))}
+                      <div className="flex flex-col gap-1.5 mt-1">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 font-semibold uppercase">
+                          <span>{locale === 'ar' ? 'المراجع الدراسية:' : 'Sources / Citations:'}</span>
+                          {msg.references.map((ref: any, rIdx: number) => {
+                            const citationKey = `${idx}-${rIdx}`;
+                            const isExpanded = expandedCitation === citationKey;
+                            return (
+                              <button
+                                key={rIdx}
+                                type="button"
+                                onClick={() => setExpandedCitation(isExpanded ? null : citationKey)}
+                                className={`px-2 py-0.5 rounded cursor-pointer transition-all border font-mono text-[9px] ${
+                                  isExpanded
+                                    ? 'bg-indigo-500 text-white border-indigo-400 font-bold'
+                                    : 'bg-slate-900 text-indigo-400 border-slate-800 hover:bg-slate-800 hover:text-white'
+                                }`}
+                              >
+                                {locale === 'ar' ? `صفحة ${ref.page || ref.pageNumber || 1}` : `Page ${ref.page || ref.pageNumber || 1}`}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {msg.references.map((ref: any, rIdx: number) => {
+                          const citationKey = `${idx}-${rIdx}`;
+                          if (expandedCitation !== citationKey) return null;
+                          return (
+                            <div
+                              key={rIdx}
+                              className="bg-slate-950/70 border border-slate-850 p-3 rounded-xl text-xs text-slate-350 font-sans italic max-w-sm mt-1 animate-fade-in"
+                            >
+                              &ldquo;{ref.text || ref.content || (locale === 'ar' ? 'سياق الاقتباس المتطابق في الصفحة المحددة...' : 'Matching context snippet on page...')}&rdquo;
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
