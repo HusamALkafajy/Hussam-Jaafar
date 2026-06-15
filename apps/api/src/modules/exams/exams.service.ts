@@ -19,7 +19,7 @@ export class ExamsService {
       throw new BadRequestException('File extracted text is missing. Re-upload or re-analyze.');
     }
 
-    // 1. Generate questions using Gemini API
+    // 1. Generate questions using the configured AI provider
     const generated = await this.aiService.generateExam(
       file.extractedText,
       dto.difficulty,

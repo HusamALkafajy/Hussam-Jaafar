@@ -1,32 +1,32 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenAI } from '@google/genai';
 import { EXTRACTION_SYSTEM_PROMPT } from './prompts/extraction.prompts';
 import { SUMMARY_SYSTEM_PROMPT, getSummaryUserPrompt } from './prompts/summary.prompts';
 import { EXPLANATION_SYSTEM_PROMPT, getExplanationUserPrompt } from './prompts/explanation.prompts';
 import { EXAM_SYSTEM_PROMPT, getExamUserPrompt } from './prompts/exam.prompts';
 import { FLASHCARD_SYSTEM_PROMPT, getFlashcardUserPrompt } from './prompts/flashcard.prompts';
 import { CHAT_SYSTEM_PROMPT, getChatUserPrompt } from './prompts/chat.prompts';
+import * as fs from 'fs/promises';
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private ai: GoogleGenAI | null = null;
-  private defaultModel = 'gemini-2.5-flash';
+  private apiKey: string | null = null;
+  private baseUrl = 'https://openrouter.ai/api';
+  private defaultModel = 'google/gemini-2.5-flash';
 
   constructor(private readonly configService: ConfigService) {
-    const apiKey = this.configService.get<string>('ai.apiKey');
-    this.defaultModel = this.configService.get<string>('ai.model') || 'gemini-2.5-flash';
+    this.apiKey = this.configService.get<string>('ai.apiKey') || null;
+    this.baseUrl = this.configService.get<string>('ai.baseUrl') || 'https://openrouter.ai/api';
+    this.defaultModel = this.configService.get<string>('ai.model') || 'google/gemini-2.5-flash';
 
-    if (apiKey) {
-      this.ai = new GoogleGenAI({ apiKey });
-    } else {
-      this.logger.warn('GEMINI_API_KEY is not set. AI features will run in Mock Mode.');
+    if (!this.apiKey) {
+      this.logger.warn('OPENROUTER_API_KEY / GEMINI_API_KEY is not set. AI features will run in Mock Mode.');
     }
   }
 
   private isMockMode(): boolean {
-    return !this.ai;
+    return !this.apiKey;
   }
 
   private async runWithRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay = 1000): Promise<T> {
@@ -52,7 +52,7 @@ export class AiService {
 
         if (isRetryable && attempt < maxRetries) {
           this.logger.warn(
-            `Gemini API returned retryable error (attempt ${attempt}/${maxRetries}): ${error.message || error}. Retrying in ${delay}ms...`
+            `OpenRouter API returned retryable error (attempt ${attempt}/${maxRetries}): ${error.message || error}. Retrying in ${delay}ms...`
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
           delay *= 2; // Exponential backoff
@@ -64,59 +64,89 @@ export class AiService {
     throw new Error('Max retries exceeded');
   }
 
+  private async callOpenRouter(messages: Array<{ role: string; content: any }>, jsonMode = false): Promise<string> {
+    const url = `${this.baseUrl}/v1/chat/completions`;
+    const headers = {
+      'Authorization': `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://studyai.com',
+      'X-Title': 'StudyAI',
+    };
+
+    const body: any = {
+      model: this.defaultModel,
+      messages,
+    };
+
+    if (jsonMode) {
+      body.response_format = { type: 'json_object' };
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      let errorMsg = res.statusText;
+      try {
+        const errorJson = await res.json();
+        errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
+      } catch (e) {}
+      throw new Error(`OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('Invalid or empty response from OpenRouter API');
+    }
+
+    return content;
+  }
+
   async extractText(filePath: string, mimeType: string): Promise<string> {
     if (this.isMockMode()) {
       this.logger.log(`[Mock Mode] Extracting text from file: ${filePath}`);
-      return `This is mock extracted text content from the file: ${filePath}. In a real production deployment, this would contain the actual parsed contents of the uploaded document extracted via Google Gemini API.`;
+      return `This is mock extracted text content from the file: ${filePath}. In a real production deployment, this would contain the actual parsed contents of the uploaded document extracted via OpenRouter.`;
     }
 
     try {
-      this.logger.log(`Uploading file ${filePath} (${mimeType}) to Gemini Files API...`);
-      const uploadResult = await this.runWithRetry(() =>
-        this.ai!.files.upload({
-          file: filePath,
-          config: {
-            mimeType: mimeType,
-            displayName: 'Uploaded Document',
-          },
-        })
-      );
+      this.logger.log(`Reading file ${filePath} (${mimeType}) for OpenRouter processing...`);
+      const fileBuffer = await fs.readFile(filePath);
+      const base64Data = fileBuffer.toString('base64');
+      const dataUrl = `data:${mimeType};base64,${base64Data}`;
 
       this.logger.log(`Analyzing file content using model ${this.defaultModel}...`);
-      const response = await this.runWithRetry(() =>
-        this.ai!.models.generateContent({
-          model: this.defaultModel,
-          config: {
-            systemInstruction: EXTRACTION_SYSTEM_PROMPT,
-          },
-          contents: [
-            { text: 'Extract and format the contents of this document in clean Markdown.' },
-            { fileData: { fileUri: uploadResult.uri, mimeType: uploadResult.mimeType } },
+      
+      const messages = [
+        {
+          role: 'system',
+          content: EXTRACTION_SYSTEM_PROMPT,
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Extract and format the contents of this document in clean Markdown.',
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: dataUrl,
+              },
+            },
           ],
-        })
-      );
+        },
+      ];
 
-      // Attempt to delete file after processing
-      try {
-        if (uploadResult.name) {
-          await this.ai!.files.delete({ name: uploadResult.name });
-        }
-      } catch (delError) {
-        this.logger.warn(`Failed to delete file ${uploadResult.name} from Gemini API`, delError);
-      }
-
-
-      // If Gemini returns no text, handle gracefully by returning an empty string
-      // Caller (FilesService) will decide how to handle empty extraction results
-      if (!response.text) {
-        this.logger.warn('Gemini returned empty text for file extraction');
-        return '';
-      }
-
-      return response.text;
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages));
+      return responseText;
     } catch (error: any) {
-      this.logger.error('Error in extractText using Gemini API:', error);
-      throw new InternalServerErrorException(`Gemini API text extraction failed: ${error.message}`);
+      this.logger.error('Error in extractText using OpenRouter API:', error);
+      throw new InternalServerErrorException(`OpenRouter API text extraction failed: ${error.message}`);
     }
   }
 
@@ -131,18 +161,13 @@ export class AiService {
     }
 
     try {
-      const response = await this.runWithRetry(() =>
-        this.ai!.models.generateContent({
-          model: this.defaultModel,
-          config: {
-            systemInstruction: SUMMARY_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-          },
-          contents: [getSummaryUserPrompt(text, level, language)],
-        })
-      );
+      const messages = [
+        { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+        { role: 'user', content: getSummaryUserPrompt(text, level, language) }
+      ];
 
-      return JSON.parse(response.text || '{}');
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
+      return JSON.parse(responseText || '{}');
     } catch (error: any) {
       this.logger.error('Error in generateSummary:', error);
       throw new InternalServerErrorException(`Summary generation failed: ${error.message}`);
@@ -162,18 +187,13 @@ export class AiService {
     }
 
     try {
-      const response = await this.runWithRetry(() =>
-        this.ai!.models.generateContent({
-          model: this.defaultModel,
-          config: {
-            systemInstruction: EXPLANATION_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-          },
-          contents: [getExplanationUserPrompt(text, level, language)],
-        })
-      );
+      const messages = [
+        { role: 'system', content: EXPLANATION_SYSTEM_PROMPT },
+        { role: 'user', content: getExplanationUserPrompt(text, level, language) }
+      ];
 
-      return JSON.parse(response.text || '{}');
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
+      return JSON.parse(responseText || '{}');
     } catch (error: any) {
       this.logger.error('Error in generateExplanation:', error);
       throw new InternalServerErrorException(`Explanation generation failed: ${error.message}`);
@@ -196,10 +216,10 @@ export class AiService {
           },
           {
             type: 'true_false',
-            questionText: 'Gemini API supports PDF document processing natively.',
+            questionText: 'OpenRouter API supports PDF document processing natively.',
             options: null,
             correctAnswer: 'true',
-            explanation: 'Gemini API has native support for application/pdf files up to 2GB.',
+            explanation: 'OpenRouter supports multimodal input files up to limits of the underlying model.',
             difficulty: 'easy',
             points: 1,
           },
@@ -208,18 +228,13 @@ export class AiService {
     }
 
     try {
-      const response = await this.runWithRetry(() =>
-        this.ai!.models.generateContent({
-          model: this.defaultModel,
-          config: {
-            systemInstruction: EXAM_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-          },
-          contents: [getExamUserPrompt(text, difficulty, types, count)],
-        })
-      );
+      const messages = [
+        { role: 'system', content: EXAM_SYSTEM_PROMPT },
+        { role: 'user', content: getExamUserPrompt(text, difficulty, types, count) }
+      ];
 
-      return JSON.parse(response.text || '{}');
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
+      return JSON.parse(responseText || '{}');
     } catch (error: any) {
       this.logger.error('Error in generateExam:', error);
       throw new InternalServerErrorException(`Exam generation failed: ${error.message}`);
@@ -238,18 +253,13 @@ export class AiService {
     }
 
     try {
-      const response = await this.runWithRetry(() =>
-        this.ai!.models.generateContent({
-          model: this.defaultModel,
-          config: {
-            systemInstruction: FLASHCARD_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-          },
-          contents: [getFlashcardUserPrompt(text, count)],
-        })
-      );
+      const messages = [
+        { role: 'system', content: FLASHCARD_SYSTEM_PROMPT },
+        { role: 'user', content: getFlashcardUserPrompt(text, count) }
+      ];
 
-      return JSON.parse(response.text || '{}');
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
+      return JSON.parse(responseText || '{}');
     } catch (error: any) {
       this.logger.error('Error in generateFlashcards:', error);
       throw new InternalServerErrorException(`Flashcards generation failed: ${error.message}`);
@@ -266,25 +276,18 @@ export class AiService {
 
     try {
       const formattedHistory = history.map((msg) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content,
       }));
 
-      const response = await this.runWithRetry(() =>
-        this.ai!.models.generateContent({
-          model: this.defaultModel,
-          config: {
-            systemInstruction: `${CHAT_SYSTEM_PROMPT}\n\nDocument Content:\n${text}`,
-            responseMimeType: 'application/json',
-          },
-          contents: [
-            ...formattedHistory,
-            { role: 'user', parts: [{ text: getChatUserPrompt(question) }] },
-          ],
-        })
-      );
+      const messages = [
+        { role: 'system', content: `${CHAT_SYSTEM_PROMPT}\n\nDocument Content:\n${text}` },
+        ...formattedHistory,
+        { role: 'user', content: getChatUserPrompt(question) }
+      ];
 
-      return JSON.parse(response.text || '{}');
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
+      return JSON.parse(responseText || '{}');
     } catch (error: any) {
       this.logger.error('Error in chatWithDocument:', error);
       throw new InternalServerErrorException(`Document Q&A failed: ${error.message}`);

@@ -183,7 +183,7 @@ export class FilesService {
       let extractedText = '';
 
       if (type === FileType.PDF || type === FileType.IMAGE) {
-        // Use Gemini API for PDFs and OCR images
+        // Use the configured AI provider for PDFs and OCR images
         extractedText = await this.aiService.extractText(filePath, mime);
       } else if (type === FileType.DOCX) {
         // Use mammoth for Word files locally

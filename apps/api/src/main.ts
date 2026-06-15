@@ -78,7 +78,7 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
 
-  // 6. Increase request timeouts for longer Gemini response times
+  // 6. Increase request timeouts for longer AI provider response times
   const extendedTimeout = 10 * 60 * 1000; // 10 minutes
   const server = app.getHttpServer();
   if (server && typeof server.setTimeout === 'function') {

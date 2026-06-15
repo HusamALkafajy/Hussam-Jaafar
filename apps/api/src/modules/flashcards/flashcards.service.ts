@@ -21,7 +21,7 @@ export class FlashcardsService {
 
     const count = dto.count || 10;
 
-    // 1. Generate flashcards via Gemini API
+    // 1. Generate flashcards via the configured AI provider
     const generated = await this.aiService.generateFlashcards(file.extractedText, count);
     const title = dto.title || generated.title || `بطاقات: ${file.originalName}`;
     const cards = generated.cards || [];

@@ -78,7 +78,7 @@ export const Footer: React.FC = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 border-t border-slate-800/20 mt-8 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
         <p>© {new Date().getFullYear()} StudyAI. All rights reserved.</p>
-        <p>Built with Google Gemini API</p>
+        <p>Powered by OpenRouter API</p>
       </div>
     </footer>
   );

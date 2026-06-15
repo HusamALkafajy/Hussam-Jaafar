@@ -4,7 +4,8 @@
   "globalEnv": [
     "NODE_ENV",
     "DATABASE_URL",
-    "GEMINI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_BASE_URL",
     "JWT_SECRET",
     "JWT_REFRESH_SECRET"
   ],

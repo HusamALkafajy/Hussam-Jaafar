@@ -15,7 +15,7 @@ const HeroSectionComponent: React.FC = () => {
       <div className="flex-1 flex flex-col gap-6 text-center lg:text-start z-10">
         <Badge variant="primary" className="self-center lg:self-start gap-1">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>مدعوم بالذكاء الاصطناعي Gemini 2.5</span>
+          <span>مدعوم بأحدث تقنيات الذكاء الاصطناعي</span>
         </Badge>
         <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight leading-tight">
           <span className="block">{t('landing.heroTitle')}</span>
