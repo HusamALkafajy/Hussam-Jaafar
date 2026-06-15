@@ -33,32 +33,10 @@ export class AiService {
     if (!text) return '{}';
     let cleaned = text.trim();
     
-    // Strip markdown code block wrappers if they exist
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```(?:json)?\n?/i, '');
-      cleaned = cleaned.replace(/\n?```$/, '');
-    }
-    
-    cleaned = cleaned.trim();
-    
-    // If it still doesn't start with { or [, try to find the first { or [ and last } or ]
-    if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
-      const firstBrace = cleaned.indexOf('{');
-      const firstBracket = cleaned.indexOf('[');
-      let startIndex = -1;
-      let endIndex = -1;
-      
-      if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
-        startIndex = firstBrace;
-        endIndex = cleaned.lastIndexOf('}');
-      } else if (firstBracket !== -1) {
-        startIndex = firstBracket;
-        endIndex = cleaned.lastIndexOf(']');
-      }
-      
-      if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-        cleaned = cleaned.substring(startIndex, endIndex + 1);
-      }
+    // Strictly extract JSON object or array using regex
+    const match = /(\{[\s\S]*\}|\[[\s\S]*\])/.exec(cleaned);
+    if (match) {
+      cleaned = match[0];
     }
     
     cleaned = cleaned.trim();
