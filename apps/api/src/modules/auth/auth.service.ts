@@ -240,6 +240,7 @@ export class AuthService {
       httpOnly: true,
       secure: isProd,
       sameSite: 'lax',
+      path: '/',
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
 
@@ -247,6 +248,7 @@ export class AuthService {
       httpOnly: true,
       secure: isProd,
       sameSite: 'lax',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -256,14 +258,15 @@ export class AuthService {
       httpOnly: false,
       secure: isProd,
       sameSite: 'lax',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
   }
 
   clearAuthCookies(response: Response) {
-    response.clearCookie('access_token');
-    response.clearCookie('refresh_token');
-    response.clearCookie('csrf_token');
+    response.clearCookie('access_token', { path: '/' });
+    response.clearCookie('refresh_token', { path: '/' });
+    response.clearCookie('csrf_token', { path: '/' });
   }
 
   private async sendVerificationEmail(email: string, name: string, token: string) {

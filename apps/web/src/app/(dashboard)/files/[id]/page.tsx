@@ -174,7 +174,7 @@ export default function FileDetailPage({ params }: PageProps) {
         difficulty: examDifficulty,
         totalQuestions: examTotalQuestions,
         questionTypes: examQuestionTypes,
-      });
+      }, { timeout: 15 * 60 * 1000 });
       router.push(`/exams/${exam.id}`);
     } catch (e: any) {
       alert('Failed to generate exam: ' + (e.message || e));

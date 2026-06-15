@@ -29,6 +29,41 @@ export class AiService {
     return !this.apiKey;
   }
 
+  private cleanJson(text: string): string {
+    if (!text) return '{}';
+    let cleaned = text.trim();
+    
+    // Strip markdown code block wrappers if they exist
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\n?/i, '');
+      cleaned = cleaned.replace(/\n?```$/, '');
+    }
+    
+    cleaned = cleaned.trim();
+    
+    // If it still doesn't start with { or [, try to find the first { or [ and last } or ]
+    if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
+      const firstBrace = cleaned.indexOf('{');
+      const firstBracket = cleaned.indexOf('[');
+      let startIndex = -1;
+      let endIndex = -1;
+      
+      if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+        startIndex = firstBrace;
+        endIndex = cleaned.lastIndexOf('}');
+      } else if (firstBracket !== -1) {
+        startIndex = firstBracket;
+        endIndex = cleaned.lastIndexOf(']');
+      }
+      
+      if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+        cleaned = cleaned.substring(startIndex, endIndex + 1);
+      }
+    }
+    
+    return cleaned;
+  }
+
   private async runWithRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay = 1000): Promise<T> {
     let delay = initialDelay;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -64,7 +99,11 @@ export class AiService {
     throw new Error('Max retries exceeded');
   }
 
-  private async callOpenRouter(messages: Array<{ role: string; content: any }>, jsonMode = false): Promise<string> {
+  private async callOpenRouter(
+    messages: Array<{ role: string; content: any }>,
+    jsonMode = false,
+    timeoutMs = 10 * 60 * 1000,
+  ): Promise<string> {
     const url = `${this.baseUrl}/v1/chat/completions`;
     const headers = {
       'Authorization': `Bearer ${this.apiKey}`,
@@ -82,28 +121,36 @@ export class AiService {
       body.response_format = { type: 'json_object' };
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!res.ok) {
-      let errorMsg = res.statusText;
-      try {
-        const errorJson = await res.json();
-        errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
-      } catch (e) {}
-      throw new Error(`OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let errorMsg = res.statusText;
+        try {
+          const errorJson = await res.json();
+          errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
+        } catch (e) {}
+        throw new Error(`OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`);
+      }
+
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error('Invalid or empty response from OpenRouter API');
+      }
+
+      return content;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error('Invalid or empty response from OpenRouter API');
-    }
-
-    return content;
   }
 
   async extractText(filePath: string, mimeType: string): Promise<string> {
@@ -185,7 +232,7 @@ export class AiService {
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
-      return JSON.parse(responseText || '{}');
+      return JSON.parse(this.cleanJson(responseText));
     } catch (error: any) {
       this.logger.error('Error in generateSummary:', error);
       throw new InternalServerErrorException(`Summary generation failed: ${error.message}`);
@@ -211,7 +258,7 @@ export class AiService {
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
-      return JSON.parse(responseText || '{}');
+      return JSON.parse(this.cleanJson(responseText));
     } catch (error: any) {
       this.logger.error('Error in generateExplanation:', error);
       throw new InternalServerErrorException(`Explanation generation failed: ${error.message}`);
@@ -251,8 +298,8 @@ export class AiService {
         { role: 'user', content: getExamUserPrompt(text, difficulty, types, count) }
       ];
 
-      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
-      return JSON.parse(responseText || '{}');
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true, 15 * 60 * 1000));
+      return JSON.parse(this.cleanJson(responseText));
     } catch (error: any) {
       this.logger.error('Error in generateExam:', error);
       throw new InternalServerErrorException(`Exam generation failed: ${error.message}`);
@@ -277,7 +324,7 @@ export class AiService {
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
-      return JSON.parse(responseText || '{}');
+      return JSON.parse(this.cleanJson(responseText));
     } catch (error: any) {
       this.logger.error('Error in generateFlashcards:', error);
       throw new InternalServerErrorException(`Flashcards generation failed: ${error.message}`);
@@ -305,7 +352,7 @@ export class AiService {
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
-      return JSON.parse(responseText || '{}');
+      return JSON.parse(this.cleanJson(responseText));
     } catch (error: any) {
       this.logger.error('Error in chatWithDocument:', error);
       throw new InternalServerErrorException(`Document Q&A failed: ${error.message}`);

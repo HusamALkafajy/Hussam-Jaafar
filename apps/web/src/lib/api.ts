@@ -110,23 +110,23 @@ async function request<T>(
 }
 
 export const api = {
-  get: <T>(endpoint: string, options?: RequestInit) =>
+  get: <T>(endpoint: string, options?: ExtendedRequestInit) =>
     request<T>(endpoint, { method: 'GET', ...options }),
 
-  post: <T>(endpoint: string, body?: any, options?: RequestInit) =>
+  post: <T>(endpoint: string, body?: any, options?: ExtendedRequestInit) =>
     request<T>(endpoint, {
       method: 'POST',
       body: body instanceof FormData ? body : JSON.stringify(body),
       ...options,
     }),
 
-  patch: <T>(endpoint: string, body?: any, options?: RequestInit) =>
+  patch: <T>(endpoint: string, body?: any, options?: ExtendedRequestInit) =>
     request<T>(endpoint, {
       method: 'PATCH',
       body: body instanceof FormData ? body : JSON.stringify(body),
       ...options,
     }),
 
-  delete: <T>(endpoint: string, options?: RequestInit) =>
+  delete: <T>(endpoint: string, options?: ExtendedRequestInit) =>
     request<T>(endpoint, { method: 'DELETE', ...options }),
 };
