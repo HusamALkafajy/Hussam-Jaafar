@@ -77,6 +77,7 @@
     "sidebarAnalytics": "الإحصائيات",
     "sidebarSettings": "الإعدادات",
     "sidebarSubscription": "الاشتراك",
+    "sidebarAchievements": "الإنجازات",
     "welcome": "أهلاً بك مجدداً،",
     "uploadedFiles": "الملفات المرفوعة",
     "completedExams": "الاختبارات المكتملة",
@@ -231,5 +232,23 @@
     "changeRole": "تغيير الدور",
     "activateUser": "تنشيط",
     "deactivateUser": "إلغاء التنشيط"
+  },
+  "achievements": {
+    "title": "الإنجازات والأوسمة",
+    "subtitle": "تتبع إنجازاتك التعليمية، واكسب نقاط الخبرة، وارتقِ بمستواك!",
+    "unlocked": "مفتوح",
+    "locked": "مغلق",
+    "level": "المستوى {level}",
+    "xp": "{xp} نقطة خبرة",
+    "nextLevel": "التقدم إلى المستوى التالي",
+    "badgesCount": "الأوسمة المفتوحة",
+    "xpGained": "لقد حصلت على +{xp} نقطة خبرة!",
+    "levelUp": "ارتفاع المستوى!",
+    "levelUpDesc": "تهانينا! لقد وصلت إلى المستوى {level}!",
+    "close": "رائع!",
+    "badgeEarnedTitle": "تم فتح وسام جديد!",
+    "allBadges": "كل الأوسمة",
+    "earned": "مكتسب"
   }
 }
+

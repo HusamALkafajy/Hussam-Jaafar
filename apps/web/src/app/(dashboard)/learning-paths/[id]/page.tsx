@@ -81,8 +81,13 @@ export default function LearningPathDetailPage({ params }: PageProps) {
   const handleCompleteLesson = async (lessonId: string) => {
     setCompletingLesson(true);
     try {
-      await api.patch(`/learning-paths/lessons/${lessonId}/complete`);
+      const result = await api.patch<any>(`/learning-paths/lessons/${lessonId}/complete`);
       setActiveLesson(null);
+      
+      if (result) {
+        window.dispatchEvent(new CustomEvent('gamification-update', { detail: result }));
+      }
+      
       await loadPathDetail(selectedStage?.id);
     } catch (err: any) {
       alert(locale === 'ar' ? 'فشل إكمال الدرس: ' + (err.message || err) : 'Failed to complete lesson: ' + (err.message || err));
@@ -101,6 +106,11 @@ export default function LearningPathDetailPage({ params }: PageProps) {
         studentSubmission: submissionCode,
       });
       setEvaluationResult(result);
+      
+      if (result && result.xpResult) {
+        window.dispatchEvent(new CustomEvent('gamification-update', { detail: result.xpResult }));
+      }
+      
       // Clear submission input upon grading
       setSubmissionCode('');
       await loadPathDetail(selectedStage?.id);

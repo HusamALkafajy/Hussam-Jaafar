@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { LearningPathsService } from './learning-paths.service';
 import { AiService } from '../ai/ai.service';
+import { GamificationService } from '../study-coach/gamification.service';
 
 jest.mock('@studyai/database', () => {
   const mockSelectChain: any = {
@@ -72,6 +73,21 @@ describe('LearningPathsService', () => {
           provide: AiService,
           useValue: {
             getCompletion: jest.fn(),
+          },
+        },
+        {
+          provide: GamificationService,
+          useValue: {
+            addXp: jest.fn().mockResolvedValue({
+              xpEarned: 25,
+              totalXp: 125,
+              level: 2,
+              hasLeveledUp: false,
+            }),
+            awardBadgeByCode: jest.fn().mockResolvedValue({
+              success: true,
+              badge: { code: 'first_lesson', name: 'First Steps', xpReward: 50 },
+            }),
           },
         },
       ],

@@ -3,6 +3,7 @@ import { db, projects, learningStages, learningPaths, knowledgeGaps, aiTokenUsag
 import { SubmitProjectDto } from './dto/submit-project.dto';
 import { AiService } from '../ai/ai.service';
 import { CertificationsService } from '../certifications/certifications.service';
+import { GamificationService } from '../study-coach/gamification.service';
 
 @Injectable()
 export class ProjectSubmissionsService {
@@ -11,6 +12,7 @@ export class ProjectSubmissionsService {
   constructor(
     private readonly aiService: AiService,
     private readonly certificationsService: CertificationsService,
+    private readonly gamificationService: GamificationService,
   ) {}
 
   async submitProject(projectId: string, userId: string, dto: SubmitProjectDto) {
@@ -178,11 +180,28 @@ ${dto.studentSubmission}`;
       }
     });
 
+    let xpResult = null;
+    let firstProjectBadgeResult = null;
+
+    if (passed) {
+      try {
+        xpResult = await this.gamificationService.addXp(userId, 100);
+        
+        const awardRes = await this.gamificationService.awardBadgeByCode(userId, 'first_project');
+        if (awardRes.success) {
+          firstProjectBadgeResult = awardRes.badge;
+        }
+      } catch (e) {
+        this.logger.error('Failed to award project passing XP/badge', e);
+      }
+    }
+
     return {
       score,
       passed,
       feedbackText,
       gaps,
+      xpResult: xpResult ? { ...xpResult, awardedBadge: firstProjectBadgeResult } : null,
     };
   }
 

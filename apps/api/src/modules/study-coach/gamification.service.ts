@@ -1,9 +1,85 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { db, studentProfiles, badges, userBadges, challenges, userChallenges, eq, and, sql } from '@studyai/database';
 
+export const DEFAULT_BADGES = [
+  {
+    code: 'level_5',
+    name: 'Level 5 Achiever',
+    description: 'Reached Level 5 to unlock this achievement.',
+    iconUrl: 'trophy',
+    xpReward: 100,
+  },
+  {
+    code: 'level_10',
+    name: 'Level 10 Master',
+    description: 'Reached Level 10 to unlock this achievement.',
+    iconUrl: 'crown',
+    xpReward: 250,
+  },
+  {
+    code: 'level_25',
+    name: 'Level 25 Legend',
+    description: 'Reached Level 25 to unlock this achievement.',
+    iconUrl: 'gem',
+    xpReward: 500,
+  },
+  {
+    code: 'first_lesson',
+    name: 'First Steps',
+    description: 'Completed your first lesson.',
+    iconUrl: 'book',
+    xpReward: 50,
+  },
+  {
+    code: 'first_project',
+    name: 'Real Builder',
+    description: 'Submitted and passed your first project.',
+    iconUrl: 'code',
+    xpReward: 100,
+  },
+];
+
 @Injectable()
-export class GamificationService {
+export class GamificationService implements OnModuleInit {
   private readonly logger = new Logger(GamificationService.name);
+
+  async onModuleInit() {
+    this.logger.log('Bootstrapping default badges...');
+    try {
+      for (const badge of DEFAULT_BADGES) {
+        const existing = await db
+          .select()
+          .from(badges)
+          .where(eq(badges.code, badge.code))
+          .limit(1);
+        if (existing.length === 0) {
+          await db.insert(badges).values(badge);
+          this.logger.log(`Created default badge: ${badge.name}`);
+        }
+      }
+    } catch (err) {
+      this.logger.error('Failed to bootstrap default badges', err);
+    }
+  }
+
+  // Calculate level based on dynamic quadratic threshold:
+  // Level 1: 0 - 100 XP (threshold for Lvl 2 = 100)
+  // Level 2: 100 - 300 XP (threshold for Lvl 3 = 300)
+  // Level 3: 300 - 600 XP (threshold for Lvl 4 = 600)
+  // Level 4: 600 - 1000 XP (threshold for Lvl 5 = 1000)
+  // Formula: threshold(L) = 50 * (L - 1) * L
+  getLevelFromXp(xp: number): number {
+    let level = 1;
+    while (xp >= this.getXpThresholdForLevel(level + 1)) {
+      level++;
+    }
+    return level;
+  }
+
+  getXpThresholdForLevel(level: number): number {
+    if (level <= 1) return 0;
+    return 50 * (level - 1) * level;
+  }
 
   // Get user badges
   async getBadges(userId: string) {
@@ -130,8 +206,7 @@ export class GamificationService {
     const profile = profileResult[0];
 
     const newXp = profile.xp + amount;
-    const xpNeededPerLevel = 100;
-    const newLevel = Math.floor(newXp / xpNeededPerLevel) + 1;
+    const newLevel = this.getLevelFromXp(newXp);
     const hasLeveledUp = newLevel > profile.currentLevel;
 
     await db

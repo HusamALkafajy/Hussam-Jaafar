@@ -2,13 +2,17 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { db, learningPaths, learningStages, lessons, projects, certifications, knowledgeGaps, aiTokenUsage, eq, and, asc, sql } from '@studyai/database';
 import { CreatePathDto } from './dto/create-path.dto';
 import { AiService } from '../ai/ai.service';
+import { GamificationService } from '../study-coach/gamification.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class LearningPathsService {
   private readonly logger = new Logger(LearningPathsService.name);
 
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly gamificationService: GamificationService,
+  ) {}
 
   async createPath(userId: string, dto: CreatePathDto) {
     this.logger.log(`Generating learning path for user ${userId}: ${dto.skillName} (${dto.difficultyLevel})`);
@@ -230,11 +234,27 @@ Daily Available Minutes: ${dto.dailyAvailableMinutes || 30}`;
       .where(eq(lessons.id, lessonId))
       .returning();
 
+    // Award XP
+    const xpResult = await this.gamificationService.addXp(userId, 25);
+
+    // Check if first lesson completed and award badge
+    let firstLessonBadgeResult = null;
+    try {
+      const awardRes = await this.gamificationService.awardBadgeByCode(userId, 'first_lesson');
+      if (awardRes.success) {
+        firstLessonBadgeResult = awardRes.badge;
+      }
+    } catch (e) {
+      this.logger.error('Failed to award first lesson badge', e);
+    }
+
     // 3. Auto-unlock project if all lessons in the stage are completed
     // We can return details to the client
     return {
       success: true,
       lesson: updatedLesson,
+      ...xpResult,
+      awardedBadge: firstLessonBadgeResult,
     };
   }
 

@@ -22,7 +22,11 @@ import {
   Globe,
   Compass,
   Award,
+  Trophy,
 } from 'lucide-react';
+import { GamificationWidget } from '../../components/gamification-widget';
+import { GamificationCelebration } from '../../components/gamification-celebration';
+
 
 export default function DashboardLayout({
   children,
@@ -65,10 +69,12 @@ export default function DashboardLayout({
     { label: t('dashboard.sidebarLearningPaths'), href: '/learning-paths', icon: Compass },
     { label: t('dashboard.sidebarFlashcards'), href: '/flashcards', icon: HelpCircle },
     { label: t('dashboard.sidebarCertifications'), href: '/certifications', icon: Award },
+    { label: t('dashboard.sidebarAchievements') || 'Achievements', href: '/achievements', icon: Trophy },
     { label: t('dashboard.sidebarAnalytics'), href: '/analytics', icon: BarChart2 },
     { label: t('dashboard.sidebarSettings'), href: '/settings', icon: Settings },
     { label: t('dashboard.sidebarSubscription'), href: '/subscription', icon: CreditCard },
   ];
+
 
   const toggleLanguage = () => {
     setLocale(locale === 'ar' ? 'en' : 'ar');
@@ -76,6 +82,7 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen w-full flex bg-[#060913] text-slate-100" dir={dir}>
+      <GamificationCelebration />
       {/* Sidebar */}
       <aside
         className={`glass border-r border-slate-800/40 h-screen sticky top-0 flex flex-col justify-between transition-all duration-300 z-30 ${
@@ -131,7 +138,13 @@ export default function DashboardLayout({
               );
             })}
           </nav>
+          
+          {/* Gamification Widget */}
+          <div className="px-3 py-2 mt-2">
+            <GamificationWidget sidebarOpen={sidebarOpen} />
+          </div>
         </div>
+
 
         {/* Sidebar Footer */}
         <div className="p-3 border-t border-slate-800/20 flex flex-col gap-2">

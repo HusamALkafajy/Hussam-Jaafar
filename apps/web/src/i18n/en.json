@@ -77,6 +77,7 @@
     "sidebarAnalytics": "Analytics",
     "sidebarSettings": "Settings",
     "sidebarSubscription": "Subscription",
+    "sidebarAchievements": "Achievements",
     "welcome": "Welcome back,",
     "uploadedFiles": "Files Uploaded",
     "completedExams": "Exams Completed",
@@ -231,5 +232,23 @@
     "changeRole": "Change Role",
     "activateUser": "Activate",
     "deactivateUser": "Deactivate"
+  },
+  "achievements": {
+    "title": "Achievements & Badges",
+    "subtitle": "Track your learning milestones, earn XP, and level up!",
+    "unlocked": "Unlocked",
+    "locked": "Locked",
+    "level": "Level {level}",
+    "xp": "{xp} XP",
+    "nextLevel": "Progress to next level",
+    "badgesCount": "Badges Unlocked",
+    "xpGained": "You gained {xp} XP!",
+    "levelUp": "Level Up!",
+    "levelUpDesc": "Congratulations! You have reached Level {level}!",
+    "close": "Heck yeah!",
+    "badgeEarnedTitle": "Badge Unlocked!",
+    "allBadges": "All Badges",
+    "earned": "Earned"
   }
 }
+

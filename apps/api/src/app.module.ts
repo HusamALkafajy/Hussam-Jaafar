@@ -24,6 +24,7 @@ import { RagModule } from './modules/rag/rag.module';
 import { LearningPathsModule } from './modules/learning-paths/learning-paths.module';
 import { ProjectSubmissionsModule } from './modules/project-submissions/project-submissions.module';
 import { CertificationsModule } from './modules/certifications/certifications.module';
+import { GamificationModule } from './modules/gamification/gamification.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { CertificationsModule } from './modules/certifications/certifications.mo
     LearningPathsModule,
     ProjectSubmissionsModule,
     CertificationsModule,
+    GamificationModule,
   ],
   providers: [
     {

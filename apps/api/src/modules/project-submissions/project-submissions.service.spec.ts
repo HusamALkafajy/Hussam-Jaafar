@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectSubmissionsService } from './project-submissions.service';
 import { AiService } from '../ai/ai.service';
 import { CertificationsService } from '../certifications/certifications.service';
+import { GamificationService } from '../study-coach/gamification.service';
 
 jest.mock('@studyai/database', () => {
   const mockSelectChain: any = {
@@ -78,6 +79,21 @@ describe('ProjectSubmissionsService', () => {
           provide: CertificationsService,
           useValue: {
             issueCertificate: jest.fn(),
+          },
+        },
+        {
+          provide: GamificationService,
+          useValue: {
+            addXp: jest.fn().mockResolvedValue({
+              xpEarned: 100,
+              totalXp: 200,
+              level: 3,
+              hasLeveledUp: false,
+            }),
+            awardBadgeByCode: jest.fn().mockResolvedValue({
+              success: true,
+              badge: { code: 'first_project', name: 'Real Builder', xpReward: 100 },
+            }),
           },
         },
       ],
