@@ -4,14 +4,17 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../../hooks/use-auth';
 import { useLocale } from '../../../hooks/use-locale';
+import { useSearchParams } from 'next/navigation';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
-import { Mail, Lock, User, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, AlertCircle, Crown } from 'lucide-react';
 
 export default function RegisterPage() {
   const { register } = useAuth();
   const { t } = useLocale();
+  const searchParams = useSearchParams();
+  const plan = searchParams.get('plan');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -53,7 +56,19 @@ export default function RegisterPage() {
     <Card className="p-8">
       <div className="flex flex-col gap-2 text-center mb-6">
         <h2 className="text-2xl font-bold text-white">{t('common.register')}</h2>
-        <p className="text-sm text-slate-400">انضم إلينا مجاناً وابدأ التعلم الذكي</p>
+        {plan === 'pro' ? (
+          <div className="mt-3 p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 flex items-center gap-3 text-start">
+            <div className="p-1.5 rounded-lg bg-indigo-500/20 shrink-0">
+              <Crown className="w-4 h-4 text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-indigo-300">أنت على بُعد خطوة واحدة من Pro ✨</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">أنشئ حسابك وسنحولك مباشرةً لإتمام الاشتراك عبر Stripe.</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">انضم إلينا مجاناً وابدأ التعلم الذكي</p>
+        )}
       </div>
 
       {error && (

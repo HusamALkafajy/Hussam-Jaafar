@@ -47,8 +47,8 @@ export default function FilesPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadData = async (page = 1) => {
-    setLoading(true);
+  const loadData = async (page = 1, showSpinner = true) => {
+    if (showSpinner) setLoading(true);
     try {
       const q = [`page=${page}`, `limit=10`];
       if (search) q.push(`search=${encodeURIComponent(search)}`);
@@ -66,7 +66,7 @@ export default function FilesPage() {
     } catch (e) {
       console.error('Failed to load files data', e);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   };
 
@@ -76,6 +76,19 @@ export default function FilesPage() {
     }, 300); // Debounce search
     return () => clearTimeout(timer);
   }, [search, subjectId, fileType]);
+
+  useEffect(() => {
+    const hasProcessing = filesList.some(
+      (file) => file.processingStatus === 'pending' || file.processingStatus === 'processing'
+    );
+
+    if (hasProcessing) {
+      const interval = setInterval(() => {
+        loadData(pagination.page, false);
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [filesList, pagination.page]);
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

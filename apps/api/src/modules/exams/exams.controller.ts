@@ -33,4 +33,16 @@ export class ExamsController {
   ) {
     return this.examsService.submit(id, userId, dto);
   }
+
+  /**
+   * Generate one adaptive follow-up question targeting a weak topic from this exam.
+   * The new question is appended to the current exam session.
+   */
+  @Post(':id/next-question')
+  async nextAdaptiveQuestion(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.examsService.generateNextAdaptiveQuestion(id, userId);
+  }
 }

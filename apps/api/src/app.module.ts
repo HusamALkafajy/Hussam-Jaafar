@@ -25,6 +25,10 @@ import { LearningPathsModule } from './modules/learning-paths/learning-paths.mod
 import { ProjectSubmissionsModule } from './modules/project-submissions/project-submissions.module';
 import { CertificationsModule } from './modules/certifications/certifications.module';
 import { GamificationModule } from './modules/gamification/gamification.module';
+import { ChatModule } from './modules/chat/chat.module';
+import { NotesModule } from './modules/notes/notes.module';
+import { StudyGroupsModule } from './modules/study-groups/study-groups.module';
+import { CustomThrottlerGuard } from './common/guards/throttler.guard';
 
 @Module({
   imports: [
@@ -62,12 +66,16 @@ import { GamificationModule } from './modules/gamification/gamification.module';
     ProjectSubmissionsModule,
     CertificationsModule,
     GamificationModule,
+    ChatModule,
+    NotesModule,
+    StudyGroupsModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: CustomThrottlerGuard,
     },
   ],
+
 })
 export class AppModule {}

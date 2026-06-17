@@ -1,14 +1,47 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import { useLocale } from '../../hooks/use-locale';
+import { useAuth } from '../../hooks/use-auth';
+import { useRouter } from 'next/navigation';
+import { api } from '../../lib/api';
 import { Card } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Check } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 
 const PricingComponent: React.FC = () => {
   const { t } = useLocale();
+  const { user } = useAuth();
+  const router = useRouter();
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  /**
+   * Handle Pro plan click:
+   * - If the user is authenticated → call checkout API directly.
+   * - If not → redirect to /register?plan=pro so the auth flow auto-triggers checkout after registration.
+   */
+  const handleProCheckout = async () => {
+    setCheckoutError(null);
+
+    if (!user) {
+      // Unauthenticated: redirect to register with plan param so post-auth redirect auto-triggers
+      router.push('/register?plan=pro');
+      return;
+    }
+
+    // Authenticated: call checkout API directly
+    setCheckoutLoading(true);
+    try {
+      const data = await api.post<{ checkoutUrl: string }>('/subscriptions/checkout', { plan: 'pro' });
+      window.location.href = data.checkoutUrl;
+    } catch (err: any) {
+      setCheckoutError(err.message || 'Failed to create checkout session. Please try again.');
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
 
   return (
     <section id="pricing" className="flex flex-col gap-12 scroll-mt-20">
@@ -18,6 +51,12 @@ const PricingComponent: React.FC = () => {
           اختر الباقة المناسبة لاحتياجاتك وابدأ في رفع مستوى دراستك اليوم.
         </p>
       </div>
+
+      {checkoutError && (
+        <div className="max-w-md mx-auto w-full p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm text-center">
+          {checkoutError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch max-w-5xl mx-auto w-full">
         {/* Free Plan */}
@@ -74,8 +113,19 @@ const PricingComponent: React.FC = () => {
               </li>
             </ul>
           </div>
-          <Button href="/register" className="w-full mt-8 font-bold">
-            اشترك الآن
+          <Button
+            onClick={handleProCheckout}
+            disabled={checkoutLoading}
+            className="w-full mt-8 font-bold"
+          >
+            {checkoutLoading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>جاري التحميل...</span>
+              </span>
+            ) : (
+              'اشترك الآن'
+            )}
           </Button>
         </Card>
 

@@ -4,6 +4,7 @@ import { db, users, files, subjects, subscriptions, eq, and, or, sql, desc } fro
 import { FileType, ProcessingStatus, UserRole } from '@studyai/types';
 import { AiService } from '../ai/ai.service';
 import { RagService } from '../rag/rag.service';
+import { GamificationService } from '../study-coach/gamification.service';
 import { FileQueryDto } from './dto/file-query.dto';
 
 import * as fs from 'fs/promises';
@@ -19,8 +20,16 @@ export class FilesService {
   constructor(
     private readonly aiService: AiService,
     private readonly ragService: RagService,
+    private readonly gamificationService: GamificationService,
   ) {
     this.ensureUploadDir();
+    if (!process.env.OPENROUTER_API_KEY && !process.env.GEMINI_API_KEY) {
+      this.logger.warn(
+        '[FilesService] Neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set. ' +
+        'Document processing will run in MOCK MODE — extracted text will be fake placeholder content. ' +
+        'Set one of these keys in apps/api/.env to enable real PDF/image parsing.',
+      );
+    }
   }
 
   private async ensureUploadDir() {
@@ -86,7 +95,7 @@ export class FilesService {
     expressFile: Express.Multer.File,
     subjectId?: string,
   ) {
-    const bypassQuota = await this.isAdminOrHusam(userId);
+    const bypassQuota = await this.isSuperAdmin(userId);
 
     // Check subscription monthly upload quota
     const sub = !bypassQuota
@@ -170,27 +179,106 @@ export class FilesService {
     }
 
 
-    // 5. Trigger background processing
-    this.processFileBackground(fileRecord.id, storagePath, fileType, mime);
+    // 5. Trigger background processing (fire-and-forget with explicit error handling)
+    this.processFileBackground(fileRecord.id, storagePath, fileType, mime)
+      .catch((err) => {
+        this.logger.error(
+          `[FilesService] Unhandled top-level error in processFileBackground for file ${fileRecord.id}. ` +
+          `Marking as FAILED. Error: ${err?.message || err}`,
+        );
+        db.update(files)
+          .set({
+            processingStatus: ProcessingStatus.FAILED,
+            processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
+          })
+          .where(eq(files.id, fileRecord.id))
+          .catch((dbErr) =>
+            this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
+          );
+      });
+
+    // Award gamification challenge progress for file upload (fire-and-forget)
+    this.gamificationService
+      .updateChallengeProgress(userId, 'upload', 1)
+      .catch((err) => this.logger.warn('Challenge progress update failed:', err));
 
     return fileRecord;
   }
 
-  private async processFileBackground(fileId: string, filePath: string, type: FileType, mime: string) {
+  /**
+   * Outer wrapper: races the real processing logic against a hard 5-minute deadline.
+   * If the deadline fires first, the file is marked FAILED so the UI never spins forever.
+   */
+  private async processFileBackground(
+    fileId: string,
+    filePath: string,
+    type: FileType,
+    mime: string,
+  ): Promise<void> {
+    const HARD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Processing hard-timeout: exceeded ${HARD_TIMEOUT_MS / 1000}s`)),
+        HARD_TIMEOUT_MS,
+      ),
+    );
+
     try {
-      this.logger.log(`Background processing started for File ID: ${fileId}`);
+      await Promise.race([
+        this._doProcessFile(fileId, filePath, type, mime),
+        timeoutPromise,
+      ]);
+    } catch (e: any) {
+      // Top-level safety net: catch anything _doProcessFile or the timeout throws.
+      // _doProcessFile already sets FAILED on internal errors, but if it throws
+      // before reaching its own catch (e.g., the initial PROCESSING update fails),
+      // we catch it here and write FAILED ourselves.
+      this.logger.error(`[processFileBackground] Fatal error for file ${fileId}: ${e?.message || e}`);
+      await db
+        .update(files)
+        .set({
+          processingStatus: ProcessingStatus.FAILED,
+          processingError: e?.message || 'Unknown fatal processing error',
+        })
+        .where(eq(files.id, fileId))
+        .catch((dbErr) =>
+          this.logger.error(`Failed to write FAILED status for file ${fileId}:`, dbErr),
+        );
+    }
+  }
+
+  /**
+   * Core processing logic. Always terminates by setting processingStatus to
+   * COMPLETED or FAILED — never leaves the record in PROCESSING.
+   */
+  private async _doProcessFile(
+    fileId: string,
+    filePath: string,
+    type: FileType,
+    mime: string,
+  ): Promise<void> {
+    this.logger.log(`Background processing started for File ID: ${fileId}`);
+
+    // Mark PROCESSING. Wrap in its own try/catch so a DB blip here
+    // is surfaced immediately rather than silently leaving the file in PENDING.
+    try {
       await db
         .update(files)
         .set({ processingStatus: ProcessingStatus.PROCESSING })
         .where(eq(files.id, fileId));
+    } catch (dbErr: any) {
+      throw new Error(`Failed to update status to PROCESSING: ${dbErr?.message || dbErr}`);
+    }
 
+    try {
       let extractedText = '';
 
       if (type === FileType.PDF || type === FileType.IMAGE) {
         // Use the configured AI provider for PDFs and OCR images
         extractedText = await this.aiService.extractText(filePath, mime);
       } else if (type === FileType.DOCX) {
-        // Use mammoth for Word files locally
+        // Use mammoth for Word files locally (no external network call)
         const result = await mammoth.extractRawText({ path: filePath });
         extractedText = result.value;
       } else {
@@ -212,36 +300,45 @@ export class FilesService {
         })
         .where(eq(files.id, fileId));
 
+      this.logger.log(`Background processing completed successfully for File ID: ${fileId}`);
+
+      // RAG indexing is best-effort — a failure here must NOT roll back the COMPLETED status.
       try {
         await this.ragService.indexFile(fileId, extractedText);
       } catch (ragErr) {
-        this.logger.error(`Failed to index file ${fileId} in RAG`, ragErr);
+        this.logger.error(`Non-fatal: Failed to index file ${fileId} in RAG. Search will be degraded but document is accessible.`, ragErr);
       }
 
-      // Increment subject fileCount
-      const fileRecord = await db
-        .select({ subjectId: files.subjectId })
-        .from(files)
-        .where(eq(files.id, fileId))
-        .limit(1);
+      // Increment subject fileCount (best-effort)
+      try {
+        const fileRecord = await db
+          .select({ subjectId: files.subjectId })
+          .from(files)
+          .where(eq(files.id, fileId))
+          .limit(1);
 
-      if (fileRecord.length > 0 && fileRecord[0].subjectId) {
-        await db
-          .update(subjects)
-          .set({ fileCount: sql`${subjects.fileCount} + 1` })
-          .where(eq(subjects.id, fileRecord[0].subjectId));
+        if (fileRecord.length > 0 && fileRecord[0].subjectId) {
+          await db
+            .update(subjects)
+            .set({ fileCount: sql`${subjects.fileCount} + 1` })
+            .where(eq(subjects.id, fileRecord[0].subjectId));
+        }
+      } catch (countErr) {
+        this.logger.warn(`Non-fatal: Failed to increment subject fileCount for file ${fileId}:`, countErr);
       }
-
-      this.logger.log(`Background processing completed successfully for File ID: ${fileId}`);
     } catch (e: any) {
       this.logger.error(`Failed to process File ID: ${fileId}`, e);
+      // Always set FAILED so the frontend doesn't spin forever.
       await db
         .update(files)
         .set({
           processingStatus: ProcessingStatus.FAILED,
-          processingError: e.message || 'Unknown processing error',
+          processingError: e?.message || 'Unknown processing error',
         })
-        .where(eq(files.id, fileId));
+        .where(eq(files.id, fileId))
+        .catch((dbErr) =>
+          this.logger.error(`CRITICAL: Could not write FAILED status for file ${fileId}:`, dbErr),
+        );
     }
   }
 
@@ -399,7 +496,7 @@ export class FilesService {
     if (file.processingStatus !== ProcessingStatus.COMPLETED || !file.extractedText) {
       throw new BadRequestException('File is not processed yet');
     }
-    return this.aiService.generateExplanation(file.extractedText, level, language);
+    return this.aiService.generateExplanation(file.extractedText, level, language, fileId, userId);
   }
 
   async chatWithDocument(fileId: string, userId: string, question: string) {
@@ -408,7 +505,7 @@ export class FilesService {
       throw new BadRequestException('File is not processed yet');
     }
 
-    const bypassQuota = await this.isAdminOrHusam(userId);
+    const bypassQuota = await this.isSuperAdmin(userId);
 
     // Check subscription monthly questions quota
     const sub = !bypassQuota
@@ -531,7 +628,7 @@ export class FilesService {
     size: number,
     subjectId?: string,
   ) {
-    const bypassQuota = await this.isAdminOrHusam(userId);
+    const bypassQuota = await this.isSuperAdmin(userId);
 
     // Check subscription monthly upload quota
     const sub = !bypassQuota
@@ -609,8 +706,23 @@ export class FilesService {
         .where(eq(subscriptions.id, sub[0].id));
     }
 
-    // Trigger background processing
-    this.processFileBackground(fileRecord.id, filePath, fileType, mime);
+    // Trigger background processing (fire-and-forget with explicit error handling)
+    this.processFileBackground(fileRecord.id, filePath, fileType, mime)
+      .catch((err) => {
+        this.logger.error(
+          `[FilesService] Unhandled top-level error in processFileBackground (chunked) for file ${fileRecord.id}. ` +
+          `Marking as FAILED. Error: ${err?.message || err}`,
+        );
+        db.update(files)
+          .set({
+            processingStatus: ProcessingStatus.FAILED,
+            processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
+          })
+          .where(eq(files.id, fileRecord.id))
+          .catch((dbErr) =>
+            this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
+          );
+      });
 
     return fileRecord;
   }
@@ -636,7 +748,7 @@ export class FilesService {
     return { success: true, message: 'Reprocessing started' };
   }
 
-  private async isAdminOrHusam(userId: string): Promise<boolean> {
+  private async isSuperAdmin(userId: string): Promise<boolean> {
     const userResult = await db
       .select({ role: users.role, email: users.email })
       .from(users)
@@ -647,7 +759,9 @@ export class FilesService {
       return false;
     }
     const user = userResult[0];
-    return user.role === UserRole.ADMIN || user.email === 'husamjfr@gmail.com';
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = !!(superAdminEmail && user.email.toLowerCase() === superAdminEmail.toLowerCase());
+    return user.role === UserRole.ADMIN || isSuperAdmin;
   }
 
 }

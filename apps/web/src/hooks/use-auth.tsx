@@ -6,7 +6,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import { UserProfileResponse, RegisterDto } from '@studyai/types';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface AuthContextType {
   user: UserProfileResponse | null;
@@ -23,6 +23,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+
+  // Read optional ?plan= query param to auto-trigger checkout after registration/login
+  let searchParams: ReturnType<typeof useSearchParams> | null = null;
+  try {
+    // useSearchParams requires Suspense boundary; wrap in try/catch for RSC safety
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    searchParams = useSearchParams();
+  } catch {
+    searchParams = null;
+  }
 
   const checkSession = async () => {
     try {
@@ -48,13 +58,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkSession();
   }, []);
 
+  /**
+   * After a successful login or registration, check if there is a ?plan= query param.
+   * If so, immediately call the checkout API and redirect to Stripe — this creates the
+   * seamless "click Pro on marketing page → register → land on Stripe checkout" flow.
+   */
+  const handlePostAuthRedirect = async (plan: string | null) => {
+    if (plan && (plan === 'pro' || plan === 'institution')) {
+      try {
+        const data = await api.post<{ checkoutUrl: string }>('/subscriptions/checkout', { plan });
+        window.location.href = data.checkoutUrl;
+      } catch (e) {
+        // Checkout auto-trigger failed — fall back to the subscription page
+        console.warn('Auto-checkout failed after auth, redirecting to subscription page:', e);
+        router.push('/subscription');
+      }
+    } else {
+      router.push('/dashboard');
+    }
+  };
+
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
       const csrf = getCsrfToken();
-      const data = await api.post<{ user: UserProfileResponse }>('/auth/login', { email, password }, csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined);
+      const data = await api.post<{ user: UserProfileResponse }>(
+        '/auth/login',
+        { email, password },
+        csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined,
+      );
       setUser(data.user);
-      router.push('/dashboard');
+      const plan = searchParams?.get('plan') ?? null;
+      await handlePostAuthRedirect(plan);
     } catch (e: any) {
       setUser(null);
       throw new Error(e.message || 'Login failed');
@@ -67,9 +102,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     try {
       const csrf = getCsrfToken();
-      const data = await api.post<{ user: UserProfileResponse }>('/auth/register', registerData, csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined);
+      const data = await api.post<{ user: UserProfileResponse }>(
+        '/auth/register',
+        registerData,
+        csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined,
+      );
       setUser(data.user);
-      router.push('/dashboard');
+      // Check if this registration was initiated from the Pricing page with a plan param
+      const plan = searchParams?.get('plan') ?? null;
+      await handlePostAuthRedirect(plan);
     } catch (e: any) {
       setUser(null);
       throw new Error(e.message || 'Registration failed');

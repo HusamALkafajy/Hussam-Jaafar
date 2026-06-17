@@ -94,7 +94,8 @@ export class AuthService {
   }
 
   async login(user: AuthUser) {
-    if (user.email.toLowerCase() === 'husamjfr@gmail.com' && user.role !== UserRole.ADMIN) {
+    const superAdminEmail = this.configService.get<string>('SUPER_ADMIN_EMAIL') || process.env.SUPER_ADMIN_EMAIL;
+    if (superAdminEmail && user.email.toLowerCase() === superAdminEmail.toLowerCase() && user.role !== UserRole.ADMIN) {
       const updated = await this.usersService.update(user.id, { role: UserRole.ADMIN });
       user.role = updated.role;
     }

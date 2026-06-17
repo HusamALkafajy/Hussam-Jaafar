@@ -28,6 +28,6 @@ import { AppleStrategy } from './strategies/apple.strategy';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, LocalStrategy, GoogleStrategy, AppleStrategy],
-  exports: [AuthService, PassportModule],
+  exports: [AuthService, PassportModule, JwtModule],
 })
 export class AuthModule {}

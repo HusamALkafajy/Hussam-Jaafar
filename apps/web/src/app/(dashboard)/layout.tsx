@@ -23,6 +23,9 @@ import {
   Compass,
   Award,
   Trophy,
+  MessageSquare,
+  NotebookPen,
+  Users,
 } from 'lucide-react';
 import { GamificationWidget } from '../../components/gamification-widget';
 import { GamificationCelebration } from '../../components/gamification-celebration';
@@ -68,8 +71,12 @@ export default function DashboardLayout({
     { label: t('dashboard.sidebarExams'), href: '/exams', icon: GraduationCap },
     { label: t('dashboard.sidebarLearningPaths'), href: '/learning-paths', icon: Compass },
     { label: t('dashboard.sidebarFlashcards'), href: '/flashcards', icon: HelpCircle },
+    { label: locale === 'ar' ? 'محادثة AI' : 'AI Tutor Chat', href: '/chat', icon: MessageSquare },
+    { label: locale === 'ar' ? 'ملاحظاتي' : 'My Notes', href: '/notes', icon: NotebookPen },
+    { label: locale === 'ar' ? 'مجموعات الدراسة' : 'Study Groups', href: '/study-groups', icon: Users },
     { label: t('dashboard.sidebarCertifications'), href: '/certifications', icon: Award },
     { label: t('dashboard.sidebarAchievements') || 'Achievements', href: '/achievements', icon: Trophy },
+    { label: locale === 'ar' ? 'لوحة الصدارة' : 'Leaderboard', href: '/leaderboard', icon: Trophy },
     { label: t('dashboard.sidebarAnalytics'), href: '/analytics', icon: BarChart2 },
     { label: t('dashboard.sidebarSettings'), href: '/settings', icon: Settings },
     { label: t('dashboard.sidebarSubscription'), href: '/subscription', icon: CreditCard },

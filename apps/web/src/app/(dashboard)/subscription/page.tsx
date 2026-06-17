@@ -160,7 +160,7 @@ function getPlanFeatures(t: (k: string) => string) {
     },
     pro: {
       name: t('subscription.planPro'),
-      price: '$19',
+      price: '$9.99',
       period: t('subscription.perMonth'),
       icon: Crown,
       gradient: true,

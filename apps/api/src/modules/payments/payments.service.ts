@@ -48,7 +48,8 @@ export class PaymentsService {
           await this.handleCheckoutCompleted(event.data.object as StripeCore.Checkout.Session);
           break;
 
-        case 'invoice.paid':
+        case 'invoice.payment_succeeded':
+        case 'invoice.paid': // backwards-compatible alias
           await this.handleInvoicePaid(event.data.object as StripeCore.Invoice);
           break;
 
@@ -136,11 +137,17 @@ export class PaymentsService {
       });
     }
 
-    // Update user subscription tier
+    // Update user subscription tier AND denormalized billing fields
+    // Retrieve the price ID from the Stripe subscription for the cache
+    const stripePriceId = stripeSub.items.data[0]?.price?.id ?? null;
     await db
       .update(users)
       .set({
         subscriptionTier: plan as any,
+        stripeCustomerId,
+        stripeSubscriptionId,
+        stripePriceId,
+        currentPeriodEnd: new Date(stripeSub.items.data[0].current_period_end * 1000),
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));
@@ -204,16 +211,24 @@ export class PaymentsService {
     // Update subscription period if this is a renewal
     if (stripeSubscriptionId) {
       const stripeSub = await this.stripe.subscriptions.retrieve(stripeSubscriptionId);
+      const newPeriodEnd = new Date(stripeSub.items.data[0].current_period_end * 1000);
+
       await db
         .update(subscriptions)
         .set({
           currentPeriodStart: new Date(stripeSub.items.data[0].current_period_start * 1000),
-          currentPeriodEnd: new Date(stripeSub.items.data[0].current_period_end * 1000),
+          currentPeriodEnd: newPeriodEnd,
           filesUsedThisMonth: 0,
           questionsUsedThisMonth: 0,
           updatedAt: new Date(),
         })
         .where(eq(subscriptions.id, subscription.id));
+
+      // Also sync the denormalized users.currentPeriodEnd for fast quota reads
+      await db
+        .update(users)
+        .set({ currentPeriodEnd: newPeriodEnd, updatedAt: new Date() })
+        .where(eq(users.id, subscription.userId));
     }
 
     this.logger.log(`Invoice paid for user ${subscription.userId}`);
@@ -321,11 +336,15 @@ export class PaymentsService {
       })
       .where(eq(subscriptions.id, subscription.id));
 
-    // Downgrade user to free tier
+    // Downgrade user to free tier and clear denormalized billing cache
     await db
       .update(users)
       .set({
         subscriptionTier: 'free',
+        stripeSubscriptionId: null,
+        stripePriceId: null,
+        currentPeriodEnd: null,
+        // Keep stripeCustomerId so repeat purchases don't create duplicate Stripe customers
         updatedAt: new Date(),
       })
       .where(eq(users.id, subscription.userId));

@@ -10,7 +10,6 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFile,
-  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FilesService } from './files.service';
@@ -19,6 +18,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { FileQueryDto } from './dto/file-query.dto';
 import { UploadFileDto } from './dto/upload-file.dto';
 import { CreateSubjectDto, UpdateSubjectDto, AssignSubjectDto } from '@studyai/types';
+import { FileMagicValidationPipe } from '../../common/pipes/file-magic-validation.pipe';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -31,12 +31,10 @@ export class FilesController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(
     @CurrentUser('sub') userId: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile(new FileMagicValidationPipe())
+    file: Express.Multer.File,
     @Body() dto: UploadFileDto,
   ) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
     return this.filesService.createFile(userId, file, dto.subjectId);
   }
 
@@ -44,16 +42,14 @@ export class FilesController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadChunk(
     @CurrentUser('sub') userId: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile(new FileMagicValidationPipe())
+    file: Express.Multer.File,
     @Body('uploadId') uploadId: string,
     @Body('chunkIndex') chunkIndex: string,
     @Body('totalChunks') totalChunks: string,
     @Body('filename') filename: string,
     @Body('subjectId') subjectId?: string,
   ) {
-    if (!file) {
-      throw new BadRequestException('No chunk uploaded');
-    }
     return this.filesService.handleChunkUpload(
       userId,
       file.buffer,

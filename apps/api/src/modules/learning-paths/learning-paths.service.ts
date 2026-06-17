@@ -1,5 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { db, learningPaths, learningStages, lessons, projects, certifications, knowledgeGaps, aiTokenUsage, eq, and, asc, sql } from '@studyai/database';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  db,
+  learningPaths, learningStages, lessons, projects, certifications, knowledgeGaps, aiTokenUsage,
+  exams, flashcardSets,
+  eq, and, asc, sql, desc,
+} from '@studyai/database';
 import { CreatePathDto } from './dto/create-path.dto';
 import { AiService } from '../ai/ai.service';
 import { GamificationService } from '../study-coach/gamification.service';
@@ -256,6 +262,265 @@ Daily Available Minutes: ${dto.dailyAvailableMinutes || 30}`;
       ...xpResult,
       awardedBadge: firstLessonBadgeResult,
     };
+  }
+
+  // ── Path-level update (PATCH /learning-paths/:id) ────────────────────────
+
+  /**
+   * Update mutable top-level fields on a learning path.
+   * Currently supports: isAdaptive
+   */
+  async updatePath(pathId: string, userId: string, body: { isAdaptive?: boolean }) {
+    const pathResult = await db
+      .select({ id: learningPaths.id, userId: learningPaths.userId })
+      .from(learningPaths)
+      .where(and(eq(learningPaths.id, pathId), eq(learningPaths.userId, userId)))
+      .limit(1);
+
+    if (pathResult.length === 0) {
+      throw new NotFoundException('Learning path not found.');
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (typeof body.isAdaptive === 'boolean') {
+      updates.isAdaptive = body.isAdaptive;
+    }
+
+    const [updated] = await db
+      .update(learningPaths)
+      .set(updates as any)
+      .where(eq(learningPaths.id, pathId))
+      .returning();
+
+    this.logger.log(
+      `[updatePath] pathId=${pathId} updated: ${JSON.stringify(updates)}`,
+    );
+
+    return updated;
+  }
+
+  // ── Adaptive Evaluation ───────────────────────────────────────────────────
+
+  /**
+   * Evaluate a single learning path and adapt it based on the user's
+   * recent exam scores and flashcard mastery ratio.
+   *
+   * Scoring formula (0–100):
+   *   performanceScore = (avgExamScore * 0.60) + (masteryRatio * 100 * 0.40)
+   *
+   * Result:
+   *   score >= 70  → unlock next locked stage  (action: 'advanced')
+   *   score < 70   → insert a knowledge gap    (action: 'gap_added')
+   *   no locked stages / already completed     (action: 'no_change')
+   */
+  async evaluatePath(pathId: string, userId: string) {
+    // ── 1. Verify ownership ───────────────────────────────────────────────
+    const pathResult = await db
+      .select()
+      .from(learningPaths)
+      .where(and(eq(learningPaths.id, pathId), eq(learningPaths.userId, userId)))
+      .limit(1);
+
+    if (pathResult.length === 0) {
+      throw new NotFoundException('Learning path not found.');
+    }
+    const path = pathResult[0];
+
+    if (path.isCompleted) {
+      return { performanceScore: null, action: 'no_change', reason: 'Path is already completed.' };
+    }
+
+    // ── 2. Aggregate exam scores (last 30 days) ───────────────────────────
+    const examRows = await db
+      .select({ score: exams.score })
+      .from(exams)
+      .where(
+        and(
+          eq(exams.userId, userId),
+          sql`${exams.completedAt} IS NOT NULL`,
+          sql`${exams.completedAt} > NOW() - INTERVAL '30 days'`,
+        ),
+      );
+
+    const avgExamScore: number =
+      examRows.length > 0
+        ? examRows.reduce((sum, r) => sum + parseFloat(r.score as unknown as string || '0'), 0) /
+          examRows.length
+        : 50; // Default neutral score if no exams taken
+
+    // ── 3. Aggregate flashcard mastery ────────────────────────────────────
+    const flashRows = await db
+      .select({
+        totalCards: flashcardSets.totalCards,
+        masteredCount: flashcardSets.masteredCount,
+      })
+      .from(flashcardSets)
+      .where(eq(flashcardSets.userId, userId));
+
+    const totalCards = flashRows.reduce((s, r) => s + (r.totalCards ?? 0), 0);
+    const masteredCards = flashRows.reduce((s, r) => s + (r.masteredCount ?? 0), 0);
+    const masteryRatio = totalCards > 0 ? masteredCards / totalCards : 0.5; // Default 50% if no flashcards
+
+    // ── 4. Compute weighted performance score ─────────────────────────────
+    const performanceScore = Math.round(avgExamScore * 0.6 + masteryRatio * 100 * 0.4);
+
+    this.logger.log(
+      `[evaluatePath] pathId=${pathId} userId=${userId} ` +
+      `avgExam=${avgExamScore.toFixed(1)} masteryRatio=${(masteryRatio * 100).toFixed(1)}% ` +
+      `→ score=${performanceScore}`,
+    );
+
+    // ── 5. Determine adaptation action ────────────────────────────────────
+    let action: 'advanced' | 'gap_added' | 'no_change' = 'no_change';
+    let adaptationNotes: string;
+
+    if (performanceScore >= 70) {
+      // Find the first locked stage in this path
+      const nextLockedStage = await db
+        .select({ id: learningStages.id, title: learningStages.title })
+        .from(learningStages)
+        .where(and(eq(learningStages.pathId, pathId), eq(learningStages.status, 'locked')))
+        .orderBy(asc(learningStages.orderIndex))
+        .limit(1);
+
+      if (nextLockedStage.length > 0) {
+        await db
+          .update(learningStages)
+          .set({ status: 'active' })
+          .where(eq(learningStages.id, nextLockedStage[0].id));
+
+        action = 'advanced';
+        adaptationNotes =
+          `Strong performance (score ${performanceScore}/100). ` +
+          `Unlocked stage: "${nextLockedStage[0].title}".`;
+
+        this.logger.log(
+          `[evaluatePath] Unlocked stage "${nextLockedStage[0].title}" for path ${pathId}`,
+        );
+      } else {
+        // All stages unlocked — mark the path as completed
+        await db
+          .update(learningPaths)
+          .set({ isCompleted: true })
+          .where(eq(learningPaths.id, pathId));
+
+        adaptationNotes = `All stages mastered. Path marked as completed (score ${performanceScore}/100).`;
+        this.logger.log(`[evaluatePath] All stages unlocked — path ${pathId} marked complete`);
+      }
+    } else {
+      // Insert a knowledge gap record pointing to the current active stage
+      const activeStage = await db
+        .select({ id: learningStages.id, title: learningStages.title })
+        .from(learningStages)
+        .where(and(eq(learningStages.pathId, pathId), eq(learningStages.status, 'active')))
+        .orderBy(asc(learningStages.orderIndex))
+        .limit(1);
+
+      const stageId = activeStage.length > 0 ? activeStage[0].id : null;
+      const stageTitle = activeStage.length > 0 ? activeStage[0].title : 'current stage';
+
+      // Avoid duplicate open gaps for the same concept+stage
+      const existingGap = await db
+        .select({ id: knowledgeGaps.id })
+        .from(knowledgeGaps)
+        .where(
+          and(
+            eq(knowledgeGaps.userId, userId),
+            stageId ? eq(knowledgeGaps.stageId, stageId) : sql`1=1`,
+            eq(knowledgeGaps.isResolved, false),
+            eq(knowledgeGaps.concept, 'Adaptive evaluation gap'),
+          ),
+        )
+        .limit(1);
+
+      if (existingGap.length === 0) {
+        await db.insert(knowledgeGaps).values({
+          userId,
+          concept: 'Adaptive evaluation gap',
+          stageId,
+          severity: performanceScore < 40 ? 'high' : 'medium',
+          remedialAction:
+            `Your performance score is ${performanceScore}/100. ` +
+            `Review the material in "${stageTitle}", redo weak flashcard sets, ` +
+            `and re-take any failed exams before progressing.`,
+          isResolved: false,
+        });
+      }
+
+      action = 'gap_added';
+      adaptationNotes =
+        `Performance below threshold (score ${performanceScore}/100). ` +
+        `A knowledge gap has been flagged in "${stageTitle}". ` +
+        `Review required before advancing.`;
+
+      this.logger.warn(
+        `[evaluatePath] Below-threshold score ${performanceScore} for path ${pathId} — gap flagged`,
+      );
+    }
+
+    // ── 6. Persist evaluation metadata to the path row ────────────────────
+    await db
+      .update(learningPaths)
+      .set({
+        lastEvaluatedAt: new Date(),
+        adaptationScore: performanceScore,
+        adaptationNotes,
+        updatedAt: new Date(),
+      })
+      .where(eq(learningPaths.id, pathId));
+
+    return {
+      performanceScore,
+      action,
+      adaptationNotes,
+      examsSampled: examRows.length,
+      avgExamScore: Math.round(avgExamScore),
+      masteryPercent: Math.round(masteryRatio * 100),
+    };
+  }
+
+  /**
+   * Nightly cron job — runs at 02:00 UTC every day.
+   * Evaluates every active, adaptive learning path across all users.
+   * Skips paths where `isAdaptive = false` (user has opted out).
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async evaluateAllActivePaths() {
+    this.logger.log('[Cron:evaluateAllActivePaths] Starting nightly adaptive path evaluation...');
+
+    const activePaths = await db
+      .select({ id: learningPaths.id, userId: learningPaths.userId, skillName: learningPaths.skillName })
+      .from(learningPaths)
+      .where(
+        and(
+          eq(learningPaths.isCompleted, false),
+          eq(learningPaths.isAdaptive, true),
+        ),
+      );
+
+    this.logger.log(`[Cron:evaluateAllActivePaths] Found ${activePaths.length} active adaptive paths`);
+
+    let advanced = 0;
+    let gapsAdded = 0;
+    let errors = 0;
+
+    for (const path of activePaths) {
+      try {
+        const result = await this.evaluatePath(path.id, path.userId);
+        if (result.action === 'advanced') advanced++;
+        if (result.action === 'gap_added') gapsAdded++;
+      } catch (err: any) {
+        errors++;
+        this.logger.error(
+          `[Cron:evaluateAllActivePaths] Failed for path ${path.id} ("${path.skillName}"): ${err.message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[Cron:evaluateAllActivePaths] Complete — ` +
+      `advanced: ${advanced}, gaps added: ${gapsAdded}, errors: ${errors}`,
+    );
   }
 
   private cleanJson(str: string): string {

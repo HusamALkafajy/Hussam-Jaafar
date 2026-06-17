@@ -8,6 +8,7 @@ import { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { requestContextMiddleware } from './common/request-context';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -31,6 +32,7 @@ async function bootstrap() {
   const frontendUrl = configService.get<string>('app.frontendUrl') || 'http://localhost:3000';
 
   // 1. Security & Parsing Middleware
+  app.use(requestContextMiddleware);
   app.use(helmet());
   app.use(cookieParser());
 
@@ -56,10 +58,10 @@ async function bootstrap() {
 
   // 2. CORS
   app.enableCors({
-    origin: [frontendUrl],
+    origin: [frontendUrl, 'http://localhost:3000', 'http://localhost:3001'],
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Content-Type, Accept, Authorization',
+    allowedHeaders: 'Content-Type, Accept, Authorization, X-CSRF-Token',
   });
 
   // 3. Global prefix

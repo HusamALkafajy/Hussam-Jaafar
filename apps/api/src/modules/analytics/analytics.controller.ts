@@ -13,9 +13,22 @@ export class AnalyticsController {
     return this.analyticsService.getOverviewStats(userId);
   }
 
-  @Get('metrics')
-  async getMetrics(@CurrentUser('sub') userId: string) {
-    return this.analyticsService.getStudentMetrics(userId);
+  /**
+   * GET /api/analytics/activity
+   * Returns recent activity logs for the authenticated user.
+   * Matches the contract in api.ts.
+   */
+  @Get('activity')
+  async getActivity(
+    @CurrentUser('sub') userId: string,
+    @Query('limit') limit?: string,
+    @Query('page') page?: string,
+  ) {
+    return this.analyticsService.getActivityLogs(
+      userId,
+      limit ? parseInt(limit, 10) : 20,
+      page ? parseInt(page, 10) : 1,
+    );
   }
 
   @Get('progress')

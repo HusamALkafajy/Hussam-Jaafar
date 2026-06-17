@@ -12,4 +12,6 @@ export * from './payments';
 export * from './analytics';
 export * from './study_coach';
 export * from './learning_paths';
+export * from './notes';
+export * from './groups';
 

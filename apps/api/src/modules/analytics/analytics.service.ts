@@ -146,6 +146,36 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * Returns paginated activity logs for a single user.
+   * Powers: GET /api/analytics/activity
+   */
+  async getActivityLogs(userId: string, limit = 20, page = 1) {
+    const offset = (page - 1) * limit;
+
+    const logs = await db
+      .select()
+      .from(activityLogs)
+      .where(eq(activityLogs.userId, userId))
+      .orderBy(desc(activityLogs.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(activityLogs)
+      .where(eq(activityLogs.userId, userId));
+
+    return {
+      data: logs,
+      pagination: {
+        page,
+        limit,
+        total: Number(countResult?.count || 0),
+      },
+    };
+  }
+
   async getDailyProgress(userId: string, limitDays = 30) {
     const records = await db
       .select()

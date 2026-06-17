@@ -31,6 +31,11 @@ export const learningPaths = pgTable('learning_paths', {
   endGoal: varchar('end_goal', { length: 1000 }).notNull(), // e.g. "Get Python Dev Job"
   dailyAvailableMinutes: integer('daily_available_minutes').default(30).notNull(),
   isCompleted: boolean('is_completed').default(false).notNull(),
+  // ── Adaptive evaluation fields ──
+  isAdaptive: boolean('is_adaptive').default(true).notNull(), // Opt-out of nightly cron evaluation
+  lastEvaluatedAt: timestamp('last_evaluated_at', { withTimezone: true }),
+  adaptationScore: integer('adaptation_score'),              // 0–100, last computed performance score
+  adaptationNotes: text('adaptation_notes'),                 // Human-readable reason for last adaptation
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

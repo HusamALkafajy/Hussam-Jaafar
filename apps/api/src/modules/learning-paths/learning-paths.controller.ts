@@ -30,11 +30,36 @@ export class LearningPathsController {
     return this.learningPathsService.getPathDetail(pathId, userId);
   }
 
+  /** Update top-level path settings (e.g. isAdaptive toggle). PATCH /api/learning-paths/:id */
+  @Patch(':id')
+  async updatePath(
+    @Param('id') pathId: string,
+    @CurrentUser('sub') userId: string,
+    @Body() body: { isAdaptive?: boolean },
+  ) {
+    return this.learningPathsService.updatePath(pathId, userId, body);
+  }
+
   @Patch('lessons/:id/complete')
   async completeLesson(
     @Param('id') lessonId: string,
     @CurrentUser('sub') userId: string,
   ) {
     return this.learningPathsService.completeLesson(lessonId, userId);
+  }
+
+  /**
+   * Trigger an on-demand adaptive evaluation for a specific learning path.
+   * POST /api/learning-paths/:id/evaluate
+   *
+   * Returns the performance score, the action taken (advanced | gap_added | no_change),
+   * and detailed notes explaining the adaptation decision.
+   */
+  @Post(':id/evaluate')
+  async evaluatePath(
+    @Param('id') pathId: string,
+    @CurrentUser('sub') userId: string,
+  ) {
+    return this.learningPathsService.evaluatePath(pathId, userId);
   }
 }

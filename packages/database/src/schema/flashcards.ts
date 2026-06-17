@@ -25,6 +25,10 @@ export const flashcards = pgTable('flashcards', {
   reviewCount: integer('review_count').default(0).notNull(),
   masteryLevel: masteryLevelEnum('mastery_level').default('new').notNull(),
   nextReviewAt: timestamp('next_review_at', { withTimezone: true }),
+  // SM-2 Spaced Repetition Algorithm state
+  easeFactor: integer('ease_factor').default(250).notNull(), // Stored as integer (EF * 100) to avoid float precision issues. Default = 2.5 → 250
+  interval: integer('interval').default(0).notNull(),        // Last computed interval in days
+  repetitions: integer('repetitions').default(0).notNull(),  // Consecutive successful review streak
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

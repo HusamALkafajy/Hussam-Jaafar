@@ -3,11 +3,15 @@ import { ExamsController } from './exams.controller';
 import { ExamsService } from './exams.service';
 import { FilesModule } from '../files/files.module';
 import { AiModule } from '../ai/ai.module';
+import { RagModule } from '../rag/rag.module';
+import { StudyCoachModule } from '../study-coach/study-coach.module';
 
 @Module({
-  imports: [FilesModule, AiModule],
+  imports: [FilesModule, AiModule, RagModule, StudyCoachModule],
   controllers: [ExamsController],
   providers: [ExamsService],
   exports: [ExamsService],
 })
 export class ExamsModule {}
+
+

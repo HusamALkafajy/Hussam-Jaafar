@@ -1,13 +1,24 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../hooks/use-auth';
 import { useLocale } from '../../../hooks/use-locale';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
 import { api } from '../../../lib/api';
-import { User, Lock, Globe, CheckCircle, AlertTriangle } from 'lucide-react';
+import {
+  User,
+  Lock,
+  Globe,
+  CreditCard,
+  Crown,
+  Zap,
+  ExternalLink,
+  CheckCircle,
+  AlertTriangle,
+  Loader2,
+} from 'lucide-react';
 
 export default function SettingsPage() {
   const { user, checkSession } = useAuth();
@@ -23,6 +34,17 @@ export default function SettingsPage() {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  // Billing state
+  const [subscription, setSubscription] = useState<any | null>(null);
+  const [billingLoading, setBillingLoading] = useState<string | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<any>('/subscriptions/current')
+      .then((data) => setSubscription(data))
+      .catch(console.error);
+  }, []);
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +83,32 @@ export default function SettingsPage() {
     setLocale(next);
     // Persist to backend if user profile loaded
     api.patch('/users/locale', { locale: next }).catch(console.error);
+  };
+
+  const handleManageBilling = async () => {
+    setBillingError(null);
+    setBillingLoading('portal');
+    try {
+      const data = await api.post<{ portalUrl: string }>('/subscriptions/portal');
+      window.location.href = data.portalUrl;
+    } catch (err: any) {
+      setBillingError(err.message || 'Failed to open billing portal. Please try again.');
+    } finally {
+      setBillingLoading(null);
+    }
+  };
+
+  const handleUpgradeToPro = async () => {
+    setBillingError(null);
+    setBillingLoading('checkout');
+    try {
+      const data = await api.post<{ checkoutUrl: string }>('/subscriptions/checkout', { plan: 'pro' });
+      window.location.href = data.checkoutUrl;
+    } catch (err: any) {
+      setBillingError(err.message || 'Failed to start checkout. Please try again.');
+    } finally {
+      setBillingLoading(null);
+    }
   };
 
   return (
@@ -155,6 +203,101 @@ export default function SettingsPage() {
               <span>تحديث الأمان</span>
             </Button>
           </form>
+        </Card>
+
+        {/* Billing & Subscription card */}
+        <Card className="p-6 bg-slate-900/40">
+          <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-indigo-400" />
+            <span>الفوترة والاشتراك</span>
+          </h3>
+
+          {billingError && (
+            <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-sm flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <span>{billingError}</span>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-5">
+            {/* Current plan indicator */}
+            <div className="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 border border-slate-800/60">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${
+                  subscription?.plan === 'pro'
+                    ? 'bg-indigo-500/15 border border-indigo-500/20'
+                    : 'bg-slate-700/40 border border-slate-700/40'
+                }`}>
+                  {subscription?.plan === 'pro' || subscription?.plan === 'institution' ? (
+                    <Crown className="w-4 h-4 text-indigo-400" />
+                  ) : (
+                    <Zap className="w-4 h-4 text-slate-400" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-white">
+                    {subscription?.plan === 'pro'
+                      ? 'باقة Pro'
+                      : subscription?.plan === 'institution'
+                      ? 'باقة المؤسسات'
+                      : 'الباقة المجانية'}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {subscription?.currentPeriodEnd
+                      ? `تنتهي في ${new Date(subscription.currentPeriodEnd).toLocaleDateString('ar-EG')}`
+                      : 'غير محدودة'}
+                  </p>
+                </div>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
+                subscription?.status === 'active'
+                  ? 'bg-emerald-500/10 text-emerald-400'
+                  : 'bg-slate-700/40 text-slate-400'
+              }`}>
+                {subscription?.status === 'active' ? 'نشط' : subscription?.status ?? '—'}
+              </span>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              {/* Manage Billing — only shown if user has a Stripe subscription */}
+              {subscription?.stripeCustomerId && (
+                <Button
+                  variant="secondary"
+                  onClick={handleManageBilling}
+                  disabled={billingLoading === 'portal'}
+                  className="flex items-center gap-2 font-semibold"
+                >
+                  {billingLoading === 'portal' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ExternalLink className="w-4 h-4" />
+                  )}
+                  <span>إدارة الفوترة عبر Stripe</span>
+                </Button>
+              )}
+
+              {/* Upgrade button — only shown for free plan users */}
+              {(!subscription || subscription.plan === 'free') && (
+                <Button
+                  onClick={handleUpgradeToPro}
+                  disabled={billingLoading === 'checkout'}
+                  className="flex items-center gap-2 font-bold"
+                >
+                  {billingLoading === 'checkout' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Crown className="w-4 h-4" />
+                  )}
+                  <span>الترقية إلى Pro</span>
+                </Button>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-600">
+              لإلغاء الاشتراك أو تغيير طريقة الدفع، استخدم بوابة Stripe أعلاه.
+            </p>
+          </div>
         </Card>
 
         {/* Preferences settings card */}

@@ -121,9 +121,9 @@ export class AdminService {
     let mrr = 0;
     for (const sub of activeSubscriptions) {
       if (sub.plan === 'pro') {
-        mrr += Number(sub.count) * 15.00;
+        mrr += Number(sub.count) * 9.99;   // Pro plan: $9.99/month
       } else if (sub.plan === 'institution') {
-        mrr += Number(sub.count) * 150.00;
+        mrr += Number(sub.count) * 150.00; // Institution: custom, using 150 as baseline
       }
     }
     const arr = mrr * 12;
@@ -245,6 +245,53 @@ export class AdminService {
       agentAggregates,
       modelAggregates,
       errorLogs,
+    };
+  }
+
+  /**
+   * System-wide activity logs with optional userId filter.
+   * Powers: GET /api/admin/activity-logs
+   */
+  async getActivityLogs(limit = 50, page = 1, userId?: string) {
+    const offset = (page - 1) * limit;
+    const condition = userId ? eq(activityLogs.userId, userId) : undefined;
+
+    const logs = await db
+      .select({
+        id: activityLogs.id,
+        userId: activityLogs.userId,
+        action: activityLogs.action,
+        resourceType: activityLogs.resourceType,
+        resourceId: activityLogs.resourceId,
+        metadata: activityLogs.metadata,
+        ipAddress: activityLogs.ipAddress,
+        createdAt: activityLogs.createdAt,
+        user: {
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+        },
+      })
+      .from(activityLogs)
+      .leftJoin(users, eq(activityLogs.userId, users.id))
+      .where(condition)
+      .orderBy(desc(activityLogs.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(activityLogs)
+      .where(condition);
+
+    return {
+      data: logs,
+      pagination: {
+        page,
+        limit,
+        total: Number(countResult?.count || 0),
+        totalPages: Math.ceil(Number(countResult?.count || 0) / limit),
+      },
     };
   }
 

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, integer, decimal, timestamp, pgEnum, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, integer, decimal, timestamp, pgEnum, jsonb, boolean } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { files } from './files';
 import { users } from './users';
@@ -22,6 +22,7 @@ export const exams = pgTable('exams', {
   strengthAnalysis: jsonb('strength_analysis'),
   weaknessAnalysis: jsonb('weakness_analysis'),
   studyPlan: jsonb('study_plan'),
+  adaptiveMode: boolean('adaptive_mode').default(false).notNull(), // True when student requested adaptive follow-up questions
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

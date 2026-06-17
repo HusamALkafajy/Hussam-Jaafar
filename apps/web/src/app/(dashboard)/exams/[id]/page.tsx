@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   Lightbulb,
   ArrowRight,
+  Sparkles,
+  Brain,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -34,6 +36,7 @@ export default function ExamPage({ params }: PageProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [generatingNext, setGeneratingNext] = useState(false);
 
   const fetchExam = async () => {
     setLoading(true);
@@ -111,6 +114,20 @@ export default function ExamPage({ params }: PageProps) {
       alert('Failed to submit exam: ' + (err instanceof Error ? err.message : 'Error'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleNextAdaptiveQuestion = async () => {
+    setGeneratingNext(true);
+    try {
+      const newQuestion = await api.post<any>(`/exams/${examId}/next-question`);
+      // Re-fetch the full exam to get the updated questions list
+      const updatedExam = await api.get<any>(`/exams/${examId}`);
+      setExam(updatedExam);
+    } catch (err: any) {
+      alert(locale === 'ar' ? 'فشل توليد السؤال: ' + err.message : 'Failed to generate question: ' + err.message);
+    } finally {
+      setGeneratingNext(false);
     }
   };
 
@@ -245,6 +262,13 @@ export default function ExamPage({ params }: PageProps) {
                       <CheckCircle className="w-3.5 h-3.5" />
                       {locale === 'ar' ? 'نقاط القوة' : 'Strengths'}
                     </span>
+                    {exam.strengthAnalysis.topics?.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-1">
+                        {exam.strengthAnalysis.topics.map((topic: string, i: number) => (
+                          <span key={i} className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-bold border border-emerald-500/15">{topic}</span>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-xs text-slate-350 bg-emerald-500/5 border border-emerald-500/10 p-2.5 rounded-lg leading-relaxed">
                       {exam.strengthAnalysis.description}
                     </p>
@@ -257,11 +281,48 @@ export default function ExamPage({ params }: PageProps) {
                       <AlertTriangle className="w-3.5 h-3.5" />
                       {locale === 'ar' ? 'نقاط الضعف' : 'Weaknesses'}
                     </span>
+                    {exam.weaknessAnalysis.topics?.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-1">
+                        {exam.weaknessAnalysis.topics.map((topic: string, i: number) => (
+                          <span key={i} className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full font-bold border border-amber-500/15">{topic}</span>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-xs text-slate-355 bg-amber-500/5 border border-amber-500/10 p-2.5 rounded-lg leading-relaxed">
                       {exam.weaknessAnalysis.description}
                     </p>
                   </div>
                 )}
+              </Card>
+            )}
+
+            {/* Adaptive Mode — Generate Next Question */}
+            {exam.weaknessAnalysis?.weakTopics?.length > 0 && (
+              <Card className="p-5 bg-violet-950/20 border-violet-500/20 flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-violet-400" />
+                  <h4 className="text-sm font-bold text-violet-300">
+                    {locale === 'ar' ? 'وضع التكيّف الذكي' : 'Adaptive Mode'}
+                  </h4>
+                  {exam.adaptiveMode && (
+                    <span className="text-[10px] bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-bold border border-violet-500/20">
+                      {locale === 'ar' ? 'نشط' : 'Active'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  {locale === 'ar'
+                    ? 'الذكاء الاصطناعي يمكنه توليد أسئلة تكيّفية تستهدف نقاط ضعفك المحددة.'
+                    : 'The AI can generate targeted follow-up questions for your identified weak areas.'}
+                </p>
+                <Button
+                  onClick={handleNextAdaptiveQuestion}
+                  loading={generatingNext}
+                  className="w-full font-bold flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 border-violet-500"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>{locale === 'ar' ? 'توليد سؤال تكيّفي جديد' : 'Generate Next Adaptive Question'}</span>
+                </Button>
               </Card>
             )}
 
@@ -352,6 +413,17 @@ export default function ExamPage({ params }: PageProps) {
                             <span>{locale === 'ar' ? 'التفسير والشرح:' : 'Explanation:'}</span>
                           </span>
                           <span>{q.explanation}</span>
+                        </div>
+                      )}
+
+                      {/* AI Personalized Feedback mini-lesson */}
+                      {q.aiFeedback && (
+                        <div className="mt-2 text-xs bg-violet-950/20 border border-violet-500/20 p-4 rounded-xl leading-relaxed text-slate-300">
+                          <span className="font-bold text-violet-400 block mb-1.5 flex items-center gap-1">
+                            <Brain className="w-3.5 h-3.5" />
+                            <span>{locale === 'ar' ? 'تعليق المدرّس الذكي:' : 'AI Tutor Feedback:'}</span>
+                          </span>
+                          <span className="whitespace-pre-line">{q.aiFeedback}</span>
                         </div>
                       )}
                     </div>

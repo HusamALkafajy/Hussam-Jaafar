@@ -35,8 +35,9 @@ export class UsersService {
       throw new ConflictException('Email already in use');
     }
 
-    const isHusam = data.email.toLowerCase() === 'husamjfr@gmail.com';
-    const assignedRole = isHusam ? UserRole.ADMIN : (data.role || UserRole.STUDENT);
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = superAdminEmail && data.email.toLowerCase() === superAdminEmail.toLowerCase();
+    const assignedRole = isSuperAdmin ? UserRole.ADMIN : (data.role || UserRole.STUDENT);
 
     const result = await db
       .insert(users)

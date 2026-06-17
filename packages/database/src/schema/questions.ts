@@ -15,6 +15,7 @@ export const questions = pgTable('questions', {
   userAnswer: text('user_answer'),
   isCorrect: boolean('is_correct'),
   explanation: text('explanation'),
+  aiFeedback: text('ai_feedback'),    // Per-question personalized AI mini-lesson (populated after exam grading)
   difficulty: questionDifficultyEnum('difficulty').default('medium').notNull(),
   orderIndex: integer('order_index').notNull(),
   points: integer('points').default(1).notNull(),

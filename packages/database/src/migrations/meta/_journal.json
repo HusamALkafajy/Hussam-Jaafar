@@ -22,6 +22,41 @@
       "when": 1781549084588,
       "tag": "0002_volatile_thaddeus_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781627948411,
+      "tag": "0003_solid_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781629229691,
+      "tag": "0004_true_caretaker",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781630277209,
+      "tag": "0005_curious_landau",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781631664744,
+      "tag": "0006_bent_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781652819967,
+      "tag": "0007_add_study_groups_and_adaptive_paths",
+      "breakpoints": true
     }
   ]
 }

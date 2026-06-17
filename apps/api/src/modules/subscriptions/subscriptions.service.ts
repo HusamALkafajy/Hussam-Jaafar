@@ -3,7 +3,10 @@ import {
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
+  UnauthorizedException,
   Logger,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { db, subscriptions, users, eq, and } from '@studyai/database';
@@ -55,6 +58,27 @@ export class SubscriptionsService {
       throw new BadRequestException('Cannot create a checkout session for the free plan');
     }
 
+    // ── Guard 1: Stripe secret key must be present ─────────────────────────
+    const secretKey = this.configService.get<string>('stripe.secretKey');
+    if (!secretKey) {
+      this.logger.error('STRIPE_SECRET_KEY is not set in environment variables');
+      throw new InternalServerErrorException(
+        'Payment service is not configured: STRIPE_SECRET_KEY is missing. Please contact support.',
+      );
+    }
+
+    // ── Guard 2: Price ID must be set for the requested plan ───────────────
+    const priceId = this.getPriceIdForPlan(plan); // throws BadRequestException if missing
+
+    // ── Guard 3: Frontend URL must be configured for redirect URLs ─────────
+    const frontendUrl = this.configService.get<string>('app.frontendUrl');
+    if (!frontendUrl) {
+      this.logger.error('FRONTEND_URL is not set in environment variables');
+      throw new InternalServerErrorException(
+        'Server misconfiguration: FRONTEND_URL is missing.',
+      );
+    }
+
     // Look up user email for Stripe customer creation
     const userResult = await db
       .select()
@@ -71,9 +95,6 @@ export class SubscriptionsService {
     // Get or create Stripe customer
     const stripeCustomerId = await this.getOrCreateStripeCustomer(userId, user.email);
 
-    // Map plan to Stripe price ID
-    const priceId = this.getPriceIdForPlan(plan);
-
     try {
       const session = await this.stripe.checkout.sessions.create({
         customer: stripeCustomerId,
@@ -85,8 +106,8 @@ export class SubscriptionsService {
             quantity: 1,
           },
         ],
-        success_url: `${this.configService.get<string>('app.frontendUrl')}/dashboard/subscription?success=true`,
-        cancel_url: `${this.configService.get<string>('app.frontendUrl')}/dashboard/subscription?canceled=true`,
+        success_url: `${frontendUrl}/dashboard/subscription?success=true`,
+        cancel_url: `${frontendUrl}/dashboard/subscription?canceled=true`,
         metadata: {
           userId,
           plan,
@@ -94,9 +115,66 @@ export class SubscriptionsService {
       });
 
       return { checkoutUrl: session.url! };
-    } catch (error) {
-      this.logger.error('Failed to create Stripe checkout session', error);
-      throw new InternalServerErrorException('Failed to create checkout session');
+    } catch (error: any) {
+      // ── Stripe error type-narrowing ──────────────────────────────────────
+      // Stripe SDK wraps all API errors in a StripeError subclass with a `type` field.
+      if (error?.type) {
+        const stripeType: string = error.type;
+        const stripeCode: string = error.code || '';
+        const stripeMessage: string = error.message || 'Unknown Stripe error';
+
+        this.logger.error(`Stripe error [${stripeType}] code=${stripeCode}: ${stripeMessage}`);
+
+        // Authentication failure → invalid or missing API key
+        if (stripeType === 'StripeAuthenticationError') {
+          throw new UnauthorizedException(
+            'Stripe authentication failed: your STRIPE_SECRET_KEY is invalid or expired. ' +
+            'Use a key starting with sk_test_ for test mode.',
+          );
+        }
+
+        // Invalid request → usually wrong price ID or missing param
+        if (stripeType === 'StripeInvalidRequestError') {
+          if (stripeCode === 'resource_missing' || stripeMessage.includes('No such price')) {
+            throw new BadRequestException(
+              `Invalid Stripe Price ID for plan "${plan}": "${priceId}". ` +
+              'Check STRIPE_PRO_PRICE_ID / STRIPE_INSTITUTION_PRICE_ID in your .env and ensure ' +
+              'the price exists in your Stripe dashboard (test vs live mode must match the key).',
+            );
+          }
+          // Generic invalid request
+          throw new HttpException(
+            `Stripe rejected the request: ${stripeMessage}`,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        // Rate limiting
+        if (stripeType === 'StripeRateLimitError') {
+          throw new HttpException(
+            'Stripe rate limit exceeded. Please wait a moment and try again.',
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+
+        // Network / connection failure (transient)
+        if (stripeType === 'StripeConnectionError' || stripeType === 'StripeAPIError') {
+          throw new InternalServerErrorException(
+            'Could not reach the Stripe API. Check your internet connection or Stripe status at https://status.stripe.com.',
+          );
+        }
+
+        // All other Stripe errors
+        throw new InternalServerErrorException(
+          `Stripe error (${stripeType}): ${stripeMessage}`,
+        );
+      }
+
+      // Non-Stripe exception (e.g. DB failure during customer creation)
+      this.logger.error('Unexpected error during checkout session creation', error);
+      throw new InternalServerErrorException(
+        'An unexpected error occurred while creating the checkout session. Please try again.',
+      );
     }
   }
 
@@ -226,12 +304,30 @@ export class SubscriptionsService {
 
   private getPriceIdForPlan(plan: SubscriptionTier): string {
     switch (plan) {
-      case SubscriptionTier.PRO:
-        return this.configService.get<string>('stripe.proPriceId')!;
-      case SubscriptionTier.INSTITUTION:
-        return this.configService.get<string>('stripe.institutionPriceId')!;
+      case SubscriptionTier.PRO: {
+        const id = this.configService.get<string>('stripe.proPriceId');
+        if (!id) {
+          this.logger.error('STRIPE_PRO_PRICE_ID is not set in environment variables');
+          throw new InternalServerErrorException(
+            'Payment service misconfiguration: STRIPE_PRO_PRICE_ID is missing. ' +
+            'Add it to your .env file (e.g. price_xxx from your Stripe dashboard).',
+          );
+        }
+        return id;
+      }
+      case SubscriptionTier.INSTITUTION: {
+        const id = this.configService.get<string>('stripe.institutionPriceId');
+        if (!id) {
+          this.logger.error('STRIPE_INSTITUTION_PRICE_ID is not set in environment variables');
+          throw new InternalServerErrorException(
+            'Payment service misconfiguration: STRIPE_INSTITUTION_PRICE_ID is missing. ' +
+            'Add it to your .env file (e.g. price_xxx from your Stripe dashboard).',
+          );
+        }
+        return id;
+      }
       default:
-        throw new BadRequestException(`Invalid plan: ${plan}`);
+        throw new BadRequestException(`Invalid or unsupported plan: ${plan}`);
     }
   }
 

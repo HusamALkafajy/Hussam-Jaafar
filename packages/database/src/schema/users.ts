@@ -10,6 +10,7 @@ import { payments } from './payments';
 import { analytics } from './analytics';
 import { activityLogs } from './analytics';
 import { roleEnum, authProviderEnum, localeEnum, subscriptionTierEnum } from './enums';
+import { groupMembers } from './groups';
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -28,6 +29,13 @@ export const users = pgTable('users', {
   locale: localeEnum('locale').default('en').notNull(),
 
   subscriptionTier: subscriptionTierEnum('subscription_tier').default('free').notNull(),
+
+  // ── Denormalized Stripe billing fields (fast-path cache; subscriptions table is source of truth) ──
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
+  stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+  stripePriceId: varchar('stripe_price_id', { length: 255 }),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -43,4 +51,5 @@ export const usersRelations = relations(users, ({ many }) => ({
   payments: many(payments),
   analytics: many(analytics),
   activityLogs: many(activityLogs),
+  groupMembers: many(groupMembers),
 }));
