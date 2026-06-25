@@ -7,16 +7,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --reporter=verbose"
   },
   "dependencies": {
     "@studyai/types": "workspace:*",
     "clsx": "^2.1.1",
+    "github-slugger": "^2.0.0",
     "lucide-react": "^0.460.0",
     "next": "^15.0.3",
     "react": "^19.0.0-rc-6625d9f17-20241021",
     "react-dom": "^19.0.0-rc-6625d9f17-20241021",
     "react-markdown": "^10.1.0",
+    "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^2.5.4"
@@ -24,11 +27,17 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0-alpha.30",
     "@tailwindcss/typography": "^0.5.20",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/github-slugger": "^2.0.0",
     "@types/node": "^22.10.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^4.0.0-alpha.30",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
   }
 }

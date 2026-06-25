@@ -6,6 +6,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserRole, AuthProvider, Locale } from '@studyai/types';
+import { db } from '@studyai/database';
 
 type AuthUser = {
   id: string;
@@ -191,8 +192,14 @@ export class AuthService {
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(dto.newPassword, salt);
 
-    await this.usersService.updatePassword(user.id, passwordHash);
-    await this.usersService.clearResetToken(user.id);
+    // All three mutations share one transaction handle (tx).
+    // If any step throws, the entire transaction rolls back atomically:
+    // no partial state where the password is changed but sessions remain valid.
+    await db.transaction(async (tx) => {
+      await this.usersService.updatePassword(user.id, passwordHash, tx);
+      await this.usersService.updateRefreshTokenHash(user.id, null, tx);
+      await this.usersService.clearResetToken(user.id, tx);
+    });
 
     return { message: 'Password reset successfully' };
   }
@@ -236,14 +243,7 @@ export class AuthService {
   setAuthCookies(response: Response, tokens: { accessToken: string; refreshToken: string }) {
     const isProd = this.configService.get<string>('NODE_ENV') === 'production';
 
-    response.cookie('access_token', tokens.accessToken, {
-      // Protect access token from JavaScript to prevent XSS token theft.
-      httpOnly: true,
-      secure: isProd,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 15 * 60 * 1000, // 15 minutes
-    });
+    // Access token is memory-only, do not set it in a cookie.
 
     response.cookie('refresh_token', tokens.refreshToken, {
       httpOnly: true,
@@ -265,7 +265,6 @@ export class AuthService {
   }
 
   clearAuthCookies(response: Response) {
-    response.clearCookie('access_token', { path: '/' });
     response.clearCookie('refresh_token', { path: '/' });
     response.clearCookie('csrf_token', { path: '/' });
   }

@@ -21,7 +21,7 @@ export class AuthController {
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.register(dto);
     this.authService.setAuthCookies(res, result);
-    return { user: result.user };
+    return { user: result.user, accessToken: result.accessToken };
   }
 
   @Public()
@@ -37,7 +37,7 @@ export class AuthController {
     }
     const logged = await this.authService.login(result);
     this.authService.setAuthCookies(res, logged);
-    return { user: logged.user };
+    return { user: logged.user, accessToken: logged.accessToken };
   }
 
   @Public()
@@ -64,7 +64,7 @@ export class AuthController {
     }
     const result = await this.authService.refresh(refreshToken);
     this.authService.setAuthCookies(res, result);
-    return { user: result.user };
+    return { user: result.user, accessToken: result.accessToken };
   }
 
   @Public()

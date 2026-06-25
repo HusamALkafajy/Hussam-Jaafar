@@ -1,0 +1,235 @@
+/**
+ * Token transport contract tests for AuthController.
+ *
+ * Verifies per-endpoint token transport without an HTTP server:
+ *  - accessToken is present in the JSON response body
+ *  - refresh_token is set as an httpOnly cookie (via response.cookie)
+ *  - access_token is NEVER set as a cookie
+ *  - refreshToken is never accepted from the JSON request body (refresh reads cookies only)
+ *
+ * Uses the existing Jest + @nestjs/testing convention.
+ * No supertest or live DB required: AuthService and UsersService are fully mocked.
+ */
+
+import { Test, TestingModule } from '@nestjs/testing';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { HttpStatus } from '@nestjs/common';
+
+// ─── Minimal mock AuthService ─────────────────────────────────────────────────
+
+const mockTokenPair = {
+  accessToken: 'mock-access-token',
+  refreshToken: 'mock-refresh-token',
+  user: { id: '1', email: 'user@test.com', firstName: 'Test', lastName: 'User', role: 'student', locale: 'en' },
+};
+
+const mockAuthService = {
+  register: jest.fn().mockResolvedValue(mockTokenPair),
+  validateUser: jest.fn().mockResolvedValue({ id: '1', email: 'user@test.com', firstName: 'Test', lastName: 'User', role: 'student' }),
+  login: jest.fn().mockResolvedValue(mockTokenPair),
+  refresh: jest.fn().mockResolvedValue(mockTokenPair),
+  logout: jest.fn().mockResolvedValue(undefined),
+  setAuthCookies: jest.fn(),
+  clearAuthCookies: jest.fn(),
+};
+
+// ─── Mock express Response ────────────────────────────────────────────────────
+
+function makeMockResponse() {
+  const cookies: Record<string, { value: string; options: Record<string, unknown> }> = {};
+  return {
+    cookie: jest.fn((name: string, value: string, options: Record<string, unknown>) => {
+      cookies[name] = { value, options };
+    }),
+    _cookies: cookies,
+    status: jest.fn().mockReturnThis(),
+    json: jest.fn().mockReturnThis(),
+  };
+}
+
+describe('AuthController — token transport contract', () => {
+  let controller: AuthController;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [{ provide: AuthService, useValue: mockAuthService }],
+    }).compile();
+
+    controller = module.get<AuthController>(AuthController);
+    jest.clearAllMocks();
+  });
+
+  // ── POST /auth/register ─────────────────────────────────────────────────────
+
+  describe('POST /auth/register', () => {
+    it('returns accessToken in JSON body', async () => {
+      mockAuthService.register.mockResolvedValueOnce(mockTokenPair);
+      const res = makeMockResponse();
+      const result = await controller.register(
+        { email: 'a@b.com', password: 'P@ssword1', firstName: 'A', lastName: 'B' } as any,
+        res as any,
+      );
+      // setAuthCookies is called on the service; the controller returns body directly
+      expect(result).toEqual(
+        expect.objectContaining({ accessToken: mockTokenPair.accessToken }),
+      );
+    });
+
+    it('delegates cookie setting to setAuthCookies (not directly on response)', async () => {
+      mockAuthService.register.mockResolvedValueOnce(mockTokenPair);
+      const res = makeMockResponse();
+      await controller.register(
+        { email: 'a@b.com', password: 'P@ssword1', firstName: 'A', lastName: 'B' } as any,
+        res as any,
+      );
+      // Controller must call setAuthCookies — NOT write cookies directly
+      // The full result (including user) is passed; we assert on token fields only.
+      expect(mockAuthService.setAuthCookies).toHaveBeenCalledWith(
+        res,
+        expect.objectContaining({
+          accessToken: mockTokenPair.accessToken,
+          refreshToken: mockTokenPair.refreshToken,
+        }),
+      );
+      // Controller must NOT call res.cookie directly with access_token
+      expect(res.cookie).not.toHaveBeenCalledWith(
+        'access_token',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
+
+  // ── POST /auth/login ────────────────────────────────────────────────────────
+
+  describe('POST /auth/login', () => {
+    it('returns accessToken in JSON body', async () => {
+      mockAuthService.validateUser.mockResolvedValueOnce({ id: '1', email: 'a@b.com', firstName: 'A', lastName: 'B', role: 'student' });
+      mockAuthService.login.mockResolvedValueOnce(mockTokenPair);
+      const res = makeMockResponse();
+      const result = await controller.login(
+        { email: 'a@b.com', password: 'P@ssword1' },
+        res as any,
+      );
+      expect(result).toEqual(
+        expect.objectContaining({ accessToken: mockTokenPair.accessToken }),
+      );
+    });
+
+    it('does not set access_token cookie', async () => {
+      mockAuthService.validateUser.mockResolvedValueOnce({ id: '1', email: 'a@b.com', firstName: 'A', lastName: 'B', role: 'student' });
+      mockAuthService.login.mockResolvedValueOnce(mockTokenPair);
+      const res = makeMockResponse();
+      await controller.login({ email: 'a@b.com', password: 'P@ssword1' }, res as any);
+      // The controller delegates to setAuthCookies; it must not call res.cookie('access_token')
+      expect(res.cookie).not.toHaveBeenCalledWith(
+        'access_token',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
+
+  // ── POST /auth/refresh ──────────────────────────────────────────────────────
+
+  describe('POST /auth/refresh', () => {
+    it('reads refresh_token from cookie — not from request body', async () => {
+      mockAuthService.refresh.mockResolvedValueOnce(mockTokenPair);
+      const res = makeMockResponse();
+
+      // Request with a cookie but also a body refreshToken (body must be ignored)
+      const req = {
+        cookies: { refresh_token: 'valid-cookie-refresh-token' },
+        body: { refreshToken: 'body-should-be-ignored' },
+      };
+
+      await controller.refresh(req as any, res as any);
+
+      // Service was called with the cookie value, not the body value
+      expect(mockAuthService.refresh).toHaveBeenCalledWith('valid-cookie-refresh-token');
+      expect(mockAuthService.refresh).not.toHaveBeenCalledWith('body-should-be-ignored');
+    });
+
+    it('returns 401 when no refresh_token cookie is present', async () => {
+      const res = makeMockResponse();
+      const req = { cookies: {}, body: {} };
+
+      await controller.refresh(req as any, res as any);
+
+      // Controller returns 401 without calling authService.refresh
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.UNAUTHORIZED);
+      expect(mockAuthService.refresh).not.toHaveBeenCalled();
+    });
+
+    it('returns accessToken in JSON body on success', async () => {
+      mockAuthService.refresh.mockResolvedValueOnce(mockTokenPair);
+      const res = makeMockResponse();
+      const req = { cookies: { refresh_token: 'valid-token' }, body: {} };
+
+      const result = await controller.refresh(req as any, res as any);
+      expect(result).toEqual(
+        expect.objectContaining({ accessToken: mockTokenPair.accessToken }),
+      );
+    });
+
+    it('does not set access_token cookie on refresh', async () => {
+      mockAuthService.refresh.mockResolvedValueOnce(mockTokenPair);
+      const res = makeMockResponse();
+      const req = { cookies: { refresh_token: 'valid-token' }, body: {} };
+      await controller.refresh(req as any, res as any);
+      expect(res.cookie).not.toHaveBeenCalledWith(
+        'access_token',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
+
+  // ── setAuthCookies (service method) ─────────────────────────────────────────
+
+  describe('AuthService.setAuthCookies — cookie attribute contract', () => {
+    it('sets refresh_token as httpOnly', () => {
+      // Verify that the real setAuthCookies (not the mock) sets httpOnly.
+      // We need the real service for this test; instantiate it directly.
+      const mockConfig = {
+        get: jest.fn((key: string) => {
+          if (key === 'NODE_ENV') return 'production';
+          return undefined;
+        }),
+      };
+      const mockJwt = {};
+      const mockUsers = {};
+
+      // Partial instantiation: only test setAuthCookies method
+      const service = new (require('./auth.service').AuthService)(
+        mockUsers as any,
+        mockJwt as any,
+        mockConfig as any,
+      );
+
+      const cookies: Array<{ name: string; value: string; options: any }> = [];
+      const mockRes = {
+        cookie: jest.fn((name: string, value: string, options: any) => {
+          cookies.push({ name, value, options });
+        }),
+      };
+
+      service.setAuthCookies(mockRes as any, {
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      const refreshCookie = cookies.find((c) => c.name === 'refresh_token');
+      const accessCookie = cookies.find((c) => c.name === 'access_token');
+
+      // refresh_token MUST be httpOnly
+      expect(refreshCookie).toBeDefined();
+      expect(refreshCookie?.options.httpOnly).toBe(true);
+
+      // access_token MUST NOT be set as any cookie
+      expect(accessCookie).toBeUndefined();
+    });
+  });
+});

@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { db, users, subscriptions, eq } from '@studyai/database';
-import { UserRole, AuthProvider, Locale, SubscriptionTier } from '@studyai/types';
+import { UserRole, AuthProvider, Locale, SubscriptionTier, PLAN_LIMITS } from '@studyai/types';
+
+// Narrow type that both the global `db` and a Drizzle `PgTransaction` satisfy.
+// Used as an optional parameter so callers can pass a transaction handle.
+type DbClient = Pick<typeof db, 'update'>;
 
 @Injectable()
 export class UsersService {
@@ -65,18 +69,27 @@ export class UsersService {
   }
 
   async createDefaultSubscription(userId: string) {
+    const limits = PLAN_LIMITS.free;
     const periodEnd = new Date();
     periodEnd.setMonth(periodEnd.getMonth() + 1);
+    const now = new Date();
 
     await db.insert(subscriptions).values({
       userId,
       plan: 'free',
       status: 'active',
-      monthlyFileLimit: 5,
-      monthlyQuestionLimit: 100,
+      monthlyFileLimit: limits.uploadsPerMonth,
       filesUsedThisMonth: 0,
+      dailyChatLimit: limits.aiChatMessagesPerDay,
+      dailyChatUsed: 0,
+      dailyChatResetAt: now,
+      monthlyQuizLimit: limits.quizQuestionsPerMonth,
+      quizQuestionsUsedThisMonth: 0,
+      monthlyFlashcardLimit: limits.flashcardsPerMonth,
+      flashcardsUsedThisMonth: 0,
+      monthlyQuestionLimit: limits.aiChatMessagesPerDay * 30, // legacy compat
       questionsUsedThisMonth: 0,
-      currentPeriodStart: new Date(),
+      currentPeriodStart: now,
       currentPeriodEnd: periodEnd,
     });
   }
@@ -98,15 +111,15 @@ export class UsersService {
     return result[0];
   }
 
-  async updatePassword(id: string, passwordHash: string) {
-    await db
+  async updatePassword(id: string, passwordHash: string, tx?: DbClient) {
+    await (tx ?? db)
       .update(users)
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(users.id, id));
   }
 
-  async updateRefreshTokenHash(id: string, refreshTokenHash: string | null) {
-    await db
+  async updateRefreshTokenHash(id: string, refreshTokenHash: string | null, tx?: DbClient) {
+    await (tx ?? db)
       .update(users)
       .set({ refreshTokenHash, updatedAt: new Date() })
       .where(eq(users.id, id));
@@ -148,8 +161,8 @@ export class UsersService {
       .where(eq(users.id, id));
   }
 
-  async clearResetToken(id: string) {
-    await db
+  async clearResetToken(id: string, tx?: DbClient) {
+    await (tx ?? db)
       .update(users)
       .set({ resetToken: null, resetTokenExpires: null, updatedAt: new Date() })
       .where(eq(users.id, id));
