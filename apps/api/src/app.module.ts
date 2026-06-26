@@ -8,7 +8,9 @@ import databaseConfig from './config/database.config';
 import authConfig from './config/auth.config';
 import aiConfig from './config/ai.config';
 import stripeConfig from './config/stripe.config';
+import queueConfig from './config/queue.config';
 import { AuthModule } from './modules/auth/auth.module';
+import { BullModule } from '@nestjs/bullmq';
 import { UsersModule } from './modules/users/users.module';
 import { FilesModule } from './modules/files/files.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -35,9 +37,16 @@ import { CustomThrottlerGuard } from './common/guards/throttler.guard';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../../.env',
-      load: [appConfig, databaseConfig, authConfig, aiConfig, stripeConfig],
+      load: [appConfig, databaseConfig, authConfig, aiConfig, stripeConfig, queueConfig],
     }),
     ScheduleModule.forRoot(),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        connection: configService.get('queue.redis') as any,
+      }),
+      inject: [ConfigService],
+    }),
     // Use static throttler config to avoid runtime init ordering issues.
     ThrottlerModule.forRoot({
       throttlers: [

@@ -1,9 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
-import { db, users, files, subjects, subscriptions, eq, and, or, sql, desc } from '@studyai/database';
+import { db } from '@studyai/database';
+import { files, subscriptions, users, subjects, fileProcessingAttempts } from '@studyai/database';
+import { eq, and, or, sql, desc } from '@studyai/database';
 
 import { FileType, ProcessingStatus, UserRole } from '@studyai/types';
 import { AiService } from '../ai/ai.service';
 import { RagService } from '../rag/rag.service';
+import { FileProcessingDispatcherService } from './services/file-processing-dispatcher.service';
+
+const USE_BULLMQ_PROCESSING = process.env.USE_BULLMQ_PROCESSING === 'true';
 import { GamificationService } from '../study-coach/gamification.service';
 import { FileQueryDto } from './dto/file-query.dto';
 
@@ -21,6 +26,7 @@ export class FilesService {
     private readonly aiService: AiService,
     private readonly ragService: RagService,
     private readonly gamificationService: GamificationService,
+    private readonly dispatcherService: FileProcessingDispatcherService,
   ) {
     this.ensureUploadDir();
     if (!process.env.OPENROUTER_API_KEY && !process.env.GEMINI_API_KEY) {
@@ -179,23 +185,42 @@ export class FilesService {
     }
 
 
-    // 5. Trigger background processing (fire-and-forget with explicit error handling)
-    this.processFileBackground(fileRecord.id, storagePath, fileType, mime)
-      .catch((err) => {
-        this.logger.error(
-          `[FilesService] Unhandled top-level error in processFileBackground for file ${fileRecord.id}. ` +
-          `Marking as FAILED. Error: ${err?.message || err}`,
-        );
-        db.update(files)
-          .set({
-            processingStatus: ProcessingStatus.FAILED,
-            processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
-          })
-          .where(eq(files.id, fileRecord.id))
-          .catch((dbErr) =>
-            this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
-          );
+    // 5. Trigger background processing
+    if (USE_BULLMQ_PROCESSING) {
+      const attemptResult = await db
+        .insert(fileProcessingAttempts)
+        .values({
+          fileId: fileRecord.id,
+          queueJobId: `file-processing_${fileRecord.id}`, // temporarily using fileId for predictable format until attempt uuid is generated
+        })
+        .returning({ id: fileProcessingAttempts.id });
+
+      const attemptId = attemptResult[0].id;
+      const queueJobId = `file-processing_${attemptId}`;
+      await db.update(fileProcessingAttempts).set({ queueJobId }).where(eq(fileProcessingAttempts.id, attemptId));
+
+      this.dispatcherService.dispatchAttempt(attemptId).catch((err) => {
+        this.logger.error(`Failed to dispatch attempt ${attemptId}`, err);
       });
+    } else {
+      // (fire-and-forget with explicit error handling)
+      this.processFileBackground(fileRecord.id, storagePath, fileType, mime)
+        .catch((err) => {
+          this.logger.error(
+            `[FilesService] Unhandled top-level error in processFileBackground for file ${fileRecord.id}. ` +
+            `Marking as FAILED. Error: ${err?.message || err}`,
+          );
+          db.update(files)
+            .set({
+              processingStatus: ProcessingStatus.FAILED,
+              processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
+            })
+            .where(eq(files.id, fileRecord.id))
+            .catch((dbErr) =>
+              this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
+            );
+        });
+    }
 
     // Award gamification challenge progress for file upload (fire-and-forget)
     this.gamificationService
@@ -706,23 +731,44 @@ export class FilesService {
         .where(eq(subscriptions.id, sub[0].id));
     }
 
-    // Trigger background processing (fire-and-forget with explicit error handling)
-    this.processFileBackground(fileRecord.id, filePath, fileType, mime)
-      .catch((err) => {
-        this.logger.error(
-          `[FilesService] Unhandled top-level error in processFileBackground (chunked) for file ${fileRecord.id}. ` +
-          `Marking as FAILED. Error: ${err?.message || err}`,
-        );
-        db.update(files)
-          .set({
-            processingStatus: ProcessingStatus.FAILED,
-            processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
-          })
-          .where(eq(files.id, fileRecord.id))
-          .catch((dbErr) =>
-            this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
-          );
+    if (USE_BULLMQ_PROCESSING) {
+      // Create file processing attempt
+      const attemptResult = await db
+        .insert(fileProcessingAttempts)
+        .values({
+          fileId: fileRecord.id,
+          queueJobId: `file-processing_${fileRecord.id}`, // temporarily using fileId for predictable format until attempt uuid is generated, actually we can generate attemptId first
+        })
+        .returning({ id: fileProcessingAttempts.id });
+
+      const attemptId = attemptResult[0].id;
+      // Re-update queueJobId to include attemptId
+      const queueJobId = `file-processing_${attemptId}`;
+      await db.update(fileProcessingAttempts).set({ queueJobId }).where(eq(fileProcessingAttempts.id, attemptId));
+
+      // Trigger dispatcher
+      this.dispatcherService.dispatchAttempt(attemptId).catch((err) => {
+        this.logger.error(`Failed to dispatch attempt ${attemptId}`, err);
       });
+    } else {
+      // Trigger background processing (fire-and-forget with explicit error handling)
+      this.processFileBackground(fileRecord.id, filePath, fileType, mime)
+        .catch((err) => {
+          this.logger.error(
+            `[FilesService] Unhandled top-level error in processFileBackground (chunked) for file ${fileRecord.id}. ` +
+            `Marking as FAILED. Error: ${err?.message || err}`,
+          );
+          db.update(files)
+            .set({
+              processingStatus: ProcessingStatus.FAILED,
+              processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
+            })
+            .where(eq(files.id, fileRecord.id))
+            .catch((dbErr) =>
+              this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
+            );
+        });
+    }
 
     return fileRecord;
   }
@@ -742,8 +788,26 @@ export class FilesService {
 
     const storagePath = path.join(this.uploadDir, file.storageKey);
 
-    // Re-trigger background processing
-    this.processFileBackground(file.id, storagePath, file.fileType as FileType, file.mimeType);
+    if (USE_BULLMQ_PROCESSING) {
+      const attemptResult = await db
+        .insert(fileProcessingAttempts)
+        .values({
+          fileId: file.id,
+          queueJobId: `file-processing_${file.id}`, // temporarily using fileId
+        })
+        .returning({ id: fileProcessingAttempts.id });
+
+      const attemptId = attemptResult[0].id;
+      const queueJobId = `file-processing_${attemptId}`;
+      await db.update(fileProcessingAttempts).set({ queueJobId }).where(eq(fileProcessingAttempts.id, attemptId));
+
+      this.dispatcherService.dispatchAttempt(attemptId).catch((err) => {
+        this.logger.error(`Failed to dispatch attempt ${attemptId}`, err);
+      });
+    } else {
+      // Re-trigger background processing
+      this.processFileBackground(file.id, storagePath, file.fileType as FileType, file.mimeType);
+    }
 
     return { success: true, message: 'Reprocessing started' };
   }

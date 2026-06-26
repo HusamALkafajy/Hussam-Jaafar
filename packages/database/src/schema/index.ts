@@ -15,3 +15,4 @@ export * from './learning_paths';
 export * from './notes';
 export * from './groups';
 
+export * from './file_processing_attempts';
