@@ -15,7 +15,10 @@ build/
 .env
 .env.local
 .env.*.local
+# Local test environment files — contain real DB credentials, must never be committed
+apps/api/.env.test
 !.env.example
+!apps/api/.env.example
 
 # IDE
 .vscode/
