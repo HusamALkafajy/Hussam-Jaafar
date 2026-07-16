@@ -98,8 +98,44 @@ export class AdminController {
 
   /** Legacy alias */
   @Get('ai/stats')
-  async getAiStats() {
+  async getAiStatsLegacy() {
     return this.adminService.getAiStats();
+  }
+
+  // ── Operations Layer ──────────────────────────────────────────────────────
+
+  @Get('sessions')
+  async getProcessingSessions(
+    @Query('limit') limit?: string,
+    @Query('page') page?: string,
+  ) {
+    return this.adminService.getProcessingSessions(
+      limit ? parseInt(limit, 10) : 50,
+      page ? parseInt(page, 10) : 1
+    );
+  }
+
+  @Get('sessions/:id')
+  async getProcessingSession(@Param('id') sessionId: string) {
+    return this.adminService.getProcessingSession(sessionId);
+  }
+
+  @Get('checkpoints/:sessionId')
+  async getProcessingCheckpoints(
+    @Param('sessionId') sessionId: string,
+    @Query('limit') limit?: string,
+    @Query('page') page?: string,
+  ) {
+    return this.adminService.getProcessingCheckpoints(
+      sessionId,
+      limit ? parseInt(limit, 10) : 50,
+      page ? parseInt(page, 10) : 1
+    );
+  }
+
+  @Get('queues/status')
+  async getQueueStatus() {
+    return this.adminService.getQueueStatus();
   }
 
   // ── Retention ────────────────────────────────────────────────────────────

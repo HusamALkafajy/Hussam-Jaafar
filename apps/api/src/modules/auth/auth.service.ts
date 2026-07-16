@@ -95,7 +95,7 @@ export class AuthService {
   }
 
   async login(user: AuthUser) {
-    const superAdminEmail = this.configService.get<string>('SUPER_ADMIN_EMAIL') || process.env.SUPER_ADMIN_EMAIL;
+    const superAdminEmail = this.configService.get<string>('auth.superAdminEmail');
     if (superAdminEmail && user.email.toLowerCase() === superAdminEmail.toLowerCase() && user.role !== UserRole.ADMIN) {
       const updated = await this.usersService.update(user.id, { role: UserRole.ADMIN });
       user.role = updated.role;
@@ -275,13 +275,17 @@ export class AuthService {
     this.logger.log(`Verification email prepared for ${email}`);
 
     if (this.transporter) {
-      const from = this.configService.get<string>('SMTP_FROM') || 'StudyAI <noreply@studyai.com>';
-      await this.transporter.sendMail({
-        from,
-        to: email,
-        subject: 'Verify your email — StudyAI',
-        html: `<p>Hello ${name},</p><p>Please verify your email by clicking <a href="${url}">here</a>.</p>`,
-      });
+      try {
+        const from = this.configService.get<string>('SMTP_FROM') || 'StudyAI <noreply@studyai.com>';
+        await this.transporter.sendMail({
+          from,
+          to: email,
+          subject: 'Verify your email - StudyAI',
+          html: `<p>Hello ${name},</p><p>Please verify your email by clicking <a href="${url}">here</a>.</p>`,
+        });
+      } catch (e) {
+        this.logger.error(`Failed to send verification email to ${email}: ${e.message}`);
+      }
     }
   }
 

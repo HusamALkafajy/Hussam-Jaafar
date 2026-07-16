@@ -2,15 +2,16 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { Reflector } from '@nestjs/core';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
 import authConfig from './config/auth.config';
 import aiConfig from './config/ai.config';
 import stripeConfig from './config/stripe.config';
 import queueConfig from './config/queue.config';
+import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { BullModule } from '@nestjs/bullmq';
 import { UsersModule } from './modules/users/users.module';
 import { FilesModule } from './modules/files/files.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -30,33 +31,33 @@ import { GamificationModule } from './modules/gamification/gamification.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { StudyGroupsModule } from './modules/study-groups/study-groups.module';
+import { TelemetryModule } from './modules/telemetry/telemetry.module';
 import { CustomThrottlerGuard } from './common/guards/throttler.guard';
+import { QuotaInterceptor } from './common/interceptors/quota.interceptor';
+import { QuotaModule } from './modules/quota/quota.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '../../.env',
+      envFilePath: ['.env'],
       load: [appConfig, databaseConfig, authConfig, aiConfig, stripeConfig, queueConfig],
     }),
+    InfrastructureModule,
     ScheduleModule.forRoot(),
-    BullModule.forRootAsync({
+    // Use static throttler config to avoid runtime init ordering issues, but retrieve via config factory
+    ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        connection: configService.get('queue.redis') as any,
-      }),
       inject: [ConfigService],
-    }),
-    // Use static throttler config to avoid runtime init ordering issues.
-    ThrottlerModule.forRoot({
-      throttlers: [
-        {
-          // Global throttler
-          limit: Number(process.env.THROTTLE_LIMIT) || 100,
-          ttl: Number(process.env.THROTTLE_TTL) || 60,
-        },
-      ],
-      setHeaders: true,
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            limit: configService.get<number>('app.throttleLimit') || 100,
+            ttl: configService.get<number>('app.throttleTtl') || 60,
+          },
+        ],
+        setHeaders: true,
+      }),
     }),
     AuthModule,
     UsersModule,
@@ -78,11 +79,19 @@ import { CustomThrottlerGuard } from './common/guards/throttler.guard';
     ChatModule,
     NotesModule,
     StudyGroupsModule,
+    TelemetryModule,
+    QuotaModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: CustomThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useFactory: (reflector: Reflector, tokenAccountant: any) =>
+        new QuotaInterceptor(reflector, tokenAccountant),
+      inject: [Reflector, 'TokenAccountant'],
     },
   ],
 

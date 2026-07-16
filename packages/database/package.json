@@ -10,17 +10,18 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "drizzle-orm": "^0.38.0",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@types/node": "^22.10.1",
+    "dotenv": "^16.4.5",
     "drizzle-kit": "^0.30.0",
     "typescript": "^5.7.0",
-    "dotenv": "^16.4.5",
-    "@types/node": "^22.10.1"
+    "vitest": "^4.1.9"
   }
 }
-

@@ -1,10 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { db, users, payments, activityLogs, files, exams, aiTokenUsage, subscriptions, eq, and, or, desc, sql } from '@studyai/database';
+import { db, users, payments, activityLogs, files, exams, aiTokenUsage, subscriptions, eq, and, or, desc, asc, sql, processingSessions, processingCheckpoints } from '@studyai/database';
 import { UserRole, SubscriptionTier } from '@studyai/types';
 import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
+import { Inject } from '@nestjs/common';
+import { IQueue } from '@studyai/infrastructure';
 
 @Injectable()
 export class AdminService {
+  constructor(
+    @Inject('IQueue') private readonly fileProcessingQueue: IQueue
+  ) {}
   async getUsers(query: AdminUsersQueryDto) {
     const page = query.page || 1;
     const limit = query.limit || 10;
@@ -61,6 +66,95 @@ export class AdminService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  // ── Operations Layer: Sessions & Queues (Read-Only) ───────────────────────
+
+  async getProcessingSessions(limit: number = 50, page: number = 1) {
+    const offset = (page - 1) * limit;
+    
+    const data = await db
+      .select()
+      .from(processingSessions)
+      .orderBy(desc(processingSessions.createdAt))
+      .limit(limit)
+      .offset(offset);
+      
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(processingSessions);
+      
+    const total = Number(countResult[0]?.count || 0);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getProcessingSession(sessionId: string) {
+    const [session] = await db
+      .select()
+      .from(processingSessions)
+      .where(eq(processingSessions.id, sessionId))
+      .limit(1);
+      
+    if (!session) {
+      throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+    
+    return session;
+  }
+
+  async getProcessingCheckpoints(sessionId: string, limit: number = 50, page: number = 1) {
+    const offset = (page - 1) * limit;
+
+    const data = await db
+      .select()
+      .from(processingCheckpoints)
+      .where(eq(processingCheckpoints.sessionId, sessionId))
+      .orderBy(asc(processingCheckpoints.chunkIndex))
+      .limit(limit)
+      .offset(offset);
+      
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(processingCheckpoints)
+      .where(eq(processingCheckpoints.sessionId, sessionId));
+      
+    const total = Number(countResult[0]?.count || 0);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getQueueStatus() {
+    if (this.fileProcessingQueue.getJobCounts) {
+      const counts = await this.fileProcessingQueue.getJobCounts();
+      return {
+        queue: 'studyai-main-queue',
+        counts,
+        timestamp: new Date()
+      };
+    }
+    
+    return {
+      queue: 'studyai-main-queue',
+      status: 'Queue interface does not support getJobCounts',
+      timestamp: new Date()
     };
   }
 

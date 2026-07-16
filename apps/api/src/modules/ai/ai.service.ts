@@ -99,7 +99,7 @@ export class AiService {
   }
 
   private isMockMode(): boolean {
-    return !this.apiKey;
+    return !this.apiKey || this.apiKey.includes('mock');
   }
 
   /** True when the native Gemini SDK should handle multimodal calls. */
@@ -202,6 +202,7 @@ export class AiService {
     messages: Array<{ role: string; content: any }>,
     jsonMode = false,
     timeoutMs = 10 * 60 * 1000,
+    maxTokensOverride?: number,
   ): Promise<string> {
     // this.baseUrl already contains /v1 (set by ai.config.ts), so append only the path.
     const url = `${this.baseUrl}/chat/completions`;
@@ -217,7 +218,7 @@ export class AiService {
       messages,
       // Explicit token cap — prevents OpenRouter from defaulting to the model's
       // maximum context window (65 535 for gemini-2.5-flash) and triggering 402.
-      max_tokens: AiService.OPENROUTER_MAX_TOKENS,
+      max_tokens: maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS,
     };
 
     if (jsonMode) {
@@ -367,7 +368,7 @@ export class AiService {
     temperature: 0,
     topP: 0.8,
     topK: 20,
-    maxOutputTokens: AiService.OPENROUTER_MAX_TOKENS,
+    maxOutputTokens: 8192, // Increased exclusively for PDF extraction to handle large documents natively
   };
 
   /**
@@ -551,7 +552,7 @@ export class AiService {
         },
       ];
 
-      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages));
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, false, 10 * 60 * 1000, 8192));
       return responseText;
     } catch (error: any) {
       this.logger.error('[OpenRouter] extractText failed:', error);

@@ -8,28 +8,31 @@ import { AiService } from '../ai/ai.service';
 import { RagService } from '../rag/rag.service';
 import { FileProcessingDispatcherService } from './services/file-processing-dispatcher.service';
 
-const USE_BULLMQ_PROCESSING = process.env.USE_BULLMQ_PROCESSING === 'true';
+const USE_BULLMQ_PROCESSING = true;
 import { GamificationService } from '../study-coach/gamification.service';
 import { FileQueryDto } from './dto/file-query.dto';
 
 import * as fs from 'fs/promises';
-import { createWriteStream } from 'fs';
 import * as path from 'path';
 import * as mammoth from 'mammoth';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class FilesService {
   private readonly logger = new Logger(FilesService.name);
-  private uploadDir = path.resolve(__dirname, '../../../../uploads');
+  private uploadDir = path.resolve(process.cwd(), 'apps/api/uploads');
 
   constructor(
     private readonly aiService: AiService,
     private readonly ragService: RagService,
     private readonly gamificationService: GamificationService,
     private readonly dispatcherService: FileProcessingDispatcherService,
+    private readonly configService: ConfigService,
   ) {
     this.ensureUploadDir();
-    if (!process.env.OPENROUTER_API_KEY && !process.env.GEMINI_API_KEY) {
+    const openrouterKey = this.configService.get<string>('ai.openrouterApiKey');
+    const geminiKey = this.configService.get<string>('ai.geminiApiKey');
+    if (!openrouterKey && !geminiKey) {
       this.logger.warn(
         '[FilesService] Neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set. ' +
         'Document processing will run in MOCK MODE — extracted text will be fake placeholder content. ' +
@@ -823,10 +826,9 @@ export class FilesService {
       return false;
     }
     const user = userResult[0];
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const superAdminEmail = this.configService.get<string>('auth.superAdminEmail');
     const isSuperAdmin = !!(superAdminEmail && user.email.toLowerCase() === superAdminEmail.toLowerCase());
     return user.role === UserRole.ADMIN || isSuperAdmin;
   }
 
 }
-

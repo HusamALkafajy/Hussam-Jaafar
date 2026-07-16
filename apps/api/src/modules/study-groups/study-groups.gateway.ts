@@ -29,6 +29,8 @@ import { ConfigService } from '@nestjs/config';
    * CORS must allow the Next.js dev server (port 3001 in this project).
    * We read FRONTEND_URL from the environment; fall back to localhost:3001.
    * An array is accepted so both ports work during development.
+   * NOTE (Architecture Exemption): process.env is used here because decorators
+   * execute at module load time before the DI container provides ConfigService.
    */
   cors: {
     origin: [

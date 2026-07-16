@@ -7,6 +7,17 @@ jest.mock('mammoth', () => ({
   extractRawText: jest.fn(),
 }));
 
+jest.mock('fs/promises', () => ({
+  writeFile: jest.fn(),
+  unlink: jest.fn(),
+}));
+
+jest.mock('../utils/pdf.util', () => ({
+  PdfUtility: {
+    extractPageRangeFromFile: jest.fn(),
+  },
+}));
+
 describe('FileProcessingExecutionService', () => {
   let service: FileProcessingExecutionService;
   let aiService: AiService;
@@ -34,7 +45,7 @@ describe('FileProcessingExecutionService', () => {
     (aiService.extractText as jest.Mock).mockResolvedValue('PDF content');
     const result = await service.executeExtraction('file-1', 'path.pdf', 'pdf', 'application/pdf');
 
-    expect(result.extractedText).toBe('PDF content');
+    expect(result).toBe('PDF content');
     expect(aiService.extractText).toHaveBeenCalledWith('path.pdf', 'application/pdf');
   });
 
@@ -42,7 +53,7 @@ describe('FileProcessingExecutionService', () => {
     (aiService.extractText as jest.Mock).mockResolvedValue('Image content');
     const result = await service.executeExtraction('file-2', 'path.jpg', 'image', 'image/jpeg');
 
-    expect(result.extractedText).toBe('Image content');
+    expect(result).toBe('Image content');
     expect(aiService.extractText).toHaveBeenCalledWith('path.jpg', 'image/jpeg');
   });
 
@@ -50,7 +61,7 @@ describe('FileProcessingExecutionService', () => {
     (mammoth.extractRawText as jest.Mock).mockResolvedValue({ value: 'DOCX content' });
     const result = await service.executeExtraction('file-3', 'path.docx', 'docx', 'application/docx');
 
-    expect(result.extractedText).toBe('DOCX content');
+    expect(result).toBe('DOCX content');
     expect(mammoth.extractRawText).toHaveBeenCalledWith({ path: 'path.docx' });
   });
 
@@ -58,21 +69,54 @@ describe('FileProcessingExecutionService', () => {
     (aiService.extractText as jest.Mock).mockResolvedValue('   ');
     const result = await service.executeExtraction('file-4', 'path.pdf', 'pdf', 'application/pdf');
 
-    expect(result.extractedText).toBe('No extractable text found in this document.');
+    expect(result).toBe('No extractable text found in this document.');
   });
 
-  it('should propagate extraction error safely', async () => {
-    (aiService.extractText as jest.Mock).mockRejectedValue(new Error('AI failed'));
-    const result = await service.executeExtraction('file-5', 'path.pdf', 'pdf', 'application/pdf');
+  it('should throw an error if the AI service fails for PDF', async () => {
+    const error = new Error('AI extraction failed');
+    (aiService.extractText as jest.Mock).mockRejectedValue(error);
 
-    expect(result.extractedText).toBe('');
-    expect(result.error).toBe('AI failed');
+    await expect(
+      service.executeExtraction('file-5', 'path.pdf', 'pdf', 'application/pdf')
+    ).rejects.toThrow('AI extraction failed');
   });
 
-  it('should reject unsupported file types safely', async () => {
-    const result = await service.executeExtraction('file-6', 'path.txt', 'txt', 'text/plain');
+  it('should throw an error for unsupported file types', async () => {
+    await expect(
+      service.executeExtraction('file-6', 'path.txt', 'txt' as any, 'text/plain')
+    ).rejects.toThrow('Unsupported file type in pipeline');
+  });
 
-    expect(result.extractedText).toBe('');
-    expect(result.error).toBe('Unsupported file type in pipeline');
+  it('should remove temp file after successful subset extraction', async () => {
+    const { PdfUtility } = require('../utils/pdf.util');
+    const fs = require('fs/promises');
+    
+    PdfUtility.extractPageRangeFromFile.mockResolvedValue(Buffer.from('pdf data'));
+    fs.writeFile.mockResolvedValue(undefined);
+    fs.unlink.mockResolvedValue(undefined);
+    (aiService.extractText as jest.Mock).mockResolvedValue('Subset PDF content');
+
+    const result = await service.executeExtraction('file-7', 'path.pdf', 'pdf', 'application/pdf', 1, 5);
+
+    expect(result).toBe('Subset PDF content');
+    expect(PdfUtility.extractPageRangeFromFile).toHaveBeenCalledWith('path.pdf', 1, 5);
+    expect(fs.writeFile).toHaveBeenCalled();
+    expect(fs.unlink).toHaveBeenCalled();
+  });
+
+  it('should remove temp file even if extraction throws', async () => {
+    const { PdfUtility } = require('../utils/pdf.util');
+    const fs = require('fs/promises');
+    
+    PdfUtility.extractPageRangeFromFile.mockResolvedValue(Buffer.from('pdf data'));
+    fs.writeFile.mockResolvedValue(undefined);
+    fs.unlink.mockResolvedValue(undefined);
+    (aiService.extractText as jest.Mock).mockRejectedValue(new Error('AI Failed subset'));
+
+    await expect(
+      service.executeExtraction('file-8', 'path.pdf', 'pdf', 'application/pdf', 1, 5)
+    ).rejects.toThrow('AI Failed subset');
+
+    expect(fs.unlink).toHaveBeenCalled();
   });
 });

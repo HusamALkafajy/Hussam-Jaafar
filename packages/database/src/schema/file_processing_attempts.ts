@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, integer, pgEnum, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, integer, pgEnum, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 import { files } from './files';
 
@@ -9,7 +9,8 @@ export const fileProcessingStatusEnum = pgEnum('file_processing_status', [
   'processing',
   'completed',
   'failed',
-  'enqueue_failed'
+  'enqueue_failed',
+  'retrying'
 ]);
 
 export const fileProcessingAttempts = pgTable('file_processing_attempts', {
@@ -22,11 +23,15 @@ export const fileProcessingAttempts = pgTable('file_processing_attempts', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull().$onUpdateFn(() => new Date()),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  errorCode: varchar('error_code', { length: 255 }),
+  processingAttempts: integer('processing_attempts').notNull().default(0),
+  nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
 }, (table) => {
   return {
     fileIdIdx: index('file_processing_attempts_file_id_idx').on(table.fileId),
     activeAttemptPartialIdx: uniqueIndex('file_processing_active_attempt_idx').on(table.fileId).where(
-      sql`${table.status} IN ('enqueue_pending', 'dispatching', 'queued', 'processing')`
+      sql`${table.status} IN ('enqueue_pending', 'dispatching', 'queued', 'processing', 'retrying')`
     )
   };
 });

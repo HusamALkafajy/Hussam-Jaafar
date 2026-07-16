@@ -8,6 +8,7 @@ import { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { TelemetryInterceptor } from './modules/telemetry/telemetry.interceptor';
 import { requestContextMiddleware } from './common/request-context';
 
 async function bootstrap() {
@@ -79,6 +80,9 @@ async function bootstrap() {
   // 5. Global filters & interceptors
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
+  
+  const telemetryInterceptor = app.get(TelemetryInterceptor);
+  app.useGlobalInterceptors(telemetryInterceptor);
 
   // 6. Increase request timeouts for longer AI provider response times
   const extendedTimeout = 10 * 60 * 1000; // 10 minutes

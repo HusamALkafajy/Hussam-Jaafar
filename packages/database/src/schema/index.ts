@@ -16,3 +16,5 @@ export * from './notes';
 export * from './groups';
 
 export * from './file_processing_attempts';
+export * from './document_engine';
+export * from './infrastructure';

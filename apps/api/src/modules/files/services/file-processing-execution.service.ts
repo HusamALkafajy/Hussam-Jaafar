@@ -4,11 +4,6 @@ import { AiService } from '../../ai/ai.service';
 import * as mammoth from 'mammoth';
 import { FileType } from '@studyai/types';
 
-export interface FileExecutionResult {
-  extractedText: string;
-  error?: string;
-}
-
 @Injectable()
 export class FileProcessingExecutionService {
   private readonly logger = new Logger(FileProcessingExecutionService.name);
@@ -21,30 +16,50 @@ export class FileProcessingExecutionService {
     fileId: string,
     filePath: string,
     type: FileType | string,
-    mime: string
-  ): Promise<FileExecutionResult> {
+    mime: string,
+    startPage?: number,
+    endPage?: number
+  ): Promise<string> {
+    let extractedText = '';
+    let targetFilePath = filePath;
+    let isTempFile = false;
+
     try {
-      let extractedText = '';
+      if (type === 'pdf' && startPage !== undefined && endPage !== undefined) {
+        const { PdfUtility } = await import('../utils/pdf.util');
+        const { tmpdir } = await import('os');
+        const { join } = await import('path');
+        const { randomUUID } = await import('crypto');
+        const fs = await import('fs/promises');
+
+        const extractedBuffer = await PdfUtility.extractPageRangeFromFile(filePath, startPage, endPage);
+        targetFilePath = join(tmpdir(), `${randomUUID()}.pdf`);
+        isTempFile = true;
+        await fs.writeFile(targetFilePath, extractedBuffer);
+      }
 
       if (type === 'pdf' || type === 'image') {
-        extractedText = await this.aiService.extractText(filePath, mime);
+        extractedText = await this.aiService.extractText(targetFilePath, mime);
       } else if (type === 'docx') {
-        const result = await mammoth.extractRawText({ path: filePath });
+        const result = await mammoth.extractRawText({ path: targetFilePath });
         extractedText = result.value;
       } else {
         throw new Error('Unsupported file type in pipeline');
       }
-
-      if (!extractedText || extractedText.trim() === '') {
-        this.logger.warn(`Empty extracted text for File ID: ${fileId}. Saving fallback message.`);
-        extractedText = 'No extractable text found in this document.';
+    } finally {
+      if (isTempFile) {
+        const fs = await import('fs/promises');
+        await fs.unlink(targetFilePath).catch((err) => {
+          this.logger.warn(`Failed to cleanup temp PDF ${targetFilePath}: ${err.message}`);
+        });
       }
-
-      return { extractedText };
-    } catch (e: any) {
-      this.logger.error(`Extraction failed for File ID: ${fileId}`, e);
-      return { extractedText: '', error: e?.message || 'Unknown processing error' };
     }
-  }
 
+    if (!extractedText || extractedText.trim() === '') {
+      this.logger.warn(`Empty extracted text for File ID: ${fileId}. Saving fallback message.`);
+      extractedText = 'No extractable text found in this document.';
+    }
+
+    return extractedText;
+  }
 }

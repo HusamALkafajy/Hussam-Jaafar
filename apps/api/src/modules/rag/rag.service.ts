@@ -86,7 +86,27 @@ export class RagService {
     }
   }
 
-  // 3. Perform semantic vector search on file chunks using pgvector Cosine similarity
+  // 3. Generate raw document chunks for V2 extraction without database writes
+  async generateChunkValues(fileId: string, text: string, startPage: number) {
+    const chunks = this.chunkText(text);
+    
+    const chunkValues = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const embedding = await this.aiService.getEmbedding(chunk.content);
+      chunkValues.push({
+        fileId,
+        chunkIndex: i,
+        content: chunk.content,
+        pageNumber: startPage - 1 + chunk.pageNumber,
+        embedding,
+      });
+    }
+
+    return chunkValues;
+  }
+
+  // 4. Perform semantic vector search on file chunks using pgvector Cosine similarity
   async searchChunks(
     fileId: string,
     query: string,

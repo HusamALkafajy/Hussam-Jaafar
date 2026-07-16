@@ -1,0 +1,466 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/prisma-client"
+  previewFeatures = ["driverAdapters", "tracing", "metrics"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// WORKFLOW AGGREGATE
+// -----------------------------------------------------------------------------
+model Workflow {
+  id        String   @id @default(uuid())
+  type      String
+  status    WorkflowStatus
+  payload   Json?
+  error     String?
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  jobs      WorkflowJob[]
+  events    WorkflowEvent[]
+
+  @@index([status])
+}
+
+model WorkflowJob {
+  id          String   @id @default(uuid())
+  workflowId  String
+  name        String
+  status      JobStatus
+  retryCount  Int      @default(0)
+  startedAt   DateTime?
+  completedAt DateTime?
+  
+  workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+}
+
+model WorkflowEvent {
+  id         String   @id @default(uuid())
+  workflowId String
+  type       String
+  timestamp  DateTime @default(now())
+  data       Json
+  
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+}
+
+enum WorkflowStatus { 
+  PENDING 
+  RUNNING 
+  COMPLETED 
+  FAILED 
+  COMPENSATING 
+}
+
+enum JobStatus { 
+  QUEUED 
+  PROCESSING 
+  DONE 
+  RETRYING 
+  FAILED 
+}
+
+// -----------------------------------------------------------------------------
+// LEARNING AGGREGATE
+// -----------------------------------------------------------------------------
+model LearningAsset {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  type        AssetType
+  sourceUrl   String?
+  content     String?  @db.Text
+  status      AssetStatus
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  capabilities AssetCapability[]
+
+  @@index([userId, type])
+}
+
+model AssetCapability {
+  id       String   @id @default(uuid())
+  assetId  String
+  feature  String
+  enabled  Boolean  @default(true)
+  
+  asset    LearningAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+enum AssetType { 
+  DOCUMENT 
+  VIDEO 
+  WEBPAGE 
+  TEXT 
+}
+
+enum AssetStatus { 
+  UPLOADING 
+  PROCESSING 
+  READY 
+  ERROR 
+}
+
+// -----------------------------------------------------------------------------
+// STUDY PLAN AGGREGATE
+// -----------------------------------------------------------------------------
+model StudyPlan {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  goal        String
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  objectives  LearningObjective[]
+}
+
+model LearningObjective {
+  id          String   @id @default(uuid())
+  planId      String
+  topic       String
+  mastery     Float    @default(0.0)
+  targetDate  DateTime?
+  plan        StudyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// ASSESSMENT AGGREGATE
+// -----------------------------------------------------------------------------
+model Assessment {
+  id        String   @id @default(uuid())
+  title     String
+  type      String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  questions   Question[]
+  submissions Submission[]
+  results     AssessmentResult[]
+}
+
+model Question {
+  id           String   @id @default(uuid())
+  assessmentId String
+  text         String
+  type         String
+  answer       String?
+  
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+}
+
+model Submission {
+  id           String   @id @default(uuid())
+  assessmentId String
+  userId       String
+  status       String
+  createdAt    DateTime @default(now())
+
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+}
+
+model AssessmentResult {
+  id           String   @id @default(uuid())
+  assessmentId String
+  userId       String
+  score        Float
+  createdAt    DateTime @default(now())
+
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// REVISION AGGREGATE
+// -----------------------------------------------------------------------------
+model RevisionSession {
+  id        String   @id @default(uuid())
+  userId    String
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  version   Int      @default(1)
+
+  items     RevisionItem[]
+  schedules RevisionSchedule[]
+}
+
+model RevisionItem {
+  id        String   @id @default(uuid())
+  sessionId String
+  targetId  String
+  recall    Float
+  
+  session   RevisionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model RevisionSchedule {
+  id        String   @id @default(uuid())
+  sessionId String
+  nextDate  DateTime
+  interval  Int
+  
+  session   RevisionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// ANALYTICS AGGREGATE
+// -----------------------------------------------------------------------------
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  type      String
+  userId    String
+  payload   Json
+  timestamp DateTime @default(now())
+}
+
+model AnalyticsSnapshot {
+  id        String   @id @default(uuid())
+  userId    String
+  metrics   Json
+  createdAt DateTime @default(now())
+}
+
+// -----------------------------------------------------------------------------
+// SECURITY AGGREGATE
+// -----------------------------------------------------------------------------
+model IdentityContext {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  roles       SecurityRole[]
+  permissions SecurityPermission[]
+}
+
+model SecurityRole {
+  id         String   @id @default(uuid())
+  identityId String
+  roleName   String
+  
+  identity   IdentityContext @relation(fields: [identityId], references: [id], onDelete: Cascade)
+}
+
+model SecurityPermission {
+  id         String   @id @default(uuid())
+  identityId String
+  action     String
+  resource   String
+  
+  identity   IdentityContext @relation(fields: [identityId], references: [id], onDelete: Cascade)
+}
+
+model SecurityPolicy {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  rules       Json
+}
+
+// -----------------------------------------------------------------------------
+// INTEGRATION AGGREGATE
+// -----------------------------------------------------------------------------
+model ConnectorInstance {
+  id         String   @id @default(uuid())
+  provider   String
+  status     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  events     ConnectorEvent[]
+  configs    IntegrationConfig[]
+}
+
+model ConnectorEvent {
+  id           String   @id @default(uuid())
+  instanceId   String
+  eventType    String
+  payload      Json
+  timestamp    DateTime @default(now())
+  
+  instance     ConnectorInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
+
+model IntegrationConfig {
+  id           String   @id @default(uuid())
+  instanceId   String
+  key          String
+  value        String
+  
+  instance     ConnectorInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// RECOMMENDATION AGGREGATE
+// -----------------------------------------------------------------------------
+model RecommendationContext {
+  id        String   @id @default(uuid())
+  userId    String
+  scope     String
+  createdAt DateTime @default(now())
+
+  items     RecommendationItem[]
+}
+
+model RecommendationItem {
+  id        String   @id @default(uuid())
+  contextId String
+  targetId  String
+  score     Float
+  
+  context   RecommendationContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// ASSET AGGREGATE
+// -----------------------------------------------------------------------------
+model PlatformAsset {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  bucket      String
+  size        Int
+  mimeType    String
+  createdAt   DateTime @default(now())
+  deletedAt   DateTime?
+}
+
+// -----------------------------------------------------------------------------
+// EVENT STORE AGGREGATE (OUTBOX)
+// -----------------------------------------------------------------------------
+model StoredEvent {
+  eventId       String   @id @default(uuid())
+  aggregateId   String
+  aggregateType String
+  eventType     String
+  payload       Json
+  metadata      Json?
+  version       Int      @default(1)
+  status        EventStatus @default(PENDING)
+  retryCount    Int      @default(0)
+  occurredAt    DateTime @default(now())
+  publishedAt   DateTime?
+  
+  @@index([aggregateId])
+  @@index([status, occurredAt])
+}
+
+enum EventStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+// -----------------------------------------------------------------------------
+// BACKGROUND JOB HISTORY AGGREGATE
+// -----------------------------------------------------------------------------
+model JobExecution {
+  jobId         String    @id
+  jobType       String
+  correlationId String?
+  causationId   String?
+  traceId       String?
+  workflowId    String?
+  aggregateId   String?
+  status        JobExecutionStatus @default(PENDING)
+  priority      Int       @default(0)
+  attempts      Int       @default(0)
+  payloadHash   String?
+  errorMessage  String?
+  workerName    String?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  startedAt     DateTime?
+  completedAt   DateTime?
+  failedAt      DateTime?
+  duration      Int?      // in milliseconds
+  
+  @@index([status, createdAt])
+  @@index([correlationId])
+  @@index([jobType])
+}
+
+enum JobExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}
+
+// -----------------------------------------------------------------------------
+// WORKER RUNTIME AGGREGATE
+// -----------------------------------------------------------------------------
+model WorkerRuntime {
+  workerId        String   @id
+  workerName      String
+  status          WorkerStatus @default(IDLE)
+  capabilities    Json?
+  startedAt       DateTime @default(now())
+  lastHeartbeat   DateTime @default(now())
+  leaseExpiration DateTime
+  currentJobId    String?
+  processedJobs   Int      @default(0)
+  failedJobs      Int      @default(0)
+  averageDuration Float    @default(0.0)
+  version         String
+  
+  @@index([status])
+  @@index([leaseExpiration])
+}
+
+enum WorkerStatus {
+  STARTING
+  IDLE
+  PROCESSING
+  PAUSED
+  DRAINING
+  STOPPED
+  DEAD
+}
+
+// -----------------------------------------------------------------------------
+// INFRASTRUCTURE STORAGE (Binary Asset Platform)
+// -----------------------------------------------------------------------------
+model BinaryObjectMetadata {
+  objectId         String   @id @default(uuid())
+  storageProvider  String
+  bucket           String
+  storageKey       String
+  checksumSHA256   String?
+  contentLength    BigInt
+  contentType      String
+  version          Int      @default(1)
+  encryptionState  String?
+  compressionState String?
+  retentionPolicy  String?
+  uploadStatus     UploadStatus @default(PENDING)
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  @@unique([bucket, storageKey])
+  @@index([uploadStatus])
+  @@index([checksumSHA256])
+}
+
+enum UploadStatus {
+  PENDING
+  UPLOADING
+  COMPLETED
+  FAILED
+}
