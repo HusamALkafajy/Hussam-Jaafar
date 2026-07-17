@@ -1,0 +1,19 @@
+{
+  "verdict": "FAIL",
+  "timestamp": "2026-07-17T20:02:32.003Z",
+  "durationSec": "0.47",
+  "metrics": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 0
+  },
+  "failures": [],
+  "browserMatrix": [
+    "chromium",
+    "firefox",
+    "webkit"
+  ],
+  "environment": "local-e2e"
+}
