@@ -92,6 +92,13 @@
       "when": 1783799392203,
       "tag": "0014_unique_owl",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1784148984084,
+      "tag": "0015_stormy_lady_deathstrike",
+      "breakpoints": true
     }
   ]
 }
