@@ -63,8 +63,11 @@ export class InfrastructureLifecycleService implements OnModuleInit, OnApplicati
 // Generate providers via Composition Root
 const generatedProviders = InfrastructureBootstrap.boot();
 
+import { HealthController } from './health.controller';
+
 @Global()
 @Module({
+  controllers: [HealthController],
   providers: [
     ...generatedProviders,
     InfrastructureLifecycleService
