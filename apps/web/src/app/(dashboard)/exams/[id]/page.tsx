@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, use } from 'react';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
 import { Button } from '../../../../components/ui/button';
@@ -29,6 +29,10 @@ interface PageProps {
 export default function ExamPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const examId = resolvedParams.id;
+  return <ExamSession key={examId} examId={examId} />;
+}
+
+function ExamSession({ examId }: { examId: string }) {
   const { t, locale } = useLocale();
 
   const [loading, setLoading] = useState(true);
@@ -38,43 +42,37 @@ export default function ExamPage({ params }: PageProps) {
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [generatingNext, setGeneratingNext] = useState(false);
 
-  const fetchExam = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get<any>(`/exams/${examId}`);
-      setExam(data);
-
-      // Initialize timer if exam is active and has a time limit
-      if (data.status === 'active' && data.timeLimitMinutes) {
-        // Simple mock countdown matching time limit
-        setTimeLeft(data.timeLimitMinutes * 60);
-      }
-    } catch (e) {
-      console.error('Failed to load exam', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    let ignore = false;
+
+    const fetchExam = async () => {
+      setLoading(true);
+      try {
+        const data = await api.get<any>(`/exams/${examId}`);
+        if (!ignore) {
+          setExam(data);
+
+          // Initialize timer if exam is active and has a time limit
+          if (data.status === 'active' && data.timeLimitMinutes) {
+            // Simple mock countdown matching time limit
+            setTimeLeft(data.timeLimitMinutes * 60);
+          }
+        }
+      } catch (e) {
+        if (!ignore) console.error('Failed to load exam', e);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
     fetchExam();
+
+    return () => {
+      ignore = true;
+    };
   }, [examId]);
 
-  // Countdown timer effect
-  useEffect(() => {
-    if (timeLeft === null || timeLeft <= 0) {
-      if (timeLeft === 0 && exam?.status === 'active') {
-        handleSubmitExam();
-      }
-      return;
-    }
 
-    const timer = setTimeout(() => {
-      setTimeLeft(timeLeft - 1);
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [timeLeft]);
 
   const handleSelectOption = (questionId: string, value: string) => {
     setAnswers((prev) => ({
@@ -83,10 +81,23 @@ export default function ExamPage({ params }: PageProps) {
     }));
   };
 
+  // ============================================================================
+  // ENGINEERING NOTE: SYNCHRONOUS MUTUAL EXCLUSION
+  // ============================================================================
+  // Why both `submissionStartedRef` and `submitting` state exist:
+  // - `submitting` is for UI feedback (disabling buttons, showing spinners).
+  // - `submissionStartedRef` is a synchronous concurrency guard. Since React 
+  //   state updates are asynchronous, the ref strictly guarantees that manual 
+  //   submission and timer auto-submission cannot enter the submission flow 
+  //   in the exact same event loop window.
+  // ============================================================================
+  const submissionStartedRef = React.useRef(false);
+
   const handleSubmitExam = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!exam || exam.status === 'completed') return;
+    if (!exam || exam.status === 'completed' || submitting || submissionStartedRef.current) return;
 
+    submissionStartedRef.current = true;
     setSubmitting(true);
 
     // Format answers for API DTO structure
@@ -112,10 +123,45 @@ export default function ExamPage({ params }: PageProps) {
       setTimeLeft(null);
     } catch (err) {
       alert('Failed to submit exam: ' + (err instanceof Error ? err.message : 'Error'));
+      submissionStartedRef.current = false;
     } finally {
       setSubmitting(false);
     }
   };
+
+  // ============================================================================
+  // ENGINEERING NOTE: LATEST REF PATTERN for TIMER
+  // ============================================================================
+  // Why this exists: We need to access the freshest `handleSubmitExam` closure 
+  // when the timer hits 0, without putting it in the timer's dependency array.
+  // Why no useCallback: `answers` changes on every keystroke, which would cause 
+  // useCallback to return a new reference, forcing the timer to tear down and 
+  // reset on every user interaction (The Timer Trap).
+  // Why independent timer: The timer's lifecycle (ticking every 1s) must be 
+  // completely decoupled from the React render cycle triggered by user inputs.
+  // TODO: Future migration path - extract this pattern into a shared 
+  // `useLatest` or `useInterval` hook for standardizing safe timers.
+  // ============================================================================
+  const latestState = React.useRef({ handleSubmitExam, status: exam?.status });
+  useEffect(() => {
+    latestState.current = { handleSubmitExam, status: exam?.status };
+  });
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (timeLeft === null || timeLeft <= 0) {
+      if (timeLeft === 0 && latestState.current.status === 'active') {
+        latestState.current.handleSubmitExam();
+      }
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setTimeLeft(timeLeft - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [timeLeft]);
 
   const handleNextAdaptiveQuestion = async () => {
     setGeneratingNext(true);
