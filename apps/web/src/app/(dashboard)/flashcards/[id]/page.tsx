@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, use } from 'react';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
 import { Button } from '../../../../components/ui/button';
@@ -30,20 +30,20 @@ export default function FlashcardReviewPage({ params }: PageProps) {
   const [learningCount, setLearningCount] = useState(0);
   const [reviewingCount, setReviewingCount] = useState(0);
 
-  const fetchSet = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get<any>(`/flashcard-sets/${setId}`);
-      setSet(data);
-      setMasteredCount(data.masteredCount || 0);
-    } catch (e) {
-      console.error('Failed to load flashcard set', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchSet = async () => {
+      setLoading(true);
+      try {
+        const data = await api.get<any>(`/flashcard-sets/${setId}`);
+        setSet(data);
+        setMasteredCount(data.masteredCount || 0);
+      } catch (e) {
+        console.error('Failed to load flashcard set', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchSet();
   }, [setId]);
 

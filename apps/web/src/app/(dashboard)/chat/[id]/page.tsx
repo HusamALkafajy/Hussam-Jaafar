@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef, use } from 'react';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
 import { Button } from '../../../../components/ui/button';
@@ -121,20 +121,20 @@ export default function ChatConversationPage({ params }: PageProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const fetchSession = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get<ChatSession>(`/chat-sessions/${sessionId}`);
-      setSession(data);
-      setMessages(data.messages || []);
-    } catch (e) {
-      console.error('Failed to load chat session', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchSession = async () => {
+      setLoading(true);
+      try {
+        const data = await api.get<ChatSession>(`/chat-sessions/${sessionId}`);
+        setSession(data);
+        setMessages(data.messages || []);
+      } catch (e) {
+        console.error('Failed to load chat session', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchSession();
   }, [sessionId]);
 
@@ -158,16 +158,33 @@ export default function ChatConversationPage({ params }: PageProps) {
     setInput('');
     setSending(true);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
       const assistantMsg = await api.post<ChatMessage>(
         `/chat-sessions/${sessionId}/messages`,
         { content },
+        { signal: controller.signal }
       );
+      clearTimeout(timeoutId);
       setMessages((prev) => [...prev.slice(0, -1), optimisticUserMsg, assistantMsg]);
     } catch (e: any) {
-      // Remove optimistic message on error
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticUserMsg.id));
-      alert(locale === 'ar' ? 'فشل إرسال الرسالة: ' + e.message : 'Send failed: ' + e.message);
+      clearTimeout(timeoutId);
+      // Remove optimistic message on error or keep it and show error? 
+      // The requirement: "User must receive a readable message. Retry action must become available."
+      // Since there's no complex retry UI built in yet, we'll append a system error message to the chat.
+      setMessages((prev) => [
+        ...prev.slice(0, -1), 
+        optimisticUserMsg,
+        {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: 'AI Tutor is currently busy. Please try again.',
+          createdAt: new Date().toISOString(),
+          isError: true // assuming we can optionally style this if needed, but it works as text
+        } as any
+      ]);
     } finally {
       setSending(false);
       textareaRef.current?.focus();

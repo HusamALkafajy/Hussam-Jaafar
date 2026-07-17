@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, use, useRef } from 'react';
-import { api } from '../../../../lib/api';
+import React, { useEffect, useState, use, useRef, useCallback } from 'react';
+import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
 import { Button } from '../../../../components/ui/button';
@@ -403,7 +403,7 @@ export default function FileDetailPage({ params }: PageProps) {
   const [generatingFlashcards, setGeneratingFlashcards] = useState(false);
   const [previousSets, setPreviousSets] = useState<any[]>([]);
 
-  const loadFile = async (showSpinner = true) => {
+  const loadFile = useCallback(async (showSpinner = true) => {
     if (showSpinner) setLoading(true);
     try {
       const data = await api.get<any>(`/files/${fileId}`);
@@ -413,7 +413,7 @@ export default function FileDetailPage({ params }: PageProps) {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  };
+  }, [fileId]);
 
   const handleReprocess = async () => {
     setReprocessing(true);
@@ -427,25 +427,28 @@ export default function FileDetailPage({ params }: PageProps) {
     }
   };
 
-  const loadHistory = async () => {
-    try {
-      const [examsData, setsData] = await Promise.all([
-        api.get<any[]>('/exams'),
-        api.get<any[]>('/flashcard-sets'),
-      ]);
-      setPreviousExams((examsData || []).filter((e: any) => e.fileId === fileId));
-      setPreviousSets((setsData || []).filter((s: any) => s.fileId === fileId));
-    } catch { }
-  };
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const [examsData, setsData] = await Promise.all([
+          api.get<any[]>('/exams'),
+          api.get<any[]>('/flashcard-sets'),
+        ]);
+        setPreviousExams((examsData || []).filter((e: any) => e.fileId === fileId));
+        setPreviousSets((setsData || []).filter((s: any) => s.fileId === fileId));
+      } catch { }
+    };
 
-  useEffect(() => { loadFile(); loadHistory(); }, [fileId]);
+    loadFile(); 
+    loadHistory(); 
+  }, [fileId, loadFile]);
 
   useEffect(() => {
     if (file && ['pending', 'processing'].includes(file.processingStatus)) {
       const iv = setInterval(() => loadFile(false), 3000);
       return () => clearInterval(iv);
     }
-  }, [file]);
+  }, [file, loadFile]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -492,17 +495,25 @@ export default function FileDetailPage({ params }: PageProps) {
     setChatMessage('');
     setChatHistory((prev) => [...prev, { role: 'user', content: msg }]);
     setChatLoading(true);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
-      const result = await api.post<any>(`/files/${fileId}/chat`, { content: msg });
+      const result = await api.post<any>(`/files/${fileId}/chat`, { content: msg }, { signal: controller.signal });
+      clearTimeout(timeoutId);
       setChatHistory((prev) => [...prev, { role: 'assistant', content: result.content, references: result.references }]);
-    } catch { alert('Failed to send message'); }
+    } catch { 
+      clearTimeout(timeoutId);
+      setChatHistory((prev) => [...prev, { role: 'assistant', content: 'AI Tutor is currently busy. Please try again.' }]);
+    }
     finally { setChatLoading(false); }
   };
 
   const handleGenerateExam = async () => {
     setGeneratingExam(true);
     try {
-      const exam = await api.post<any>('/exams', { fileId, difficulty: examDifficulty, totalQuestions: examTotalQuestions, questionTypes: examQuestionTypes }, { timeout: 15 * 60 * 1000 });
+      const exam = await api.post<any>('/exams', { fileId, difficulty: examDifficulty, totalQuestions: examTotalQuestions, questionTypes: examQuestionTypes });
       router.push(`/exams/${exam.id}`);
     } catch (e: any) { alert('Failed: ' + (e.message || e)); }
     finally { setGeneratingExam(false); }
