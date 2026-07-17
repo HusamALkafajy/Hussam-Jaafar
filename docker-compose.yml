@@ -33,6 +33,24 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres-test:
+    image: ankane/pgvector:latest
+    container_name: studyai-postgres-test
+    restart: on-failure
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: studyai_test
+      POSTGRES_PASSWORD: studyai_test_password
+      POSTGRES_DB: studyai_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studyai_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   pgdata:
     driver: local

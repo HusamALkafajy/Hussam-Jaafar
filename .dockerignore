@@ -1,0 +1,14 @@
+node_modules
+dist
+.turbo
+.git
+.env
+.next
+apps/web/node_modules
+apps/api/node_modules
+packages/database/node_modules
+packages/domain/node_modules
+packages/infrastructure/node_modules
+packages/ast/node_modules
+packages/types/node_modules
+apps/web/.next

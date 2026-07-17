@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:16-alpine
+    image: ankane/pgvector:latest
     container_name: studyai-prod-db
     restart: always
     environment:
@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       POSTGRES_DB: ${DATABASE_NAME:-studyai}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata-prod:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +24,7 @@ services:
     container_name: studyai-prod-redis
     restart: always
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redisdata-prod:/data
     healthcheck:
@@ -42,7 +42,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@db:5432/${DATABASE_NAME:-studyai}?schema=public
+      DATABASE_URL: postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@db:5432/${DATABASE_NAME:-studyai}
+      REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:-super-secret-key-12345}
@@ -51,7 +52,7 @@ services:
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
-      FRONTEND_URL: http://localhost:3000
+      FRONTEND_URL: ${FRONTEND_URL}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER}

@@ -41,6 +41,10 @@
     "db:push": {
       "cache": false
     },
+    "@studyai/database#db:push": {
+      "cache": false,
+      "dependsOn": ["@studyai/infrastructure#db:push"]
+    },
     "db:studio": {
       "cache": false,
       "persistent": true
