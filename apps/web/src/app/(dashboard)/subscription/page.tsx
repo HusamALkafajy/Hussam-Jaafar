@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../../hooks/use-auth';
 import { useLocale } from '../../../hooks/use-locale';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import { Card } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Spinner } from '../../../components/ui/spinner';

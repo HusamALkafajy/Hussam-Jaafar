@@ -1,0 +1,379 @@
+{
+  "modules": [
+    {
+      "name": "AppModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/app.module.ts"
+    },
+    {
+      "name": "AdminModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/admin/admin.module.ts"
+    },
+    {
+      "name": "AiModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/ai/ai.module.ts"
+    },
+    {
+      "name": "AnalyticsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/analytics/analytics.module.ts"
+    },
+    {
+      "name": "AuthModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/auth/auth.module.ts"
+    },
+    {
+      "name": "CertificationsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/certifications/certifications.module.ts"
+    },
+    {
+      "name": "ChatModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/chat/chat.module.ts"
+    },
+    {
+      "name": "DocumentReadModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/document-read/document-read.module.ts"
+    },
+    {
+      "name": "ExamsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/exams/exams.module.ts"
+    },
+    {
+      "name": "FilesModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/files/files.module.ts"
+    },
+    {
+      "name": "FlashcardsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/flashcards/flashcards.module.ts"
+    },
+    {
+      "name": "GamificationModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/gamification/gamification.module.ts"
+    },
+    {
+      "name": "InfrastructureModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/infrastructure/infrastructure.module.ts"
+    },
+    {
+      "name": "LearningPathsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/learning-paths/learning-paths.module.ts"
+    },
+    {
+      "name": "NotesModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/notes/notes.module.ts"
+    },
+    {
+      "name": "PaymentsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/payments/payments.module.ts"
+    },
+    {
+      "name": "ProjectSubmissionsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/project-submissions/project-submissions.module.ts"
+    },
+    {
+      "name": "QuotaModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/quota/quota.module.ts"
+    },
+    {
+      "name": "RagModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/rag/rag.module.ts"
+    },
+    {
+      "name": "RecommendationModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/recommendations/recommendation.module.ts"
+    },
+    {
+      "name": "StudyCoachModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/study-coach/study-coach.module.ts"
+    },
+    {
+      "name": "StudyGroupsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/study-groups/study-groups.module.ts"
+    },
+    {
+      "name": "SubscriptionsModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/subscriptions/subscriptions.module.ts"
+    },
+    {
+      "name": "TelemetryModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/telemetry/telemetry.module.ts"
+    },
+    {
+      "name": "UsersModule",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/apps/api/src/modules/users/users.module.ts"
+    }
+  ],
+  "services": [
+    "IObjectStorage",
+    "IStorageProvider",
+    "IHealthProvider",
+    "IConfigurationProvider",
+    "IAssetRepository",
+    "IRecommendationRepository",
+    "IIntegrationRepository",
+    "ISecurityRepository",
+    "IAnalyticsRepository",
+    "IRevisionRepository",
+    "IAssessmentRepository",
+    "IStudyPlanRepository",
+    "IWorkflowRepository",
+    "ILearningRepository",
+    "IEventOutbox",
+    "RawEventOutbox",
+    "IWorkerRuntimeEngine",
+    "IWorker",
+    "ILeaseManager",
+    "ILeasePolicy",
+    "IWorkerRegistry",
+    "IJobDispatcher",
+    "IQueue",
+    "RawQueue",
+    "TokenAccountant",
+    "IDomainCacheService",
+    "RedisClient",
+    "IEventDispatcher",
+    "RawEventDispatcher",
+    "ITracer",
+    "IMetrics",
+    "ILogger",
+    "PrismaClient"
+  ],
+  "dependencies": [],
+  "capabilities": [],
+  "versions": {},
+  "registrations": [
+    {
+      "token": "IObjectStorage",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IStorageProvider",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IHealthProvider",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IConfigurationProvider",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IAssetRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IRecommendationRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IIntegrationRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "ISecurityRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IAnalyticsRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IRevisionRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IAssessmentRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IStudyPlanRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IWorkflowRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "ILearningRepository",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IEventOutbox",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "RawEventOutbox",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IWorkerRuntimeEngine",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IWorker",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "ILeaseManager",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "ILeasePolicy",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IWorkerRegistry",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IJobDispatcher",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IQueue",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "RawQueue",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "TokenAccountant",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IDomainCacheService",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "RedisClient",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IEventDispatcher",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "RawEventDispatcher",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "ITracer",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "IMetrics",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "ILogger",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    },
+    {
+      "token": "PrismaClient",
+      "file": "C:/Users/Hussam/Documents/ViberDownloads/studyai/packages/infrastructure/src/composition/bootstrap.ts"
+    }
+  ],
+  "ownership": {},
+  "frameworkBindings": [
+    {
+      "module": "AppModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "AdminModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "AiModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "AnalyticsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "AuthModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "CertificationsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "ChatModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "DocumentReadModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "ExamsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "FilesModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "FlashcardsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "GamificationModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "InfrastructureModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "LearningPathsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "NotesModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "PaymentsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "ProjectSubmissionsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "QuotaModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "RagModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "RecommendationModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "StudyCoachModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "StudyGroupsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "SubscriptionsModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "TelemetryModule",
+      "framework": "NestJS"
+    },
+    {
+      "module": "UsersModule",
+      "framework": "NestJS"
+    }
+  ]
+}

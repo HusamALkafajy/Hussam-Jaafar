@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import { useLocale } from '../../../hooks/use-locale';
 import { Card } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';

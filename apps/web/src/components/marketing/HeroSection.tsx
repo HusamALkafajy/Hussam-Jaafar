@@ -3,6 +3,7 @@
 import React, { memo } from 'react';
 import { useLocale } from '../../hooks/use-locale';
 import { Button } from '../ui/button';
+import Link from 'next/link';
 import { Badge } from '../ui/badge';
 import { FileText, Brain, Award, Sparkles } from 'lucide-react';
 
@@ -24,10 +25,10 @@ const HeroSectionComponent: React.FC = () => {
           {t('landing.heroSubtitle')}
         </p>
         <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 mt-2">
-          <Button href="/register" size="lg" className="px-8 font-bold">
+          <Button render={<Link href="/register" />} size="lg" className="px-8 font-bold">
             {t('landing.startFree')}
           </Button>
-          <Button href="#features" size="lg" variant="secondary" className="px-6">
+          <Button render={<Link href="#features" />} size="lg" variant="secondary" className="px-6">
             {t('landing.viewDemo')}
           </Button>
         </div>

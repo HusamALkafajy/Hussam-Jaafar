@@ -4,10 +4,11 @@ import React, { memo, useState } from 'react';
 import { useLocale } from '../../hooks/use-locale';
 import { useAuth } from '../../hooks/use-auth';
 import { useRouter } from 'next/navigation';
-import { api } from '../../lib/api';
+import { api } from '../../lib/api-client';
 import { Card } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import Link from 'next/link';
 import { Check, Loader2 } from 'lucide-react';
 
 const PricingComponent: React.FC = () => {
@@ -77,7 +78,7 @@ const PricingComponent: React.FC = () => {
               </li>
             </ul>
           </div>
-          <Button href="/register" variant="secondary" className="w-full mt-8">
+          <Button render={<Link href="/register" />} variant="secondary" className="w-full mt-8">
             {t('landing.startFree')}
           </Button>
         </Card>
@@ -151,7 +152,7 @@ const PricingComponent: React.FC = () => {
               </li>
             </ul>
           </div>
-          <Button href="mailto:info@studyai.com" variant="secondary" className="w-full mt-8">
+          <Button render={<a href="mailto:info@studyai.com" />} variant="secondary" className="w-full mt-8">
             تواصل معنا
           </Button>
         </Card>

@@ -37,7 +37,7 @@ export default function AdminLayout({
       if (!user) {
         router.push('/login');
       } else if (user.role !== 'admin') {
-        router.push('/dashboard');
+        router.push('/files');
       }
     }
   }, [user, loading, router]);
@@ -66,7 +66,7 @@ export default function AdminLayout({
                 : 'Access denied. You must be an administrator to view this page.'}
             </p>
           </div>
-          <Link href="/dashboard" className="w-full">
+          <Link href="/files" className="w-full">
             <Button variant="primary" className="w-full gap-2">
               <ArrowLeft className="w-4 h-4" />
               <span>{t('admin.backToDashboard')}</span>
@@ -147,7 +147,7 @@ export default function AdminLayout({
 
             {/* Back to Student view */}
             <Link
-              href="/dashboard"
+              href="/files"
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 cursor-pointer"
             >
               <ArrowLeft className="w-5 h-5 shrink-0" />

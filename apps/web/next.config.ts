@@ -14,6 +14,35 @@ const nextConfig: NextConfig = {
     ],
   },
   // Ensure we can proxy or call API directly
+  async redirects() {
+    return [
+      {
+        source: '/dashboard',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/upload',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/folders',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/notes',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/subjects',
+        destination: '/files',
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

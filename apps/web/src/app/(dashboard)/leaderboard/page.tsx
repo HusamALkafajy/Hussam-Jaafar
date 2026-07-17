@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Trophy, Medal, Star, Crown, Loader2, RefreshCw } from 'lucide-react';
 import { useLocale } from '../../../hooks/use-locale';
 import { Spinner } from '../../../components/ui/spinner';
@@ -51,7 +51,7 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -64,9 +64,9 @@ export default function LeaderboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isRtl]);
 
-  useEffect(() => { fetchLeaderboard(); }, []);
+  useEffect(() => { fetchLeaderboard(); }, [fetchLeaderboard]);
 
   if (!entries || !Array.isArray(entries)) return <LoadingSpinner />;
 

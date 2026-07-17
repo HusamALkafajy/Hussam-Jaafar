@@ -51,7 +51,7 @@ export const Navbar: React.FC = () => {
 
           {user ? (
             <>
-              <Button href="/dashboard" size="sm">
+              <Button render={<Link href="/files" />} size="sm">
                 {t('dashboard.sidebarHome')}
               </Button>
               <Button size="sm" variant="ghost" onClick={logout}>
@@ -60,10 +60,10 @@ export const Navbar: React.FC = () => {
             </>
           ) : (
             <>
-              <Button href="/login" size="sm" variant="ghost">
+              <Button render={<Link href="/login" />} size="sm" variant="ghost">
                 {t('common.login')}
               </Button>
-              <Button href="/register" size="sm">
+              <Button render={<Link href="/register" />} size="sm">
                 {t('common.register')}
               </Button>
             </>
@@ -111,7 +111,7 @@ export const Navbar: React.FC = () => {
 
             {user ? (
               <>
-                <Button href="/dashboard" className="w-full" onClick={() => setMobileOpen(false)}>
+                <Button render={<Link href="/files" />} className="w-full" onClick={() => setMobileOpen(false)}>
                   {t('dashboard.sidebarHome')}
                 </Button>
                 <Button className="w-full" variant="ghost" onClick={() => { logout(); setMobileOpen(false); }}>
@@ -120,10 +120,10 @@ export const Navbar: React.FC = () => {
               </>
             ) : (
               <>
-                <Button href="/login" className="w-full" variant="ghost" onClick={() => setMobileOpen(false)}>
+                <Button render={<Link href="/login" />} className="w-full" variant="ghost" onClick={() => setMobileOpen(false)}>
                   {t('common.login')}
                 </Button>
-                <Button href="/register" className="w-full" onClick={() => setMobileOpen(false)}>
+                <Button render={<Link href="/register" />} className="w-full" onClick={() => setMobileOpen(false)}>
                   {t('common.register')}
                 </Button>
               </>

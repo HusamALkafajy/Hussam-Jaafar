@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import { useLocale } from '../../../hooks/use-locale';
 import { Card } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
@@ -22,8 +22,10 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { formatBytes, formatDate } from '../../../lib/utils';
+import { useRouter } from 'next/navigation';
 
 export default function FilesPage() {
+  const router = useRouter();
   const { t, locale } = useLocale();
   const [loading, setLoading] = useState(true);
   const [filesList, setFilesList] = useState<any[]>([]);
@@ -47,7 +49,7 @@ export default function FilesPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadData = async (page = 1, showSpinner = true) => {
+  const loadData = useCallback(async (page = 1, showSpinner = true) => {
     if (showSpinner) setLoading(true);
     try {
       const q = [`page=${page}`, `limit=10`];
@@ -68,14 +70,14 @@ export default function FilesPage() {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  };
+  }, [search, subjectId, fileType]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       loadData(1);
     }, 300); // Debounce search
     return () => clearTimeout(timer);
-  }, [search, subjectId, fileType]);
+  }, [search, subjectId, fileType, loadData]);
 
   useEffect(() => {
     const hasProcessing = filesList.some(
@@ -88,7 +90,7 @@ export default function FilesPage() {
       }, 3000);
       return () => clearInterval(interval);
     }
-  }, [filesList, pagination.page]);
+  }, [filesList, pagination.page, loadData]);
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,21 +134,28 @@ export default function FilesPage() {
           );
         }
 
-        await api.post('/files/upload/chunk', chunkFormData);
+        const response = await api.post<any>('/files/upload/chunk', chunkFormData);
         
         const progressPercent = Math.round(((i + 1) / totalChunks) * 100);
         setUploadProgress(progressPercent);
-      }
 
-      setUploadStatus('success');
-      setSelectedFile(null);
-      setUploadSubjectId('');
-      // Invalidate list
-      loadData(1);
-      setTimeout(() => setUploadOpen(false), 1500);
+        if (i === totalChunks - 1) {
+          const newFileId = response.id;
+          setUploadStatus('success');
+          setSelectedFile(null);
+          setUploadSubjectId('');
+          router.push(`/files/${newFileId}`);
+          return;
+        }
+      }
     } catch (err: any) {
       setUploadStatus('error');
-      setUploadError(err.message || 'Upload failed');
+      
+      if (err.name === 'QuotaError' || err.errorCode === 'QUOTA_EXCEEDED') {
+        setUploadError(err.message || 'Beta Limit Reached: You have exceeded your storage quota.');
+      } else {
+        setUploadError(err.message || 'Upload failed. Please check your connection and try again.');
+      }
     } finally {
       setUploading(false);
     }

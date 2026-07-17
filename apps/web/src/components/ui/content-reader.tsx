@@ -131,7 +131,7 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
           <span className="w-3 h-3 rounded-full bg-rose-500/70" />
           <span className="w-3 h-3 rounded-full bg-amber-500/70" />
           <span className="w-3 h-3 rounded-full bg-emerald-500/70" />
-          <span className="ml-3 text-[11px] font-mono font-bold text-slate-400 tracking-widest uppercase">
+          <span className="ms-3 text-[11px] font-mono font-bold text-slate-400 tracking-widest uppercase">
             {language || 'code'}
           </span>
         </div>
@@ -182,7 +182,7 @@ const ReadingProgressBar = () => {
   }, []);
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 h-[3px] bg-slate-900">
+    <div className="fixed top-0 left-0 end-0 z-50 h-[3px] bg-slate-900">
       <div
         className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-150 ease-out"
         style={{ width: `${progress}%` }}
@@ -215,7 +215,7 @@ const TableOfContents = ({ items, activeId }: { items: TocItem[]; activeId: stri
                     document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }}
                   className={`flex items-center gap-2 py-1.5 px-2 rounded-lg text-xs transition-all duration-150 group ${
-                    item.level === 1 ? 'font-semibold' : item.level === 2 ? 'pl-4' : 'pl-7'
+                    item.level === 1 ? 'font-semibold' : item.level === 2 ? 'pl-4' : 'ps-7'
                   } ${
                     isActive
                       ? 'bg-indigo-500/15 text-indigo-300'
@@ -562,7 +562,7 @@ export const ContentReader = ({
                         setTocOpen(false);
                       }}
                       className={`block py-1.5 px-3 rounded-lg text-sm transition-colors ${
-                        item.level === 1 ? 'font-semibold' : item.level === 2 ? 'pl-5' : 'pl-8'
+                        item.level === 1 ? 'font-semibold' : item.level === 2 ? 'pl-5' : 'ps-8'
                       } ${
                         item.id === activeHeadingId
                           ? 'bg-indigo-500/15 text-indigo-300'
@@ -612,7 +612,7 @@ export const ContentReader = ({
             dir={isRtl ? 'rtl' : 'ltr'}
             className={`
               max-w-[850px]
-              ${isRtl ? 'mr-auto' : 'mx-auto'}
+              ${isRtl ? 'me-auto' : 'mx-auto'}
               ${className}
             `}
           >

@@ -103,7 +103,7 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
           <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
           <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-          <span className="ml-2 text-[10px] text-slate-500 uppercase font-mono font-bold tracking-widest leading-none">
+          <span className="ms-2 text-[10px] text-slate-500 uppercase font-mono font-bold tracking-widest leading-none">
             {language || 'code'}
           </span>
         </div>
@@ -208,7 +208,7 @@ export const Markdown = ({ content, className = '' }: MarkdownProps) => {
 
   return (
     <div
-      className={`prose prose-invert prose-indigo max-w-none leading-relaxed prose-headings:font-bold prose-headings:tracking-tight prose-a:text-indigo-400 hover:prose-a:text-indigo-300 prose-blockquote:border-l-4 prose-blockquote:border-indigo-500/40 prose-blockquote:bg-indigo-500/5 prose-blockquote:p-4 prose-blockquote:rounded-r-lg ${
+      className={`prose prose-invert prose-indigo max-w-none leading-relaxed prose-headings:font-bold prose-headings:tracking-tight prose-a:text-indigo-400 hover:prose-a:text-indigo-300 prose-blockquote:border-l-4 prose-blockquote:border-indigo-500/40 prose-blockquote:bg-indigo-500/5 prose-blockquote:p-4 prose-blockquote:rounded-e-lg ${
         locale === 'ar' ? 'prose-rtl text-right' : 'text-left'
       } ${className}`}
     >

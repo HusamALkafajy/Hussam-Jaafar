@@ -126,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     //   const { checkoutUrl } = await api.post<{ checkoutUrl: string }>('/subscriptions/checkout', { plan });
     //   window.location.href = checkoutUrl;
     // }
-    router.push('/dashboard');
+    router.push('/files');
   };
 
   // ── Login ─────────────────────────────────────────────────────────────────

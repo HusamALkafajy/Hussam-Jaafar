@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useLocale } from '../../../../hooks/use-locale';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { Card } from '../../../../components/ui/card';
 import { Badge } from '../../../../components/ui/badge';
 import { Spinner } from '../../../../components/ui/spinner';
@@ -54,7 +54,7 @@ export default function AdminPaymentsPage() {
     { id: 'pay_5', customerName: 'Rania Khaled', customerEmail: 'rania@outlook.com', tier: 'pro', amount: 19.00, currency: 'USD', status: 'pending', stripePaymentId: 'ch_3Mv8XpLkdJu4zM1a012A34K1', createdAt: new Date(Date.now() - 3600000 * 96).toISOString() },
   ], []);
 
-  const loadPayments = async () => {
+  const loadPayments = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -66,11 +66,11 @@ export default function AdminPaymentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [mockPayments]);
 
   useEffect(() => {
     loadPayments();
-  }, []);
+  }, [loadPayments]);
 
   // Compute stats on filtered or active list
   const totals = useMemo(() => {
