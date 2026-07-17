@@ -49,7 +49,8 @@ test.describe('05 · Core Journey — Full E2E Certification', () => {
     ]);
 
     const registerBody = await registerRes.json();
-    const token: string = registerBody.accessToken || registerBody.access_token || registerBody.token;
+    const tokenPayload = registerBody.data || registerBody;
+    const token: string = tokenPayload.accessToken || tokenPayload.access_token || tokenPayload.token;
     expect(token).toBeTruthy();
 
     await page.waitForURL('**/dashboard', { timeout: 20_000 });

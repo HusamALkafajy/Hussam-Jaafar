@@ -54,7 +54,8 @@ test.describe('01 · Authentication', () => {
 
     // Level 3: verify user exists via API
     const body = await registerResponse.json();
-    const token = body.accessToken || body.access_token || body.token;
+    const tokenPayload = body.data || body;
+    const token = tokenPayload.accessToken || tokenPayload.access_token || tokenPayload.token;
     expect(token).toBeTruthy();
 
     const meRes = await request.get(`${API_BASE}/api/auth/me`, {
@@ -98,7 +99,8 @@ test.describe('01 · Authentication', () => {
 
     // Level 3: verify token works against API
     const body = await loginResponse.json();
-    const token = body.accessToken || body.access_token || body.token;
+    const tokenPayload = body.data || body;
+    const token = tokenPayload.accessToken || tokenPayload.access_token || tokenPayload.token;
     expect(token).toBeTruthy();
 
     consoleMonitor.assertClean({ allowWarnings: true });

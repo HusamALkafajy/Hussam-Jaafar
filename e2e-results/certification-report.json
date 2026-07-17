@@ -1,15 +1,306 @@
 {
   "verdict": "FAIL",
-  "timestamp": "2026-07-17T20:02:32.003Z",
-  "durationSec": "0.47",
+  "timestamp": "2026-07-17T21:47:59.806Z",
+  "durationSec": "57.31",
   "metrics": {
-    "total": 0,
-    "passed": 0,
-    "failed": 0,
+    "total": 89,
+    "passed": 30,
+    "failed": 58,
     "flaky": 0,
-    "skipped": 0
+    "skipped": 1
   },
-  "failures": [],
+  "failures": [
+    {
+      "title": "accessing /dashboard without auth redirects to login",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:124",
+      "error": "Error: page.evaluate: SecurityError: Failed to read the 'localStorage' property from 'Window': Access is denied for this document.\n    at UtilityScript.evaluate (<anonymous>:305:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)"
+    },
+    {
+      "title": "login via UI with valid credentials navigates to dashboard",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:72",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"feb0d497-c0d8-4562-873d-a71b1ef7473b\",\"email\":\"e2e-3acbf476adeb@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-3acbf476adeb\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmZWIwZDQ5Ny1jMGQ4LTQ1NjItODczZC1hNzFiMWVmNzQ3M2IiLCJlbWFpbCI6ImUyZS0zYWNiZjQ3NmFkZWJAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MjcsImV4cCI6MTc4NDMyNTcyN30.h6PVFzQ2qGIWRYGuh99J-e6sxV_Z-ASA3x2yM64tTUo\"}}"
+    },
+    {
+      "title": "login with wrong password shows error message",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:108",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"c7980731-ec23-42e7-a691-d3877d0b7da0\",\"email\":\"e2e-3ec64d912ea6@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-3ec64d912ea6\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNzk4MDczMS1lYzIzLTQyZTctYTY5MS1kMzg3N2QwYjdkYTAiLCJlbWFpbCI6ImUyZS0zZWM2NGQ5MTJlYTZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MjcsImV4cCI6MTc4NDMyNTcyN30.FyxDe4W2r1K4Ri_U9NgTBNnyPXVjbmkGl4aRWBwQ_5M\"}}"
+    },
+    {
+      "title": "register via UI creates a new user and redirects to dashboard",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:22",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mundefined\u001b[39m"
+    },
+    {
+      "title": "logout clears session and redirects to login",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:139",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"848df74c-2826-4ad0-b757-34391acb0b5d\",\"email\":\"e2e-3388a0d80dea@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-3388a0d80dea\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4NDhkZjc0Yy0yODI2LTRhZDAtYjc1Ny0zNDM5MWFjYjBiNWQiLCJlbWFpbCI6ImUyZS0zMzg4YTBkODBkZWFAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MjgsImV4cCI6MTc4NDMyNTcyOH0.3a6p9DwYG7aKFHFKMIP15a-pBhN75AWeRQwTr56LEpk\"}}"
+    },
+    {
+      "title": "upload PDF via UI — navigates to file detail page",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\02-upload.spec.ts:60",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"a47e81d6-f943-4b58-8d4b-5d51d48986a4\",\"email\":\"e2e-e8a738aed4e5@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-e8a738aed4e5\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNDdlODFkNi1mOTQzLTRiNTgtOGQ0Yi01ZDUxZDQ4OTg2YTQiLCJlbWFpbCI6ImUyZS1lOGE3MzhhZWQ0ZTVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzAsImV4cCI6MTc4NDMyNTczMH0.WlVCKdEh3Ze9mRQZuPOZ2QjrUA5XUlBhTd1sQYgftR0\"}}"
+    },
+    {
+      "title": "file list shows uploaded file with processing badge",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\02-upload.spec.ts:97",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"5ad37c7c-aa28-4457-9e80-a21633f54c51\",\"email\":\"e2e-8cc69be7f366@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-8cc69be7f366\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1YWQzN2M3Yy1hYTI4LTQ0NTctOWU4MC1hMjE2MzNmNTRjNTEiLCJlbWFpbCI6ImUyZS04Y2M2OWJlN2YzNjZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzAsImV4cCI6MTc4NDMyNTczMH0.tYkMixXGnYz7ZI5b7M9DbLjuZ1ajZsSKGYpMRz4-O6c\"}}"
+    },
+    {
+      "title": "upload PDF via API — 3-level validation",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\02-upload.spec.ts:20",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"3ee5eacd-2aec-4acd-b96b-6ff93a29d2ba\",\"email\":\"e2e-e1efb409f82b@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-e1efb409f82b\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzZWU1ZWFjZC0yYWVjLTRhY2QtYjk2Yi02ZmY5M2EyOWQyYmEiLCJlbWFpbCI6ImUyZS1lMWVmYjQwOWY4MmJAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzAsImV4cCI6MTc4NDMyNTczMH0.7fEaP9cIp7pIGmqx9CFfxPLDKIz1BKe2Y49uT1Y2Z7g\"}}"
+    },
+    {
+      "title": "deleting a file removes it from the list",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\02-upload.spec.ts:125",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"753c34ff-07ff-457b-a9b7-22c2f90f0cde\",\"email\":\"e2e-3dbc1ec2ffdb@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-3dbc1ec2ffdb\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NTNjMzRmZi0wN2ZmLTQ1N2ItYTliNy0yMmMyZjkwZjBjZGUiLCJlbWFpbCI6ImUyZS0zZGJjMWVjMmZmZGJAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzEsImV4cCI6MTc4NDMyNTczMX0.8AHVvksJk7FaVLpTTcpqaBl0Pj1gJsSg7hHvfSqDjD0\"}}"
+    },
+    {
+      "title": "reader page loads for a completed file",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\03-reader.spec.ts:22",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"1206a378-309a-42fe-ae76-953d6e029c4f\",\"email\":\"e2e-595c885dfc29@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-595c885dfc29\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjA2YTM3OC0zMDlhLTQyZmUtYWU3Ni05NTNkNmUwMjljNGYiLCJlbWFpbCI6ImUyZS01OTVjODg1ZGZjMjlAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzIsImV4cCI6MTc4NDMyNTczMn0.jME1KkqRlZldvah2N95Wa2DQWKmvMVV_3Q4lxPFZiNU\"}}"
+    },
+    {
+      "title": "reader sidebar is visible with tabs",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\03-reader.spec.ts:50",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"eabae71e-5cab-447e-a905-28001d9c8224\",\"email\":\"e2e-d24b66ae58b6@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-d24b66ae58b6\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlYWJhZTcxZS01Y2FiLTQ0N2UtYTkwNS0yODAwMWQ5YzgyMjQiLCJlbWFpbCI6ImUyZS1kMjRiNjZhZTU4YjZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzIsImV4cCI6MTc4NDMyNTczMn0.4kxPl2ZWl-1whr64Q4FHpckMPc3zgM_Jc-lzlofcSdc\"}}"
+    },
+    {
+      "title": "clicking AI Tutor tab shows the AI input bar",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\03-reader.spec.ts:75",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"a9f82b38-0a8f-43c9-9e85-7ce0dca0928b\",\"email\":\"e2e-b3c7868c19a9@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-b3c7868c19a9\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhOWY4MmIzOC0wYThmLTQzYzktOWU4NS03Y2UwZGNhMDkyOGIiLCJlbWFpbCI6ImUyZS1iM2M3ODY4YzE5YTlAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzMsImV4cCI6MTc4NDMyNTczM30.7rY3bVJQJlbejzTzRG9Mr598sn7A81SHGyxbhEbJbY0\"}}"
+    },
+    {
+      "title": "reader header shows the document title",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\03-reader.spec.ts:99",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"a0d36c8c-f98a-4753-8724-981ebcecccb7\",\"email\":\"e2e-d1053149ddf6@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-d1053149ddf6\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhMGQzNmM4Yy1mOThhLTQ3NTMtODcyNC05ODFlYmNlY2NjYjciLCJlbWFpbCI6ImUyZS1kMTA1MzE0OWRkZjZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzMsImV4cCI6MTc4NDMyNTczM30.pCmbCjyjDt0V9FwhHJK_g5s5J_nxNpTmvIK5DjnURWU\"}}"
+    },
+    {
+      "title": "accessing /read/:id for non-existent file shows error or redirects",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\03-reader.spec.ts:118",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"2a1f8dad-d1b3-4e8e-97b6-3e7651924652\",\"email\":\"e2e-a2dc15b9a796@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-a2dc15b9a796\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTFmOGRhZC1kMWIzLTRlOGUtOTdiNi0zZTc2NTE5MjQ2NTIiLCJlbWFpbCI6ImUyZS1hMmRjMTViOWE3OTZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzUsImV4cCI6MTc4NDMyNTczNX0.CjfOhr3AXAKOK5Qi_95Qa40nG4ZKhFow5kIFRwe8OM8\"}}"
+    },
+    {
+      "title": "sending a question in the AI tab receives a response",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\04-ai.spec.ts:21",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"52e4d9e9-9b48-463a-aa27-2ad4cf888484\",\"email\":\"e2e-055d6f954bdc@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-055d6f954bdc\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1MmU0ZDllOS05YjQ4LTQ2M2EtYWEyNy0yYWQ0Y2Y4ODg0ODQiLCJlbWFpbCI6ImUyZS0wNTVkNmY5NTRiZGNAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzUsImV4cCI6MTc4NDMyNTczNX0.L7DIpsONFnqdN90z3zJ0yrxWmXCmnkXhJdotx4Gebps\"}}"
+    },
+    {
+      "title": "AI input bar is disabled when input is empty",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\04-ai.spec.ts:68",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"cc407e5f-d9a0-49d7-8bc3-71972005a809\",\"email\":\"e2e-0dc5ce500c74@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-0dc5ce500c74\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYzQwN2U1Zi1kOWEwLTQ5ZDctOGJjMy03MTk3MjAwNWE4MDkiLCJlbWFpbCI6ImUyZS0wZGM1Y2U1MDBjNzRAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzUsImV4cCI6MTc4NDMyNTczNX0.SzrT7-7OE9RIr55Q_DESsjhE-LWbV5JbXVf4_RMXwcg\"}}"
+    },
+    {
+      "title": "AI chat endpoint — direct API call returns structured response",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\04-ai.spec.ts:92",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"be021665-9ae3-45a2-aa52-f091be935362\",\"email\":\"e2e-be0589b0f46e@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-be0589b0f46e\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiZTAyMTY2NS05YWUzLTQ1YTItYWE1Mi1mMDkxYmU5MzUzNjIiLCJlbWFpbCI6ImUyZS1iZTA1ODliMGY0NmVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzYsImV4cCI6MTc4NDMyNTczNn0.lgbIyYPfwRgukMN_oNQAhDXaODOFfDn0EkQHB8avdn4\"}}"
+    },
+    {
+      "title": "dashboard loads with correct user information",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:129",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"88401a42-8e9f-4433-85a5-36c047147261\",\"email\":\"e2e-c88b679016a1@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-c88b679016a1\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4ODQwMWE0Mi04ZTlmLTQ0MzMtODVhNS0zNmMwNDcxNDcyNjEiLCJlbWFpbCI6ImUyZS1jODhiNjc5MDE2YTFAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzcsImV4cCI6MTc4NDMyNTczN30.mjnx8oVc3YIVDWQac8EnrofPHVNjUPbGMbYL8CUd89k\"}}"
+    },
+    {
+      "title": "file detail page (/files/:id) renders correctly",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:152",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"b411cd0c-4449-489e-a494-a251789beced\",\"email\":\"e2e-12b74d9d56ee@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-12b74d9d56ee\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiNDExY2QwYy00NDQ5LTQ4OWUtYTQ5NC1hMjUxNzg5YmVjZWQiLCJlbWFpbCI6ImUyZS0xMmI3NGQ5ZDU2ZWVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4MzgsImV4cCI6MTc4NDMyNTczOH0.W1Xn7o3qMulU02ygN8Rc-IBTyUC37rnH9j47oJdznVc\"}}"
+    },
+    {
+      "title": "complete user journey: register → upload → reader → AI",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:24",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mundefined\u001b[39m"
+    },
+    {
+      "title": "login page passes WCAG 2.1 AA scan",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\06-a11y.spec.ts:19",
+      "error": "Error: Quality Gate Violation: 2 accessibility violation(s) on http://localhost:3000/login:\n  [critical] button-name: Ensure buttons have discernible text\n    → <button type=\"button\" class=\"absolute right-3.5 bottom-3 text-slate-500 hover:text-slate-300 transition-colors\">\n  [serious] color-contrast: Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds\n    → <span>Remember me</span>\n    → <a class=\"text-indigo-400 hover:underline\" href=\"/forgot-password\">Forgot Password?</a>"
+    },
+    {
+      "title": "dashboard page passes WCAG 2.1 AA scan",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\06-a11y.spec.ts:29",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"0822dbe7-7672-4f83-8cbc-fe15185960ef\",\"email\":\"e2e-c9455778c86d@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-c9455778c86d\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwODIyZGJlNy03NjcyLTRmODMtOGNiYy1mZTE1MTg1OTYwZWYiLCJlbWFpbCI6ImUyZS1jOTQ1NTc3OGM4NmRAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDAsImV4cCI6MTc4NDMyNTc0MH0.8TgTOE75eZNAD0IC2iD6G43qzYZNyvORcCD63EIq03Q\"}}"
+    },
+    {
+      "title": "files page passes WCAG 2.1 AA scan",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\06-a11y.spec.ts:38",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"bc1a026c-1867-4d64-9079-3f4f6d2d006b\",\"email\":\"e2e-ad59bc306e7f@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-ad59bc306e7f\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiYzFhMDI2Yy0xODY3LTRkNjQtOTA3OS0zZjRmNmQyZDAwNmIiLCJlbWFpbCI6ImUyZS1hZDU5YmMzMDZlN2ZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDEsImV4cCI6MTc4NDMyNTc0MX0.lCqQtAoUIdr7duihBnZqQOBWL2vjjzjmaM7WrKc4BnQ\"}}"
+    },
+    {
+      "title": "register page passes WCAG 2.1 AA scan",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\06-a11y.spec.ts:24",
+      "error": "Error: Quality Gate Violation: 1 accessibility violation(s) on http://localhost:3000/register:\n  [serious] color-contrast: Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds\n    → <span class=\"absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0F172A] px-3 text-xs text-slate-500 uppercase\">or</span>\n    → <a class=\"text-indigo-400 hover:underline\" href=\"/login\">Already have an account? Login</a>"
+    },
+    {
+      "title": "API: uploading .txt file returns 400 Bad Request",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\negative\\08-negative.spec.ts:52",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"c4daeb60-1b22-4a04-aec4-0b0edc4d8424\",\"email\":\"e2e-02ce15ab284a@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-02ce15ab284a\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNGRhZWI2MC0xYjIyLTRhMDQtYWVjNC0wYjBlZGM0ZDg0MjQiLCJlbWFpbCI6ImUyZS0wMmNlMTVhYjI4NGFAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDMsImV4cCI6MTc4NDMyNTc0M30.CQxrj3acxC8UfqdsmS_4y4xFjiWCcidveEK66ID2zvk\"}}"
+    },
+    {
+      "title": "reader page passes WCAG 2.1 AA scan",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\06-a11y.spec.ts:51",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"10316798-70e6-41a1-af28-fe4c3f8fb74e\",\"email\":\"e2e-d8a3f2beb696@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-d8a3f2beb696\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMDMxNjc5OC03MGU2LTQxYTEtYWYyOC1mZTRjM2Y4ZmI3NGUiLCJlbWFpbCI6ImUyZS1kOGEzZjJiZWI2OTZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDMsImV4cCI6MTc4NDMyNTc0M30.hwjDJQwcIwv_Hwm1h5hjlwquRYklwQCMZurXixHz9FM\"}}"
+    },
+    {
+      "title": "upload modal passes WCAG 2.1 AA scan",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\06-a11y.spec.ts:71",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"d96e5013-e6a0-4459-b262-25b386a4d392\",\"email\":\"e2e-710a6e5101ce@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-710a6e5101ce\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkOTZlNTAxMy1lNmEwLTQ0NTktYjI2Mi0yNWIzODZhNGQzOTIiLCJlbWFpbCI6ImUyZS03MTBhNmU1MTAxY2VAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDMsImV4cCI6MTc4NDMyNTc0M30.84k8SmqpGdb6AFWHhZto7Cw0RJQMSmNOZ_TsxIso_Q0\"}}"
+    },
+    {
+      "title": "UI: wrong credentials shows error message",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\negative\\08-negative.spec.ts:20",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"2abea36f-0019-49f2-b1f5-6a722eb58b67\",\"email\":\"e2e-16c5a59ad835@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-16c5a59ad835\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYWJlYTM2Zi0wMDE5LTQ5ZjItYjFmNS02YTcyMmViNThiNjciLCJlbWFpbCI6ImUyZS0xNmM1YTU5YWQ4MzVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDMsImV4cCI6MTc4NDMyNTc0M30.hJ-belVm9BKyEpqSAkMTyGz6Y-UytPmrFfMh6Dn-kD4\"}}"
+    },
+    {
+      "title": "API: register with duplicate email returns 409 or 400",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\negative\\08-negative.spec.ts:86",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"0df63347-0987-4122-a9db-df4a95d3757a\",\"email\":\"e2e-1d75da8b3b0d@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-1d75da8b3b0d\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwZGY2MzM0Ny0wOTg3LTQxMjItYTlkYi1kZjRhOTVkMzc1N2EiLCJlbWFpbCI6ImUyZS0xZDc1ZGE4YjNiMGRAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDYsImV4cCI6MTc4NDMyNTc0Nn0.MJS7jMzCviux7OcHzwhxSpyDZ0kbV66PMhNPEDHbya8\"}}"
+    },
+    {
+      "title": "API: accessing non-existent file returns 404",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\negative\\08-negative.spec.ts:75",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"2ea1cf1e-cdfa-4013-8a68-95c9c53b2845\",\"email\":\"e2e-2c783e89f027@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-2c783e89f027\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyZWExY2YxZS1jZGZhLTQwMTMtOGE2OC05NWM5YzUzYjI4NDUiLCJlbWFpbCI6ImUyZS0yYzc4M2U4OWYwMjdAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDYsImV4cCI6MTc4NDMyNTc0Nn0.VMs7tC-9h7ls_OxLNBxiT6537XLf2hoqDrgntDmyX1s\"}}"
+    },
+    {
+      "title": "UI: upload modal closes on X button",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\negative\\08-negative.spec.ts:110",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"5e71af13-1a32-4d84-b99d-b327c70d24db\",\"email\":\"e2e-42c363e9ccfe@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-42c363e9ccfe\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZTcxYWYxMy0xYTMyLTRkODQtYjk5ZC1iMzI3YzcwZDI0ZGIiLCJlbWFpbCI6ImUyZS00MmMzNjNlOWNjZmVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDYsImV4cCI6MTc4NDMyNTc0Nn0.fCIbNh_5QaDfS0L-Z7oO5z2g8Riya2pPUtRVA4OlF74\"}}"
+    },
+    {
+      "title": "Issue #105: Registering with trailing spaces in email succeeds",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\regression\\09-regression.spec.ts:27",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m201\u001b[39m\nReceived: \u001b[31m400\u001b[39m"
+    },
+    {
+      "title": "dashboard loads within budget for authenticated user",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\performance\\11-performance.spec.ts:25",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"8544e11c-f214-4e89-ad76-57eadd51cd0b\",\"email\":\"e2e-b0910676f2f2@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-b0910676f2f2\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4NTQ0ZTExYy1mMjE0LTRlODktYWQ3Ni01N2VhZGQ1MWNkMGIiLCJlbWFpbCI6ImUyZS1iMDkxMDY3NmYyZjJAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDgsImV4cCI6MTc4NDMyNTc0OH0.ZFfcjJ7YjHqkvvD3rRcjRtkfR_fq2K5ENvegmLkHvlU\"}}"
+    },
+    {
+      "title": "session is preserved after page reload",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\recovery\\10-recovery.spec.ts:13",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"e266280f-04ad-4e08-88bc-ee6f930cd927\",\"email\":\"e2e-a5d5e30296e9@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-a5d5e30296e9\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMjY2MjgwZi0wNGFkLTRlMDgtODhiYy1lZTZmOTMwY2Q5MjciLCJlbWFpbCI6ImUyZS1hNWQ1ZTMwMjk2ZTlAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDgsImV4cCI6MTc4NDMyNTc0OH0.Lb7asqUQHuCSXG6IPTwCRMRCNWUGVeTSY3yY6SLLWg4\"}}"
+    },
+    {
+      "title": "Issue #101: Dashboard should not crash on empty subjects list",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\regression\\09-regression.spec.ts:14",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"486e624b-7c9b-4e9a-9948-8a6b3340f6b3\",\"email\":\"e2e-4cb2c9a606a5@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-4cb2c9a606a5\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0ODZlNjI0Yi03YzliLTRlOWEtOTk0OC04YTZiMzM0MGY2YjMiLCJlbWFpbCI6ImUyZS00Y2IyYzlhNjA2YTVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDgsImV4cCI6MTc4NDMyNTc0OH0.EHFBYwqdqikoiC7NDNblZh2iUwJC3Q7Qx-oaIsodi2Q\"}}"
+    },
+    {
+      "title": "POST /api/auth/login with wrong password returns 401",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\security\\07-security.spec.ts:39",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"662aec25-1c44-4268-ab5a-42af0a0991bb\",\"email\":\"e2e-8bcd04e46dfe@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-8bcd04e46dfe\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NjJhZWMyNS0xYzQ0LTQyNjgtYWI1YS00MmFmMGEwOTkxYmIiLCJlbWFpbCI6ImUyZS04YmNkMDRlNDZkZmVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NDksImV4cCI6MTc4NDMyNTc0OX0.LcmrdfSD9jonZGkL9dJznENZTKJAc8NbLKYOkkTqPfU\"}}"
+    },
+    {
+      "title": "User A cannot access User B file — returns 404",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\security\\07-security.spec.ts:49",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"3fde17c9-0e31-4413-bb7d-0b6479c7b5a8\",\"email\":\"e2e-a219346bfe6c@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-a219346bfe6c\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzZmRlMTdjOS0wZTMxLTQ0MTMtYmI3ZC0wYjY0NzljN2I1YTgiLCJlbWFpbCI6ImUyZS1hMjE5MzQ2YmZlNmNAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTAsImV4cCI6MTc4NDMyNTc1MH0.c_0oinuFDJcL0jBPVck_FeIpGaviNbBXOV9qBeKMxnM\"}}"
+    },
+    {
+      "title": "User A cannot delete User B file — returns 404",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\security\\07-security.spec.ts:66",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"eb1aa90e-df0c-43a6-ac03-7bb07dffdb4c\",\"email\":\"e2e-df64015d5604@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-df64015d5604\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlYjFhYTkwZS1kZjBjLTQzYTYtYWMwMy03YmIwN2RmZmRiNGMiLCJlbWFpbCI6ImUyZS1kZjY0MDE1ZDU2MDRAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTAsImV4cCI6MTc4NDMyNTc1MH0.4MlyEc1bspCfXa_DCZ9jogIJIW3Xf3p0GWWoiZ7VcZM\"}}"
+    },
+    {
+      "title": "uploading unsupported file type (.txt) returns 400",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\security\\07-security.spec.ts:85",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"fff9a4ab-042c-473c-9e76-465f8c86a94f\",\"email\":\"e2e-0f375f34bf6d@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-0f375f34bf6d\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmZmY5YTRhYi0wNDJjLTQ3M2MtOWU3Ni00NjVmOGM4NmE5NGYiLCJlbWFpbCI6ImUyZS0wZjM3NWYzNGJmNmRAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTAsImV4cCI6MTc4NDMyNTc1MH0.hlE641Hriy-tjHNEIMnLfzVA8Eq_N6WbodbDoaMCijQ\"}}"
+    },
+    {
+      "title": "valid authenticated request to /api/files returns 200",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\security\\07-security.spec.ts:110",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"4f0effb6-c87b-4cd9-ac6f-29fcc78a9aaf\",\"email\":\"e2e-d8f38ebac8d0@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-d8f38ebac8d0\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0ZjBlZmZiNi1jODdiLTRjZDktYWM2Zi0yOWZjYzc4YTlhYWYiLCJlbWFpbCI6ImUyZS1kOGYzOGViYWM4ZDBAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTIsImV4cCI6MTc4NDMyNTc1Mn0.p4JgN6XrEy_QhLEGLsnYKGSjVtPkFUt0YlqMo_8REgI\"}}"
+    },
+    {
+      "title": "accessing a random UUID file ID returns 404",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\security\\07-security.spec.ts:134",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"ecb2eadc-b92c-43dc-bf74-5ec6cf5ef57e\",\"email\":\"e2e-bac0456e0f3c@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-bac0456e0f3c\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlY2IyZWFkYy1iOTJjLTQzZGMtYmY3NC01ZWM2Y2Y1ZWY1N2UiLCJlbWFpbCI6ImUyZS1iYWMwNDU2ZTBmM2NAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTIsImV4cCI6MTc4NDMyNTc1Mn0.PXMcE_vjl0XUzPfTLwwAlFvKGtypcCS9-DvtghOoBWM\"}}"
+    },
+    {
+      "title": "/api/auth/me returns current user for valid token",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\security\\07-security.spec.ts:120",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"68585ef5-1788-4ac1-bca3-b8d880392f10\",\"email\":\"e2e-4d49ef9acbae@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-4d49ef9acbae\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2ODU4NWVmNS0xNzg4LTRhYzEtYmNhMy1iOGQ4ODAzOTJmMTAiLCJlbWFpbCI6ImUyZS00ZDQ5ZWY5YWNiYWVAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTIsImV4cCI6MTc4NDMyNTc1Mn0.Va4KXgMs9C-uqTq0XreIW74nPITFf6WorwRnX9J5qgs\"}}"
+    },
+    {
+      "title": "login via UI with valid credentials navigates to dashboard",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:72",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"682fa119-e9fc-4c1d-bd49-7c8e21b3b89e\",\"email\":\"e2e-edef11887be3@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-edef11887be3\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2ODJmYTExOS1lOWZjLTRjMWQtYmQ0OS03YzhlMjFiM2I4OWUiLCJlbWFpbCI6ImUyZS1lZGVmMTE4ODdiZTNAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTYsImV4cCI6MTc4NDMyNTc1Nn0.7kTVKzjW9U4VUv2w8SXmHTOaHSqNtW9RkI7Bb4UmR9g\"}}"
+    },
+    {
+      "title": "accessing /dashboard without auth redirects to login",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:124",
+      "error": "Error: page.evaluate: The operation is insecure.\n@debugger eval code line 303 > eval:2:7\nevaluate@debugger eval code:305:16\n@debugger eval code:1:44\n@debugger eval code:1:62\n"
+    },
+    {
+      "title": "login with wrong password shows error message",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:108",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"4bcbc1fe-344b-4460-bf46-66dced00fe3e\",\"email\":\"e2e-8096f39cef21@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-8096f39cef21\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0YmNiYzFmZS0zNDRiLTQ0NjAtYmY0Ni02NmRjZWQwMGZlM2UiLCJlbWFpbCI6ImUyZS04MDk2ZjM5Y2VmMjFAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NTcsImV4cCI6MTc4NDMyNTc1N30.D4nEx5QEMYFsJf1_TTlueP-YLFE6XO6AzA68fx9y_RI\"}}"
+    },
+    {
+      "title": "register via UI creates a new user and redirects to dashboard",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:22",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mundefined\u001b[39m"
+    },
+    {
+      "title": "logout clears session and redirects to login",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:139",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"4a63d4c8-247b-4225-a1e3-41fd517c9b79\",\"email\":\"e2e-abc724735760@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-abc724735760\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0YTYzZDRjOC0yNDdiLTQyMjUtYTFlMy00MWZkNTE3YzliNzkiLCJlbWFpbCI6ImUyZS1hYmM3MjQ3MzU3NjBAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NjEsImV4cCI6MTc4NDMyNTc2MX0.KkVynr2WaBSV13DQANvR_3gK5Yfnthlpxv62hWC__js\"}}"
+    },
+    {
+      "title": "dashboard loads with correct user information",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:129",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"cd5a33ea-9a84-4e82-94c8-a0b09030adec\",\"email\":\"e2e-03a2376772b0@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-03a2376772b0\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjZDVhMzNlYS05YTg0LTRlODItOTRjOC1hMGIwOTAzMGFkZWMiLCJlbWFpbCI6ImUyZS0wM2EyMzc2NzcyYjBAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NjIsImV4cCI6MTc4NDMyNTc2Mn0.JUE4uzX-zcpMC2V2Ha_ua36-NHoyHIOevmhOUm5znp4\"}}"
+    },
+    {
+      "title": "file detail page (/files/:id) renders correctly",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:152",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"5b1a7d8e-664b-4794-95c1-f5a6b72662f4\",\"email\":\"e2e-1507e28fb2ab@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-1507e28fb2ab\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1YjFhN2Q4ZS02NjRiLTQ3OTQtOTVjMS1mNWE2YjcyNjYyZjQiLCJlbWFpbCI6ImUyZS0xNTA3ZTI4ZmIyYWJAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NjQsImV4cCI6MTc4NDMyNTc2NH0.TnbTz3xueFHX220FSBUUJsY3UCdlr4JojG7tuS9Loz0\"}}"
+    },
+    {
+      "title": "complete user journey: register → upload → reader → AI",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:24",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mundefined\u001b[39m"
+    },
+    {
+      "title": "login via UI with valid credentials navigates to dashboard",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:72",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"de229839-3398-4b43-9baa-04ae5667fe4f\",\"email\":\"e2e-43f2e0f0023c@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-43f2e0f0023c\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZTIyOTgzOS0zMzk4LTRiNDMtOWJhYS0wNGFlNTY2N2ZlNGYiLCJlbWFpbCI6ImUyZS00M2YyZTBmMDAyM2NAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NjksImV4cCI6MTc4NDMyNTc2OX0.JnrmyfvL3Pkxxokz3BncefTmdvNdRk5o6VA_D-buKaA\"}}"
+    },
+    {
+      "title": "accessing /dashboard without auth redirects to login",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:124",
+      "error": "Error: page.evaluate: SecurityError: The operation is insecure."
+    },
+    {
+      "title": "login with wrong password shows error message",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:108",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"2a6e5e5c-1e8e-4d19-8de6-6a93306339c2\",\"email\":\"e2e-51454b8839e4@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-51454b8839e4\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTZlNWU1Yy0xZThlLTRkMTktOGRlNi02YTkzMzA2MzM5YzIiLCJlbWFpbCI6ImUyZS01MTQ1NGI4ODM5ZTRAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NzAsImV4cCI6MTc4NDMyNTc3MH0.VH1E613jBsZ8JtQUQ6scJAHAp9taRVYod-smGHorCUc\"}}"
+    },
+    {
+      "title": "logout clears session and redirects to login",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:139",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"bf09b368-2270-42f7-ad73-b473ab4e2570\",\"email\":\"e2e-feaa45794d06@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-feaa45794d06\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiZjA5YjM2OC0yMjcwLTQyZjctYWQ3My1iNDczYWI0ZTI1NzAiLCJlbWFpbCI6ImUyZS1mZWFhNDU3OTRkMDZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NzEsImV4cCI6MTc4NDMyNTc3MX0.obrKTlIucp_PT2Km504c0LQ_wdfjNH167UIWFZQ-szE\"}}"
+    },
+    {
+      "title": "dashboard loads with correct user information",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:129",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"fae3844a-56e4-41f6-b376-fe5fa4295103\",\"email\":\"e2e-a7cdabedb026@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-a7cdabedb026\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmYWUzODQ0YS01NmU0LTQxZjYtYjM3Ni1mZTVmYTQyOTUxMDMiLCJlbWFpbCI6ImUyZS1hN2NkYWJlZGIwMjZAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NzMsImV4cCI6MTc4NDMyNTc3M30.NnFqRuezfkba0yuhUPxLmfL7dzkzzNLSG4zFsOpIkzg\"}}"
+    },
+    {
+      "title": "register via UI creates a new user and redirects to dashboard",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\01-auth.spec.ts:22",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mundefined\u001b[39m"
+    },
+    {
+      "title": "file detail page (/files/:id) renders correctly",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:152",
+      "error": "Error: Register response missing accessToken. Got: {\"success\":true,\"data\":{\"user\":{\"id\":\"1b066f1b-1bd0-4663-b0e3-9b906fbc887b\",\"email\":\"e2e-f05841d4ddf8@test-studyai.local\",\"firstName\":\"E2E\",\"lastName\":\"User-f05841d4ddf8\",\"role\":\"student\",\"locale\":\"en\"},\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYjA2NmYxYi0xYmQwLTQ2NjMtYjBlMy05YjkwNmZiYzg4N2IiLCJlbWFpbCI6ImUyZS1mMDU4NDFkNGRkZjhAdGVzdC1zdHVkeWFpLmxvY2FsIiwicm9sZSI6InN0dWRlbnQiLCJpYXQiOjE3ODQzMjQ4NzQsImV4cCI6MTc4NDMyNTc3NH0.S6tkuhige0loXj4OOPbu5p4TEVf3BJUzcflsEIBqAWM\"}}"
+    },
+    {
+      "title": "complete user journey: register → upload → reader → AI",
+      "location": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\e2e\\tests\\05-core-journey.spec.ts:24",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mundefined\u001b[39m"
+    }
+  ],
   "browserMatrix": [
     "chromium",
     "firefox",

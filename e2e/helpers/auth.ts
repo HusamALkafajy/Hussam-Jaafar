@@ -42,14 +42,15 @@ export async function createTestUser(request: APIRequestContext): Promise<TestUs
   }
 
   const body = await registerRes.json();
-  const accessToken = body.accessToken || body.access_token || body.token;
+  const tokenPayload = body.data || body;
+  const accessToken = tokenPayload.accessToken || tokenPayload.access_token || tokenPayload.token;
 
   if (!accessToken) {
     throw new Error(`Register response missing accessToken. Got: ${JSON.stringify(body)}`);
   }
 
   return {
-    id: body.user?.id || body.id,
+    id: tokenPayload.user?.id || tokenPayload.id,
     email: user.email,
     password: user.password,
     firstName: user.firstName,
@@ -76,7 +77,8 @@ export async function loginUser(
   }
 
   const body = await res.json();
-  const token = body.accessToken || body.access_token || body.token;
+  const tokenPayload = body.data || body;
+  const token = tokenPayload.accessToken || tokenPayload.access_token || tokenPayload.token;
   if (!token) throw new Error(`Login response missing token. Got: ${JSON.stringify(body)}`);
   return token;
 }
