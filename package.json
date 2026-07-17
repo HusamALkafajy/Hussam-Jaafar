@@ -19,9 +19,15 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""
   },
   "devDependencies": {
-    "turbo": "^2.5.0",
+    "@next/eslint-plugin-next": "15.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "eslint": "^9.14.0",
+    "eslint-config-next": "15.0.3",
+    "eslint-plugin-react-hooks": "^5.0.0",
     "prettier": "^3.4.0",
     "rimraf": "^6.0.0",
+    "turbo": "^2.5.0",
     "typescript": "^5.7.0"
   },
   "packageManager": "pnpm@9.15.0",
