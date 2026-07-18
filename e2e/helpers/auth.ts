@@ -85,7 +85,7 @@ export async function loginUser(
 
 /**
  * Sets auth cookie/storage on the given page so it acts as an authenticated user.
- * Navigates to /login, submits the form, and waits for the dashboard redirect.
+ * Navigates to /login, submits the form, and waits for the files redirect.
  *
  * This is the "full browser login" path — validates the real login flow.
  */
@@ -97,35 +97,32 @@ export async function loginViaUI(page: Page, email: string, password: string): P
   await page.locator('#password').fill(password);
 
   await Promise.all([
-    page.waitForURL('**/dashboard', { timeout: 30_000 }),
+    page.waitForURL('**/files', { timeout: 30_000 }),
     page.locator('button[type="submit"]').click(),
   ]);
 }
 
 /**
- * Fast auth via API — injects the token into localStorage so the web app
- * treats the browser as already authenticated. Avoids the full UI login
- * flow for tests that don't need to validate login itself.
+ * Fast auth via API — transfers the HttpOnly authentication cookies from the
+ * Playwright API context into the browser context. This allows the web app
+ * to hydrate the session naturally via /api/auth/refresh on page load.
  */
-export async function loginViaToken(page: Page, accessToken: string): Promise<void> {
-  // Navigate to any page to establish the origin before setting storage
-  await page.goto('/login', { waitUntil: 'domcontentloaded' });
+export async function loginViaToken(page: Page, request: APIRequestContext): Promise<void> {
+  // Transfer the cookies (refresh_token, csrf_token) obtained during user creation
+  // from the isolated API context into the browser context.
+  const state = await request.storageState();
+  await page.context().addCookies(state.cookies);
 
-  await page.evaluate((token) => {
-    localStorage.setItem('accessToken', token);
-    // Also set as a cookie if the app checks both
-    document.cookie = `accessToken=${token}; path=/`;
-  }, accessToken);
-
-  // Navigate to dashboard to activate the authenticated session
-  await page.goto('/dashboard', { waitUntil: 'networkidle' });
+  // Navigate to the protected app to activate the authenticated session
+  await page.goto('/files', { waitUntil: 'networkidle' });
 }
 
 /**
- * Verifies the user is logged out by checking they cannot access /dashboard.
+ * Verifies the user is logged out by checking they cannot access /files.
  */
 export async function verifyLoggedOut(page: Page): Promise<void> {
-  await page.goto('/dashboard');
+  await page.goto('/files');
   // Should redirect to /login
   await expect(page).toHaveURL(/\/(login|\/)?$/, { timeout: 10_000 });
 }
+

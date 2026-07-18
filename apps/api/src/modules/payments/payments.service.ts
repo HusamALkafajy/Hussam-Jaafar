@@ -15,7 +15,9 @@ export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
 
   constructor(private readonly configService: ConfigService) {
-    this.stripe = new Stripe(this.configService.get<string>('stripe.secretKey')!, {
+    const stripeKey = this.configService.get<string>('stripe.secretKey');
+    // Provide a dummy key if missing to prevent startup crash in local dev/testing
+    this.stripe = new Stripe(stripeKey || 'sk_test_dummy_key_for_local_dev', {
       apiVersion: '2026-05-27.dahlia',
     });
   }

@@ -126,7 +126,8 @@ test.describe('07 · Security', () => {
     });
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.email).toBe(authenticatedUser.email);
+    const meUser = body.data?.user || body.data || body;
+    expect(meUser.email).toBe(authenticatedUser.email);
   });
 
   // ── Non-existent resource isolation ──────────────────────────────────

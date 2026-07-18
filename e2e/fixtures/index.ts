@@ -32,7 +32,7 @@ export const test = base.extend<AuthenticatedFixtures>({
    */
   authenticatedUser: async ({ page, request }, use) => {
     const user = await createTestUser(request);
-    await loginViaToken(page, user.accessToken);
+    await loginViaToken(page, request);
     await use(user);
     // No teardown needed — DB records belong to the unique userId
     // and are isolated from all other tests

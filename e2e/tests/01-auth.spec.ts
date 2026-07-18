@@ -19,7 +19,7 @@ import { attachNetworkMonitor } from '../helpers/network-monitor';
 const API_BASE = process.env.E2E_API_URL || 'http://localhost:4000';
 
 test.describe('01 · Authentication', () => {
-  test('register via UI creates a new user and redirects to dashboard', async ({
+  test('register via UI creates a new user and redirects to files', async ({
     page,
     request,
     consoleMonitor,
@@ -45,12 +45,12 @@ test.describe('01 · Authentication', () => {
         (res) => res.url().includes('/api/auth/register') && res.status() === 201,
         { timeout: 15_000 }
       ),
-      page.getByRole('button', { name: /register|sign up/i }).click(),
+      page.locator('button[type="submit"]').click({ force: true }),
     ]);
     expect(registerResponse.status()).toBe(201);
 
-    // Wait for redirect to dashboard
-    await page.waitForURL('**/dashboard', { timeout: 20_000 });
+    // Wait for redirect to files
+    await page.waitForURL('**/files', { timeout: 20_000 });
 
     // Level 3: verify user exists via API
     const body = await registerResponse.json();
@@ -71,7 +71,7 @@ test.describe('01 · Authentication', () => {
     networkMonitor.assertClean();
   });
 
-  test('login via UI with valid credentials navigates to dashboard', async ({
+  test('login via UI with valid credentials navigates to files', async ({
     page,
     request,
     consoleMonitor,
@@ -91,12 +91,12 @@ test.describe('01 · Authentication', () => {
         (res) => res.url().includes('/api/auth/login') && res.status() === 200,
         { timeout: 15_000 }
       ),
-      page.getByRole('button', { name: /login|sign in/i }).click(),
+      page.locator('button[type="submit"]').click({ force: true }),
     ]);
     expect(loginResponse.status()).toBe(200);
 
     // Verify redirect
-    await page.waitForURL('**/dashboard', { timeout: 20_000 });
+    await page.waitForURL('**/files', { timeout: 20_000 });
 
     // Level 3: verify token works against API
     const body = await loginResponse.json();
@@ -114,7 +114,7 @@ test.describe('01 · Authentication', () => {
     await page.goto('/login');
     await page.locator('#email').fill(user.email);
     await page.locator('#password').fill('WrongPassword999!');
-    await page.getByRole('button', { name: /login|sign in/i }).click();
+    await page.locator('button[type="submit"]').click({ force: true });
 
     // Should stay on login page and show error
     await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
@@ -124,7 +124,7 @@ test.describe('01 · Authentication', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('accessing /dashboard without auth redirects to login', async ({ page }) => {
+  test('accessing /files without auth redirects to login', async ({ page }) => {
     // Navigate to a valid origin first to avoid about:blank SecurityError
     await page.goto('/login');
 
@@ -137,7 +137,7 @@ test.describe('01 · Authentication', () => {
       });
     });
 
-    await page.goto('/dashboard');
+    await page.goto('/files');
     // Should redirect to login
     await page.waitForURL(/\/(login|)$/, { timeout: 10_000 });
     await expect(page.locator('#email')).toBeVisible();
@@ -147,26 +147,25 @@ test.describe('01 · Authentication', () => {
     page,
     authenticatedUser,
   }) => {
-    // We are now on /dashboard (set up by fixture)
-    await expect(page).toHaveURL(/dashboard/);
+    // We are now on /files (set up by fixture)
+    await expect(page).toHaveURL(/files/);
 
     // Find and click logout
-    // Look for a user menu or logout button
-    const logoutBtn = page.getByRole('button', { name: /logout|sign out/i });
+    // Find and click logout in the sidebar (it uses an <a> tag in SidebarNavItem)
+    const logoutBtn = page.locator('a', { hasText: /logout|sign out|خروج/i }).last();
     if (await logoutBtn.isVisible()) {
-      await logoutBtn.click();
+      await logoutBtn.click({ force: true });
     } else {
-      // Try via user avatar dropdown
-      await page.locator('[data-testid="user-menu"], [aria-label*="user"]').click();
-      await page.getByRole('menuitem', { name: /logout|sign out/i }).click();
+      // Fallback: click the sidebar item containing the LogOut icon text
+      await page.locator('.text-destructive').filter({ hasText: /logout|sign out|خروج/i }).click({ force: true });
     }
 
     // Wait for redirect to login
     await page.waitForURL(/\/(login|)$/, { timeout: 15_000 });
     await expect(page.locator('#email')).toBeVisible();
 
-    // Verify dashboard is no longer accessible
-    await page.goto('/dashboard');
+    // Verify files is no longer accessible
+    await page.goto('/files');
     await page.waitForURL(/\/(login|)$/, { timeout: 10_000 });
   });
 

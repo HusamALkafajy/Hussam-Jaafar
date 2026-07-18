@@ -45,7 +45,7 @@ test.describe('05 · Core Journey — Full E2E Certification', () => {
         (r) => r.url().includes('/api/auth/register') && r.status() === 201,
         { timeout: 15_000 }
       ),
-      page.getByRole('button', { name: /register|sign up/i }).click(),
+      page.locator('button[type="submit"]').click(),
     ]);
 
     const registerBody = await registerRes.json();
@@ -53,7 +53,7 @@ test.describe('05 · Core Journey — Full E2E Certification', () => {
     const token: string = tokenPayload.accessToken || tokenPayload.access_token || tokenPayload.token;
     expect(token).toBeTruthy();
 
-    await page.waitForURL('**/dashboard', { timeout: 20_000 });
+    await page.waitForURL('**/files', { timeout: 20_000 });
 
     // ── Step 2: Navigate to files and upload ─────────────────────────────
     await page.goto('/files', { waitUntil: 'networkidle' });
@@ -127,12 +127,12 @@ test.describe('05 · Core Journey — Full E2E Certification', () => {
     console.log('✅ Core Journey PASS — all steps completed successfully');
   });
 
-  test('dashboard loads with correct user information', async ({
+  test('files page loads with correct user information', async ({
     page,
     request,
     authenticatedUser,
   }) => {
-    // Already on /dashboard from fixture, which redirects to /files
+    // Already on /files from fixture
     await expect(page).toHaveURL(/files/);
 
     // Page should load without errors
@@ -141,7 +141,7 @@ test.describe('05 · Core Journey — Full E2E Certification', () => {
 
     await page.reload({ waitUntil: 'networkidle' });
 
-    // Dashboard content should render
+    // Content should render
     await expect(page.locator('main, .dashboard, [class*="dashboard"]').first()).toBeVisible({
       timeout: 10_000,
     });
