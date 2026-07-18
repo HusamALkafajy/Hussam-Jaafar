@@ -22,16 +22,25 @@ export default async () => {
 
   console.log(`Connecting to test database: ${databaseUrl}`);
 
-  // Execute Drizzle migrations from monorepo root
+  // Execute Prisma migrations from monorepo root
   const rootDir = resolve(__dirname, '../../../');
   console.log(`Pushing latest schema from root: ${rootDir}`);
   try {
-    execSync('pnpm --filter=@studyai/database db:migrate', {
+    console.log('Deploying Prisma migrations first...');
+    execSync('pnpm --filter=@studyai/infrastructure exec prisma migrate deploy', {
       cwd: rootDir,
       env: { ...process.env, DATABASE_URL: databaseUrl },
       stdio: 'inherit',
     });
-    console.log('Schema pushed successfully.');
+    console.log('Prisma schema pushed successfully.');
+
+    console.log('Pushing Drizzle migrations...');
+    execSync('pnpm --filter=@studyai/database db:migrate', {
+      cwd: rootDir,
+      env: { ...process.env, DATABASE_URL: databaseUrl, DRIZZLE_DATABASE_URL: databaseUrl },
+      stdio: 'inherit',
+    });
+    console.log('Drizzle schema pushed successfully.');
   } catch (error) {
     console.error('Failed to push schema:', error);
     throw error;
