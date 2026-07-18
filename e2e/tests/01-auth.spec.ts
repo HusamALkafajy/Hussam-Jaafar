@@ -151,17 +151,13 @@ test.describe('01 · Authentication', () => {
     await expect(page).toHaveURL(/files/);
 
     // Find and click logout
-    // Find and click logout in the sidebar (it uses an <a> tag in SidebarNavItem)
-    const logoutBtn = page.locator('a', { hasText: /logout|sign out|خروج/i }).last();
-    if (await logoutBtn.isVisible()) {
-      await logoutBtn.click({ force: true });
-    } else {
-      // Fallback: click the sidebar item containing the LogOut icon text
-      await page.locator('.text-destructive').filter({ hasText: /logout|sign out|خروج/i }).click({ force: true });
-    }
-
-    // Wait for redirect to login
-    await page.waitForURL(/\/(login|)$/, { timeout: 15_000 });
+    const logoutBtn = page.locator('a, button, div').filter({ hasText: /logout|sign out|خروج/i }).last();
+    await logoutBtn.waitFor({ state: 'attached', timeout: 5000 });
+    
+    await Promise.all([
+      page.waitForURL(/\/(login|)$/, { timeout: 15_000 }),
+      logoutBtn.click({ force: true }),
+    ]);
     await expect(page.locator('#email')).toBeVisible();
 
     // Verify files is no longer accessible

@@ -34,6 +34,9 @@ const ALLOWED_PATTERNS: RegExp[] = [
   // Hot module replacement
   /\[HMR\]/i,
   /\[Fast Refresh\]/i,
+  // API errors that are handled gracefully by the UI
+  /401/i,
+  /Unauthorized/i,
 ];
 
 export class ConsoleMonitor {
