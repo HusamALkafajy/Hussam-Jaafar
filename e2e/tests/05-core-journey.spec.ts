@@ -132,8 +132,8 @@ test.describe('05 · Core Journey — Full E2E Certification', () => {
     request,
     authenticatedUser,
   }) => {
-    // Already on /dashboard from fixture
-    await expect(page).toHaveURL(/dashboard/);
+    // Already on /dashboard from fixture, which redirects to /files
+    await expect(page).toHaveURL(/files/);
 
     // Page should load without errors
     const consoleMonitor = attachConsoleMonitor(page);

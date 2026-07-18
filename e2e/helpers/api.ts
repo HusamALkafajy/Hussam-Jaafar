@@ -69,7 +69,8 @@ export async function uploadFileViaAPI(
       throw new Error(`Chunk upload failed at chunk ${i}/${totalChunks}: ${res.status()} — ${body}`);
     }
 
-    lastResponse = await res.json();
+    const resBody = await res.json();
+    lastResponse = resBody.data ?? resBody;
   }
 
   if (!lastResponse?.id) {
@@ -102,7 +103,8 @@ export async function waitForProcessing(
       throw new Error(`GET /api/files/${fileId} failed: ${res.status()}`);
     }
 
-    const file: FileRecord = await res.json();
+    const resBody = await res.json();
+    const file: FileRecord = resBody.data ?? resBody;
 
     if (file.processingStatus === 'completed') return file;
     if (file.processingStatus === 'failed') {
@@ -131,7 +133,8 @@ export async function getFile(
     headers: { Authorization: `Bearer ${token}` },
   });
   expect(res.status()).toBe(200);
-  return res.json();
+  const body = await res.json();
+  return body.data ?? body;
 }
 
 /**
@@ -146,7 +149,8 @@ export async function listFiles(
   });
   expect(res.status()).toBe(200);
   const body = await res.json();
-  return body.data ?? body;
+  // The API returns either { data: [...] } or { success: true, data: { data: [...] } }
+  return body.data?.data ?? body.data ?? body;
 }
 
 /**

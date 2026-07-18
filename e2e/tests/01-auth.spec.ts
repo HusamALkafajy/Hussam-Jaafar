@@ -63,7 +63,8 @@ test.describe('01 · Authentication', () => {
     });
     expect(meRes.status()).toBe(200);
     const me = await meRes.json();
-    expect(me.email).toBe(email);
+    const meUser = me.data?.user || me.data || me;
+    expect(meUser.email).toBe(email);
 
     // Quality gate: no unexpected console errors
     consoleMonitor.assertClean({ allowWarnings: true });
@@ -124,9 +125,13 @@ test.describe('01 · Authentication', () => {
   });
 
   test('accessing /dashboard without auth redirects to login', async ({ page }) => {
+    // Navigate to a valid origin first to avoid about:blank SecurityError
+    await page.goto('/login');
+
     // Clear any existing auth state
     await page.evaluate(() => {
       localStorage.clear();
+      // Delete any accessible cookies just in case
       document.cookie.split(';').forEach((c) => {
         document.cookie = c.replace(/^ +/, '').replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
       });
