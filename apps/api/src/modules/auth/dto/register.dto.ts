@@ -1,7 +1,9 @@
 import { IsEmail, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { Locale } from '@studyai/types';
 
 export class RegisterDto {
+  @Transform(({ value }) => value?.trim().toLowerCase())
   @IsEmail()
   email!: string;
 
