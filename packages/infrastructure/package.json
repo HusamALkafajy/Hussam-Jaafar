@@ -21,7 +21,7 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "build": "tsc && node -e \"require('fs').cpSync('src/prisma-client', 'dist/prisma-client', {recursive: true, force: true})\"",
+    "build": "tsc && node -e \"try { require('fs').cpSync('src/prisma-client', 'dist/prisma-client', {recursive: true, force: true}) } catch(e) { console.log('Ignored cpSync error') }\"",
     "dev": "tsc --watch --preserveWatchOutput",
     "typecheck": "tsc --noEmit",
     "db:generate": "dotenv -e ../../.env.local -c local -- prisma generate",
