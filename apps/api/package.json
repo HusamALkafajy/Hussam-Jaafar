@@ -26,6 +26,7 @@
     "@nestjs/schedule": "^5.0.1",
     "@nestjs/throttler": "^6.3.0",
     "@nestjs/websockets": "^11.1.27",
+    "@studyai/ast": "workspace:*",
     "@studyai/database": "workspace:*",
     "@studyai/domain": "workspace:*",
     "@studyai/infrastructure": "workspace:^",
