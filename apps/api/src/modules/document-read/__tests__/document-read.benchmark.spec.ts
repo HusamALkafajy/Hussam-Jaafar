@@ -40,7 +40,7 @@ describe('DocumentReadController Benchmarks', () => {
     const start = Date.now();
     
     // Simulate direct controller invocation (avoiding network loopback overhead for pure logic benchmark)
-    const result = await controller.getWindow('parent', 'cursor', { limit: windowSize });
+    const result = await controller.getWindow('mock-user', 'mock-version', 'parent', 'cursor', { limit: windowSize });
     
     const duration = Date.now() - start;
     const endHeap = process.memoryUsage().heapUsed;

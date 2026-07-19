@@ -14,7 +14,7 @@ export interface VirtualReaderConfig {
 }
 
 export interface VirtualReaderProps {
-  documentId: string;
+  versionId: string | null;
   rootNodeId: string;
   config?: VirtualReaderConfig;
   className?: string;

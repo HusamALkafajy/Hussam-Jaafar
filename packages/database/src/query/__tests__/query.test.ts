@@ -32,7 +32,7 @@ describe('DocumentQueryService', () => {
     const fromMock = vi.fn().mockReturnValue({ where: whereMock });
     vi.spyOn(client.db, 'select').mockReturnValue({ from: fromMock } as any);
 
-    const result = await DocumentQueryService.getNode('node-0');
+    const result = await DocumentQueryService.getNode('mock-version-id', 'node-0');
     
     expect(result.data).toEqual(mockNode);
     expect(result.diagnostics.rows_returned).toBe(1);
@@ -48,7 +48,7 @@ describe('DocumentQueryService', () => {
     const fromMock = vi.fn().mockReturnValue({ where: whereMock });
     vi.spyOn(client.db, 'select').mockReturnValue({ from: fromMock } as any);
 
-    const result = await DocumentQueryService.getChildren('parent-1', 100, 'rank-00000');
+    const result = await DocumentQueryService.getChildren('mock-version-id', 'parent-1', 100, 'rank-00000');
     
     expect(result.data.length).toBe(100);
     expect(result.diagnostics.window_size).toBe(100);
@@ -59,7 +59,7 @@ describe('DocumentQueryService', () => {
     const mockNodes = generateNodes(3);
     vi.spyOn(client.db, 'execute').mockResolvedValue(mockNodes as any);
 
-    const result = await DocumentQueryService.getAncestors('node-3');
+    const result = await DocumentQueryService.getAncestors('mock-version-id', 'node-3');
     
     expect(result.data.length).toBe(3);
     expect(client.db.execute).toHaveBeenCalled();

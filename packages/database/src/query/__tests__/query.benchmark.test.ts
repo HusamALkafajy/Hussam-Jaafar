@@ -36,7 +36,7 @@ describe('DocumentQueryService Benchmarks', () => {
     simulateDbQuery(mockNodes);
 
     const startHeap = process.memoryUsage().heapUsed;
-    const result = await DocumentQueryService.getWindow('parent-1', 'rank-00000', windowSize);
+    const result = await DocumentQueryService.getWindow('mock-version-id', 'parent-1', 'rank-00000', windowSize);
     const endHeap = process.memoryUsage().heapUsed;
     
     // Convert to KB for easier reading

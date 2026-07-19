@@ -35,6 +35,7 @@ export function OutlineTree() {
           {hasChildren ? (
             <button 
               onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
+              aria-label={isExpanded ? `Collapse ${node.title}` : `Expand ${node.title}`}
               className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground"
             >
               {isExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}

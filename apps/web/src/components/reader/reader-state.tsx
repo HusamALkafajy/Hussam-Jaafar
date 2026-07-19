@@ -4,13 +4,20 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { ReaderSession, DEFAULT_SESSION } from '../../mocks/workspace/reader-session';
 import { Bookmark, MOCK_BOOKMARKS } from '../../mocks/workspace/bookmarks';
 import { Highlight, MOCK_HIGHLIGHTS } from '../../mocks/workspace/highlights';
-import { MOCK_READER_DOC, ReaderDocumentInfo } from '../../mocks/workspace/reader';
-import { MOCK_DOCUMENT_OUTLINE, DocumentOutlineNode } from '../../mocks/workspace/outline';
+import { DocumentOutlineNode, MOCK_DOCUMENT_OUTLINE } from '../../mocks/workspace/outline';
+import { ReaderDocumentInfo, MOCK_READER_DOC } from '../../mocks/workspace/reader';
+
+type ReaderInitializationState = 'idle' | 'loading-bootstrap' | 'processing' | 'empty' | 'ready' | 'not-found' | 'forbidden' | 'error';
 
 interface ReaderStateContextType {
   // Document Data
-  document: ReaderDocumentInfo;
-  outline: DocumentOutlineNode[];
+  documentId: string;
+  versionId: string | null;
+  initStatus: ReaderInitializationState;
+  
+  // Document Data (mock fallbacks for UI)
+  document: any;
+  outline: any[];
   
   // Session State
   session: ReaderSession;
@@ -48,6 +55,9 @@ export const ReaderStateProvider: React.FC<{
   documentId: string;
   children: React.ReactNode;
 }> = ({ documentId, children }) => {
+  const [initStatus, setInitStatus] = useState<ReaderInitializationState>('idle');
+  const [versionId, setVersionId] = useState<string | null>(null);
+
   // Load session from local storage or use default
   const [session, setSession] = useState<ReaderSession>(() => {
     if (typeof window !== 'undefined') {
@@ -68,6 +78,66 @@ export const ReaderStateProvider: React.FC<{
   const [highlights, setHighlights] = useState<Highlight[]>(MOCK_HIGHLIGHTS);
   const [selectedText, setSelectedText] = useState<string | null>(null);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function bootstrapReader() {
+      setInitStatus('loading-bootstrap');
+      try {
+        const res = await fetch(`/api/documents/files/${documentId}/bootstrap`);
+        if (res.status === 404) {
+          if (mounted) setInitStatus('not-found');
+          return;
+        }
+        if (res.status === 401 || res.status === 403) {
+          if (mounted) setInitStatus('forbidden');
+          return;
+        }
+        if (!res.ok) {
+          throw new Error('Failed to bootstrap reader');
+        }
+
+        const data = await res.json();
+        
+        if (!mounted) return;
+
+        setVersionId(data.versionId);
+
+        if (data.status === 'processing') {
+          setInitStatus('processing');
+        } else if (data.status === 'failed') {
+          setInitStatus('error');
+        } else if (data.status === 'completed') {
+          // If we have roots, we are ready. If no roots, it's a legitimately empty document (AST not extracted)
+          if (data.roots && data.roots.length > 0) {
+             setInitStatus('ready');
+             // Initialize root if session has no node
+             setSession(prev => {
+                if (!prev.currentNodeId) {
+                   return { ...prev, currentNodeId: data.roots[0].id };
+                }
+                return prev;
+             });
+          } else {
+             setInitStatus('empty');
+          }
+        } else {
+          setInitStatus('error');
+        }
+
+      } catch (err) {
+        if (mounted) {
+           console.error(err);
+           setInitStatus('error');
+        }
+      }
+    }
+
+    bootstrapReader();
+
+    return () => { mounted = false; };
+  }, [documentId]);
+
   // Persist session changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -87,6 +157,9 @@ export const ReaderStateProvider: React.FC<{
 
   return (
     <ReaderStateContext.Provider value={{
+      documentId,
+      versionId,
+      initStatus,
       document: MOCK_READER_DOC,
       outline: MOCK_DOCUMENT_OUTLINE,
       session,

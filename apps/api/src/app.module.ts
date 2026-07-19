@@ -35,6 +35,7 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
 import { CustomThrottlerGuard } from './common/guards/throttler.guard';
 import { QuotaInterceptor } from './common/interceptors/quota.interceptor';
 import { QuotaModule } from './modules/quota/quota.module';
+import { DocumentReadModule } from './modules/document-read/document-read.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { QuotaModule } from './modules/quota/quota.module';
     StudyGroupsModule,
     TelemetryModule,
     QuotaModule,
+    DocumentReadModule,
   ],
   providers: [
     {

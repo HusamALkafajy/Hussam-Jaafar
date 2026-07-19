@@ -3,8 +3,8 @@ import { VirtualReaderProps } from './types';
 import { useVirtualReader } from './useVirtualReader';
 import { VirtualReaderNode } from './VirtualReaderNode';
 
-export const VirtualReader: React.FC<VirtualReaderProps> = ({ documentId, rootNodeId, config = {}, className }) => {
-  const { nodes, isLoading, error, onScroll } = useVirtualReader({ documentId, rootNodeId, config });
+export const VirtualReader: React.FC<VirtualReaderProps> = ({ versionId, rootNodeId, config = {}, className }) => {
+  const { nodes, isLoading, error, onScroll } = useVirtualReader({ versionId, rootNodeId, config });
   
   const scrollRef = useRef<HTMLDivElement>(null);
 
