@@ -1,4 +1,4 @@
-import { BuilderContext, BuilderDTO, BuilderOptions, BuilderError } from './types';
+import { BuilderContext, StructuralBlock, BuilderOptions, BuilderError } from './types';
 import { ASTNode } from '../types';
 import { Pass1Security } from './passes/pass-1-security';
 import { Pass2Hierarchy } from './passes/pass-2-hierarchy';
@@ -21,9 +21,9 @@ export interface BuildManifest {
 }
 
 export class ASTBuilder {
-  static buildAndValidate(dtos: BuilderDTO[], options: BuilderOptions): BuildManifest {
+  static buildAndValidate(blocks: StructuralBlock[], options: BuilderOptions): BuildManifest {
     const start = performance.now();
-    const ctx = new BuilderContext(dtos, options);
+    const ctx = new BuilderContext(blocks, options);
 
     // Instantiate pipeline passes
     const passes = [

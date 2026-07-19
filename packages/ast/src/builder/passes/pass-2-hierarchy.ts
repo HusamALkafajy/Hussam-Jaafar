@@ -4,30 +4,40 @@ export class Pass2Hierarchy implements BuilderPass {
   name = 'HierarchyResolution';
 
   execute(ctx: BuilderContext): void {
-    // Determine the root. We assume parent pointers might be invalid or circular.
-    // However, the builder only connects explicit parent pointers. 
-    // Cycle detection will happen in the Validator, but we must ensure we don't crash.
-    // The only thing we do here is resolve extractor_parent_id to canonical_parent_id (which is currently just setting it).
-    // Wait, since canonical_id is generated in Pass 3, how do we set canonical_parent_id?
-    // We need canonical_ids FIRST.
-    // Let's swap the logic logically:
-    // Actually, Pass 3 (UUID generation) can run BEFORE Pass 2 (Hierarchy), or Pass 2 just resolves the index, but we don't need index.
-    // We can just rely on Pass 3 having run, OR we can generate IDs first.
-    // The design doc said: Pass 2 Hierarchy, Pass 3 Deterministic UUID.
-    // Let's just do Hierarchy validation here: does the parent exist?
-    
-    for (let i = 0; i < ctx.dtos.length; i++) {
-      const dto = ctx.dtos[i];
-      if (dto.extractor_parent_id !== null) {
-        if (!ctx.dtoIndexMap.has(dto.extractor_parent_id)) {
-          ctx.reportError({
-            code: 'INVALID_PARENT_REFERENCE',
-            message: `Parent extractor_id '${dto.extractor_parent_id}' does not exist`,
-            extractorId: dto.extractor_id
-          });
-          // Unlink it so downstream doesn't crash, but error is logged
-          dto.extractor_parent_id = null;
+    // Stack holds the index of active parent nodes.
+    // Index 0: document, 1: H1, 2: H2, ..., 6: H6
+    const stack: { level: number; index: number }[] = [];
+
+    const getLevel = (type: string): number => {
+      if (type === 'document') return 0;
+      if (type.startsWith('heading_')) return parseInt(type.split('_')[1], 10);
+      return 99; // Leaves (paragraph, table, etc)
+    };
+
+    for (let i = 0; i < ctx.nodes.length; i++) {
+      const node = ctx.nodes[i];
+      const level = getLevel(node.block.type);
+
+      // If it's a heading or document, pop stack until we find a strict parent (level < current_level)
+      if (level <= 6) {
+        while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+          stack.pop();
         }
+      }
+
+      // Assign parent
+      if (stack.length > 0) {
+        // We set canonical_parent_id to the index for now as a temporary reference.
+        // Pass 3 (Identity) will convert this index reference into a real UUID.
+        // We temporarily store the parent index in _canonical_parent_id as a string.
+        ctx.setCanonicalParentId(i, `INDEX:${stack[stack.length - 1].index}`);
+      } else {
+        ctx.setCanonicalParentId(i, null);
+      }
+
+      // If it's a structural container (document or heading), push to stack
+      if (level <= 6) {
+        stack.push({ level, index: i });
       }
     }
   }

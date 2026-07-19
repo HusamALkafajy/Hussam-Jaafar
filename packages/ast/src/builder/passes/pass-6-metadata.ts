@@ -5,45 +5,47 @@ export class Pass6Metadata implements BuilderPass {
   name = 'MetadataNormalization';
 
   execute(ctx: BuilderContext): void {
-    // This pass technically just prepares the context to be exported to ASTNode[]
-    // Since ASTNode[] requires specific shapes, we ensure metadata is an object here
-    // and content is an object.
-    for (let i = 0; i < ctx.dtos.length; i++) {
-      const dto = ctx.dtos[i];
-      if (!dto.metadata) dto.metadata = {};
-      if (!dto.content) dto.content = {};
+    for (let i = 0; i < ctx.nodes.length; i++) {
+      const node = ctx.nodes[i];
+      if (!node.block.metadata) node.block.metadata = {};
       
       // Inject source tracker
-      dto.metadata['_extractor_id'] = dto.extractor_id;
+      node.block.metadata['_source_id'] = node.block.sourceId || `index_${i}`;
     }
   }
 
   static finalize(ctx: BuilderContext): ASTNode[] {
     const nodes: ASTNode[] = [];
     
-    for (let i = 0; i < ctx.dtos.length; i++) {
-      const dto = ctx.dtos[i];
+    for (let i = 0; i < ctx.nodes.length; i++) {
+      const node = ctx.nodes[i];
       
-      if (!dto._canonical_id) {
-        // Critical invariant failure
+      if (!node._canonical_id) {
         ctx.reportError({
           code: 'MISSING_CANONICAL_ID',
-          message: 'Failed to generate canonical ID for node',
-          extractorId: dto.extractor_id
+          message: 'Failed to generate canonical ID for node'
         });
         continue;
       }
 
+      let astNodeType = node.block.type as string;
+      if (astNodeType.startsWith('heading_')) {
+        astNodeType = 'heading';
+      }
+      
+      // Map heading level if it's a heading
+      const content: Record<string, any> = { text: node.block.text };
+      if (node.block.type.startsWith('heading_')) {
+        content['level'] = parseInt(node.block.type.split('_')[1], 10);
+      }
+
       nodes.push({
-        id: dto._canonical_id,
-        parent_id: dto._canonical_parent_id || null,
-        node_type: dto.node_type || 'unknown',
-        lexo_rank: dto._lexo_rank || '00000',
-        content: dto.content,
-        metadata: dto.metadata,
-        annotations: dto.annotations,
-        assets: dto.assets ? dto.assets.map((a: any) => ({ id: a.asset_id, asset_type: a.asset_type })) : undefined,
-        relationships: dto._canonical_relationships,
+        id: node._canonical_id,
+        parent_id: node._canonical_parent_id || null,
+        node_type: astNodeType,
+        lexo_rank: node._lexo_rank || '00000',
+        content: content,
+        metadata: node.block.metadata,
       });
     }
 

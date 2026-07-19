@@ -1,4 +1,4 @@
-import { ASTBuilder, BuilderDTO, BuilderOptions } from '../src/builder';
+import { ASTBuilder, StructuralBlock, BuilderOptions } from '../src/builder';
 
 function formatMemoryUsage(data: number) {
   return `${Math.round(data / 1024 / 1024 * 100) / 100} MB`;
@@ -6,17 +6,15 @@ function formatMemoryUsage(data: number) {
 
 function runBenchmark(nodeCount: number) {
   console.log(`\n--- Benchmarking ${nodeCount.toLocaleString()} nodes ---`);
-  const dtos: BuilderDTO[] = [];
-  const options: BuilderOptions = { documentId: '2b671a64-40d5-491e-99b0-da01ff1f3342' };
+  const blocks: StructuralBlock[] = [];
+  const options: BuilderOptions = { versionId: '2b671a64-40d5-491e-99b0-da01ff1f3342' };
 
-  dtos.push({ extractor_id: 'root', extractor_parent_id: null, node_type: 'document' });
+  blocks.push({ type: 'document', text: '' });
 
   for (let i = 1; i < nodeCount; i++) {
-    dtos.push({
-      extractor_id: `node-${i}`,
-      extractor_parent_id: i % 100 === 0 ? 'root' : `node-${i - 1}`, // Deep hierarchy interspersed with branches
-      node_type: 'paragraph',
-      content: { text: `This is node ${i}` },
+    blocks.push({
+      type: 'paragraph',
+      text: `This is node ${i}`,
       metadata: { author: 'HostileAudit' }
     });
   }
@@ -24,7 +22,7 @@ function runBenchmark(nodeCount: number) {
   const startMem = process.memoryUsage();
   const start = performance.now();
   
-  const result = ASTBuilder.buildAndValidate(dtos, options);
+  const result = ASTBuilder.buildAndValidate(blocks, options);
   
   const end = performance.now();
   const endMem = process.memoryUsage();

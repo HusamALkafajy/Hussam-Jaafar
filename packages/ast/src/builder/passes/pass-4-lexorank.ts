@@ -6,9 +6,9 @@ export class Pass4LexoRank implements BuilderPass {
   execute(ctx: BuilderContext): void {
     const siblingCounters = new Map<string | null, number>();
 
-    for (let i = 0; i < ctx.dtos.length; i++) {
-      const dto = ctx.dtos[i];
-      const parentId = dto._canonical_parent_id || null;
+    for (let i = 0; i < ctx.nodes.length; i++) {
+      const node = ctx.nodes[i];
+      const parentId = node._canonical_parent_id || null;
       
       const currentCount = siblingCounters.get(parentId) || 0;
       const rank = this.generateRank(currentCount);
