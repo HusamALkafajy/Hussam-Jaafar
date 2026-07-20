@@ -1,0 +1,3 @@
+ALTER TABLE "document_versions" ADD COLUMN "attempt_id" uuid;--> statement-breakpoint
+ALTER TABLE "document_versions" ADD CONSTRAINT "document_versions_attempt_id_file_processing_attempts_id_fk" FOREIGN KEY ("attempt_id") REFERENCES "public"."file_processing_attempts"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "document_versions" ADD CONSTRAINT "document_versions_attempt_id_unique" UNIQUE("attempt_id");

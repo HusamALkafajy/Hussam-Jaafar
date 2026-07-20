@@ -4,6 +4,7 @@ import {
 import { relations, sql } from 'drizzle-orm';
 import { files } from './files';
 import { users } from './users';
+import { fileProcessingAttempts } from './file_processing_attempts';
 
 // ============================================================================
 // ENUMS
@@ -27,6 +28,7 @@ export const relationshipTypeEnum = [
 export const documentVersions = pgTable('document_versions', {
   id: uuid('id').primaryKey().defaultRandom(),
   fileId: uuid('file_id').references(() => files.id, { onDelete: 'cascade' }).notNull(),
+  attemptId: uuid('attempt_id').references(() => fileProcessingAttempts.id, { onDelete: 'set null' }).unique(),
   versionNumber: integer('version_number').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
@@ -173,6 +175,7 @@ export const documentAssets = pgTable('document_assets', {
 
 export const documentVersionsRelations = relations(documentVersions, ({ one, many }) => ({
   file: one(files, { fields: [documentVersions.fileId], references: [files.id] }),
+  attempt: one(fileProcessingAttempts, { fields: [documentVersions.attemptId], references: [fileProcessingAttempts.id] }),
   nodes: many(documentNodes),
 }));
 

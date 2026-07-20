@@ -99,6 +99,13 @@
       "when": 1784148984084,
       "tag": "0015_stormy_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784501463713,
+      "tag": "0016_tough_chat",
+      "breakpoints": true
     }
   ]
 }

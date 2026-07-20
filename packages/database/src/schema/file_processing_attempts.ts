@@ -1,6 +1,7 @@
 import { pgTable, uuid, varchar, text, timestamp, integer, pgEnum, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 import { files } from './files';
+import { documentVersions } from './document_engine';
 
 export const fileProcessingStatusEnum = pgEnum('file_processing_status', [
   'enqueue_pending',
@@ -40,5 +41,9 @@ export const fileProcessingAttemptsRelations = relations(fileProcessingAttempts,
   file: one(files, {
     fields: [fileProcessingAttempts.fileId],
     references: [files.id],
+  }),
+  documentVersion: one(documentVersions, {
+    fields: [fileProcessingAttempts.id],
+    references: [documentVersions.attemptId],
   }),
 }));
