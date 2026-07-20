@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { db, eq, and, sql, fileProcessingAttempts } from '@studyai/database';
+import { db, eq, and, sql, fileProcessingAttempts, files } from '@studyai/database';
 import { FileProcessingDispatcherService } from './file-processing-dispatcher.service';
 import { FileProcessingStateRepository } from '../repositories/file-processing-state.repository';
 
@@ -33,15 +33,35 @@ export class FileProcessingReconcilerService {
       const newAttempts = (attempt.dispatchAttempts ?? 0) + 1;
 
       if (newAttempts >= MAX_DISPATCH_ATTEMPTS) {
-        await this.stateRepository.transitionToTerminal(
-          attempt.id,
-          attempt.fileId,
-          'enqueue_failed',
-          { dispatchAttempts: newAttempts },
-          undefined,
-          'System failed to queue file for processing'
-        );
-        this.logger.error(`Attempt ${attempt.id} reached max dispatch attempts. Marked enqueue_failed.`);
+        // Administrative terminal: attempt is in 'dispatching' state (not 'processing'),
+        // so the worker fencing token is not applicable. Use direct DB transition.
+        await db.transaction(async (tx) => {
+          const attemptUpdate = await tx
+            .update(fileProcessingAttempts)
+            .set({
+              status: 'enqueue_failed',
+              dispatchAttempts: newAttempts,
+              finishedAt: new Date(),
+              lastError: 'System failed to queue file for processing',
+            })
+            .where(
+              and(
+                eq(fileProcessingAttempts.id, attempt.id),
+                eq(fileProcessingAttempts.status, 'dispatching')
+              )
+            )
+            .returning({ id: fileProcessingAttempts.id });
+
+          if (attemptUpdate.length > 0) {
+            await tx
+              .update(files)
+              .set({ processingStatus: 'failed', processingError: 'System failed to queue file for processing' })
+              .where(eq(files.id, attempt.fileId));
+            this.logger.error(`Attempt ${attempt.id} reached max dispatch attempts. Marked enqueue_failed.`);
+          } else {
+            this.logger.warn(`Attempt ${attempt.id} changed state before reconciler could mark enqueue_failed. Skipping.`);
+          }
+        });
       } else {
         await db
           .update(fileProcessingAttempts)

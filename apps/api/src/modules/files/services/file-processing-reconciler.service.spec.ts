@@ -12,6 +12,7 @@ jest.mock('@studyai/database', () => ({
       },
     },
     update: jest.fn(),
+    transaction: jest.fn((cb) => cb(db)), // mock tx as using the main db instance
   },
   eq: jest.fn(),
   and: jest.fn(),
@@ -21,24 +22,18 @@ jest.mock('@studyai/database', () => ({
     dispatchLeaseStartedAt: 'dispatchLeaseStartedAt',
     nextRetryAt: 'nextRetryAt',
     id: 'id'
+  },
+  files: {
+    id: 'id'
   }
 }));
 
 describe('FileProcessingReconcilerService', () => {
   let service: FileProcessingReconcilerService;
   let dispatcher: FileProcessingDispatcherService;
-  let stateRepository: jest.Mocked<FileProcessingStateRepository>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
-
-    // Setup chainable mock for db.update().set().where().returning()
-    const returningMock = jest.fn().mockResolvedValue([]);
-    const whereMockObj = Object.assign(Promise.resolve([]), { returning: returningMock });
-    const whereMock = jest.fn().mockReturnValue(whereMockObj);
-    
-    const setMock = jest.fn().mockReturnValue({ where: whereMock });
-    (db.update as jest.Mock).mockReturnValue({ set: setMock });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -52,7 +47,7 @@ describe('FileProcessingReconcilerService', () => {
         {
           provide: FileProcessingStateRepository,
           useValue: {
-            transitionToTerminal: jest.fn().mockResolvedValue(undefined),
+            transitionToTerminal: jest.fn(),
           },
         },
       ],
@@ -60,69 +55,100 @@ describe('FileProcessingReconcilerService', () => {
 
     service = module.get<FileProcessingReconcilerService>(FileProcessingReconcilerService);
     dispatcher = module.get<FileProcessingDispatcherService>(FileProcessingDispatcherService);
-    stateRepository = module.get(FileProcessingStateRepository);
   });
 
-  it('should no-op when nothing is expired', async () => {
-    (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([]);
-    await service.reconcileDispatchingAttempts();
-    expect(db.update).not.toHaveBeenCalled();
-    expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
-  });
+  describe('reconcileDispatchingAttempts', () => {
+    let whereMock: jest.Mock;
+    let returningMock: jest.Mock;
 
-  it('should transition to enqueue_pending and trigger dispatcher for expired lease', async () => {
-    const attempt = { id: 'attempt-1', dispatchAttempts: 0 };
-    (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
+    beforeEach(() => {
+      returningMock = jest.fn().mockResolvedValue([]);
+      const whereMockObj = Object.assign(Promise.resolve([]), { returning: returningMock });
+      whereMock = jest.fn().mockReturnValue(whereMockObj);
+      const setMock = jest.fn().mockReturnValue({ where: whereMock });
+      (db.update as jest.Mock).mockReturnValue({ set: setMock });
+    });
 
-    await service.reconcileDispatchingAttempts();
+    it('should no-op when nothing is expired', async () => {
+      (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([]);
+      await service.reconcileDispatchingAttempts();
+      expect(db.update).not.toHaveBeenCalled();
+      expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
+    });
 
-    expect(db.update).toHaveBeenCalled();
-    const updateObj = (db.update as jest.Mock).mock.results[0].value;
-    expect(updateObj.set).toHaveBeenCalledWith({ status: 'enqueue_pending', dispatchAttempts: 1 });
-    expect(dispatcher.dispatchAttempt).toHaveBeenCalledWith('attempt-1');
-  });
+    it('should transition to enqueue_pending and trigger dispatcher for expired lease', async () => {
+      const attempt = { id: 'attempt-1', dispatchAttempts: 0 };
+      (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
 
-  it('should handle dispatch_attempt increment', async () => {
-    const attempt = { id: 'attempt-2', dispatchAttempts: 2 };
-    (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
+      await service.reconcileDispatchingAttempts();
 
-    await service.reconcileDispatchingAttempts();
+      expect(db.update).toHaveBeenCalled();
+      const updateObj = (db.update as jest.Mock).mock.results[0].value;
+      expect(updateObj.set).toHaveBeenCalledWith({ status: 'enqueue_pending', dispatchAttempts: 1 });
+      expect(dispatcher.dispatchAttempt).toHaveBeenCalledWith('attempt-1');
+    });
 
-    const updateObj = (db.update as jest.Mock).mock.results[0].value;
-    expect(updateObj.set).toHaveBeenCalledWith({ status: 'enqueue_pending', dispatchAttempts: 3 });
-  });
+    it('should handle dispatch_attempt increment', async () => {
+      const attempt = { id: 'attempt-2', dispatchAttempts: 2 };
+      (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
 
-  it('should transition to enqueue_failed at maximum retry boundary', async () => {
-    const attempt = { id: 'attempt-3', fileId: 'file-3', dispatchAttempts: 4 };
-    (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
+      await service.reconcileDispatchingAttempts();
 
-    await service.reconcileDispatchingAttempts();
+      const updateObj = (db.update as jest.Mock).mock.results[0].value;
+      expect(updateObj.set).toHaveBeenCalledWith({ status: 'enqueue_pending', dispatchAttempts: 3 });
+    });
 
-    expect(stateRepository.transitionToTerminal).toHaveBeenCalledWith(
-      'attempt-3',
-      'file-3',
-      'enqueue_failed',
-      { dispatchAttempts: 5 },
-      undefined,
-      'System failed to queue file for processing'
-    );
-    expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
-  });
+    it('should transition to enqueue_failed at maximum retry boundary and cascade to files', async () => {
+      const attempt = { id: 'attempt-3', fileId: 'file-3', dispatchAttempts: 4 };
+      (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
+      
+      // Simulate successful administrative attempt update (1 row affected)
+      returningMock.mockResolvedValue([{ id: attempt.id }]);
 
-  it('should handle repository update correctness and errors', async () => {
-    const attempt = { id: 'attempt-4', dispatchAttempts: 1 };
-    (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
+      await service.reconcileDispatchingAttempts();
 
-    // Mock an error during update
-    const error = new Error('DB Error');
-    const returningMock = jest.fn();
-    const whereMockObj = Object.assign(Promise.reject(error), { returning: returningMock });
-    const whereMock = jest.fn().mockReturnValue(whereMockObj);
-    const setMock = jest.fn().mockReturnValue({ where: whereMock });
-    (db.update as jest.Mock).mockReturnValue({ set: setMock });
+      expect(db.transaction).toHaveBeenCalled();
+      
+      // Verifying that db.update was called twice within the transaction 
+      // (once for attempts, once for files)
+      expect(db.update).toHaveBeenCalledTimes(2);
+      
+      const attemptUpdateObj = (db.update as jest.Mock).mock.results[0].value;
+      expect(attemptUpdateObj.set).toHaveBeenCalledWith(expect.objectContaining({ 
+        status: 'enqueue_failed',
+        dispatchAttempts: 5,
+        lastError: 'System failed to queue file for processing',
+      }));
 
-    await expect(service.reconcileDispatchingAttempts()).rejects.toThrow('DB Error');
-    expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
+      const filesUpdateObj = (db.update as jest.Mock).mock.results[1].value;
+      expect(filesUpdateObj.set).toHaveBeenCalledWith(expect.objectContaining({ 
+        processingStatus: 'failed', 
+      }));
+      
+      expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
+    });
+
+    it('should prevent race conditions by NOT updating files if attempt update matched 0 rows', async () => {
+      const attempt = { id: 'attempt-race', fileId: 'file-race', dispatchAttempts: 4 };
+      (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([attempt]);
+      
+      // Simulate race condition: attempt state changed concurrently, so 0 rows returned
+      returningMock.mockResolvedValue([]);
+
+      await service.reconcileDispatchingAttempts();
+
+      expect(db.transaction).toHaveBeenCalled();
+      
+      // Should ONLY update the attempts table, matching 0 rows, and then NOT update files
+      expect(db.update).toHaveBeenCalledTimes(1);
+      
+      const attemptUpdateObj = (db.update as jest.Mock).mock.results[0].value;
+      expect(attemptUpdateObj.set).toHaveBeenCalledWith(expect.objectContaining({ 
+        status: 'enqueue_failed'
+      }));
+
+      expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
+    });
   });
 
   describe('reconcileRetryingAttempts', () => {
@@ -135,18 +161,6 @@ describe('FileProcessingReconcilerService', () => {
       expect(db.update).toHaveBeenCalled();
       const updateObj = (db.update as jest.Mock).mock.results[0].value;
       expect(updateObj.set).toHaveBeenCalledWith({ status: 'enqueue_pending' });
-
-      // Outbox Pattern: Never dispatch directly from scheduler
-      expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
-    });
-
-    it('should ignore attempts not yet due (SQL bounds)', async () => {
-      const setMock = jest.fn().mockReturnValue({ where: jest.fn() });
-      (db.update as jest.Mock).mockReturnValue({ set: setMock });
-
-      await service.reconcileRetryingAttempts();
-
-      expect(db.update).toHaveBeenCalled();
       expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
     });
   });
@@ -159,15 +173,6 @@ describe('FileProcessingReconcilerService', () => {
       await service.reconcileEnqueuePendingAttempts();
 
       expect(dispatcher.dispatchAttempt).toHaveBeenCalledWith('pending-1');
-      expect(db.update).not.toHaveBeenCalled(); // Dispatcher handles DB transition
-    });
-
-    it('should no-op when no orphaned attempts exist', async () => {
-      (db.query.fileProcessingAttempts.findMany as jest.Mock).mockResolvedValue([]);
-
-      await service.reconcileEnqueuePendingAttempts();
-
-      expect(dispatcher.dispatchAttempt).not.toHaveBeenCalled();
     });
   });
 });

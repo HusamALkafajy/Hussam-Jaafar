@@ -1,4 +1,5 @@
 import { db } from '../client';
+import { DatabaseExecutor } from '../types';
 import { 
   documentNodes, 
   nodeRelationships, 
@@ -54,7 +55,7 @@ export class DocumentRepository {
   /**
    * Persists Canonical Nodes idempotently using chunked transactions.
    */
-  async persistNodes(nodes: InsertNode[]): Promise<PersistenceResult> {
+  async persistNodes(nodes: InsertNode[], executor: DatabaseExecutor = db): Promise<PersistenceResult> {
     const diagnostics = this.createDiagnostics();
     const startTime = Date.now();
     const chunks = this.chunkArray(nodes, this.chunkSize);
@@ -62,20 +63,28 @@ export class DocumentRepository {
     try {
       for (const chunk of chunks) {
         const chunkStart = Date.now();
-        // Execute each chunk inside its own transaction boundary to prevent WAL explosion
-        await db.transaction(async (tx) => {
-          await tx.insert(documentNodes)
+        
+        const executeChunk = async (txClient: DatabaseExecutor) => {
+          await txClient.insert(documentNodes)
             .values(chunk)
             .onConflictDoUpdate({
               target: documentNodes.id,
               set: {
                 content: sql`EXCLUDED.content`,
                 metadata: sql`EXCLUDED.metadata`,
-                lexoRank: sql`EXCLUDED.lexoRank`,
+                lexoRank: sql`EXCLUDED.lexo_rank`,
                 updatedAt: sql`now()`
               }
             });
-        }, { isolationLevel: 'read committed' });
+        };
+
+        if (executor === db) {
+          // Default behavior: separate transaction per chunk
+          await db.transaction(executeChunk, { isolationLevel: 'read committed' });
+        } else {
+          // Transaction provided: execute in the outer transaction context
+          await executeChunk(executor);
+        }
         
         diagnostics.chunk_duration_ms += (Date.now() - chunkStart);
         // We consider all records either inserted or updated since it's UPSERT
@@ -93,7 +102,7 @@ export class DocumentRepository {
   /**
    * Persists Resolved Relationships idempotently.
    */
-  async persistRelationships(relationships: InsertRelationship[]): Promise<PersistenceResult> {
+  async persistRelationships(relationships: InsertRelationship[], executor: DatabaseExecutor = db): Promise<PersistenceResult> {
     const diagnostics = this.createDiagnostics();
     const startTime = Date.now();
     const chunks = this.chunkArray(relationships, this.chunkSize);
@@ -101,8 +110,9 @@ export class DocumentRepository {
     try {
       for (const chunk of chunks) {
         const chunkStart = Date.now();
-        await db.transaction(async (tx) => {
-          await tx.insert(nodeRelationships)
+        
+        const executeChunk = async (txClient: DatabaseExecutor) => {
+          await txClient.insert(nodeRelationships)
             .values(chunk)
             .onConflictDoUpdate({
               target: nodeRelationships.id,
@@ -112,7 +122,13 @@ export class DocumentRepository {
                 relationshipType: sql`EXCLUDED.relationship_type`
               }
             });
-        }, { isolationLevel: 'read committed' });
+        };
+
+        if (executor === db) {
+          await db.transaction(executeChunk, { isolationLevel: 'read committed' });
+        } else {
+          await executeChunk(executor);
+        }
         
         diagnostics.chunk_duration_ms += (Date.now() - chunkStart);
         diagnostics.inserted_rows += chunk.length;

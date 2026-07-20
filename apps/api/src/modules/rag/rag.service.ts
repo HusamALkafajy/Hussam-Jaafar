@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { db, documentChunks, eq, and, sql } from '@studyai/database';
+import { DatabaseExecutor } from '@studyai/database';
 import { AiService } from '../ai/ai.service';
 
 @Injectable()
@@ -54,39 +55,23 @@ export class RagService {
   }
 
   // 2. Index a file: split text into chunks, generate embeddings, and insert into DB
-  async indexFile(fileId: string, text: string) {
+  async indexFile(fileId: string, text: string, executor: DatabaseExecutor = db) {
     this.logger.log(`Indexing file ID: ${fileId} for Advanced RAG...`);
-    
-    // Remove any previously indexed chunks to prevent duplicate entries
-    await db.delete(documentChunks).where(eq(documentChunks.fileId, fileId));
+    const chunkValues = await this.generateChunkValues(fileId, text, 1);
+    await this.persistChunks(fileId, chunkValues, executor);
+    this.logger.log(`Indexed ${chunkValues.length} chunks for file ${fileId} successfully.`);
+  }
 
-    const chunks = this.chunkText(text);
-    this.logger.log(`Split file ${fileId} into ${chunks.length} chunks. Generating embeddings...`);
-
-    const chunkValues = [];
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      try {
-        const embedding = await this.aiService.getEmbedding(chunk.content);
-        chunkValues.push({
-          fileId,
-          chunkIndex: i,
-          content: chunk.content,
-          pageNumber: chunk.pageNumber,
-          embedding,
-        });
-      } catch (err) {
-        this.logger.error(`Failed to generate embedding for chunk index ${i} on file ${fileId}:`, err);
-      }
-    }
-
+  // 3. Database persistence boundary (isolated from external AI calls)
+  async persistChunks(fileId: string, chunkValues: any[], executor: DatabaseExecutor = db) {
     if (chunkValues.length > 0) {
-      await db.insert(documentChunks).values(chunkValues);
-      this.logger.log(`Indexed ${chunkValues.length} chunks for file ${fileId} successfully.`);
+      // Remove any previously indexed chunks to prevent duplicate entries
+      await executor.delete(documentChunks).where(eq(documentChunks.fileId, fileId));
+      await executor.insert(documentChunks).values(chunkValues);
     }
   }
 
-  // 3. Generate raw document chunks for V2 extraction without database writes
+  // 4. Generate raw document chunks for extraction without database writes
   async generateChunkValues(fileId: string, text: string, startPage: number) {
     const chunks = this.chunkText(text);
     
@@ -106,7 +91,7 @@ export class RagService {
     return chunkValues;
   }
 
-  // 4. Perform semantic vector search on file chunks using pgvector Cosine similarity
+  // 5. Perform semantic vector search on file chunks using pgvector Cosine similarity
   async searchChunks(
     fileId: string,
     query: string,

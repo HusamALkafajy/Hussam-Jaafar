@@ -46,3 +46,12 @@ export class NonRetryableAuthorizationError extends Error {
     this.name = 'NonRetryableAuthorizationError';
   }
 }
+
+export class LostProcessingOwnershipError extends Error {
+  public readonly code = 'LOST_PROCESSING_OWNERSHIP';
+
+  constructor(message: string, public readonly originalError?: unknown) {
+    super(message);
+    this.name = 'LostProcessingOwnershipError';
+  }
+}

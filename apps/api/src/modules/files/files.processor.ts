@@ -6,7 +6,9 @@ import { RagService } from '../rag/rag.service';
 import { join } from 'path';
 import { ErrorClassifier, ClassificationResult } from './utils/error-classifier.util';
 import { RetryPolicy } from './utils/retry-policy.util';
+import { LostProcessingOwnershipError } from './utils/domain.exceptions';
 import { FileProcessingStateRepository } from './repositories/file-processing-state.repository';
+import { WorkerExecutionToken } from './types/worker-execution-token.type';
 import { IApplicationHandler, WorkerExecutionContext } from '@studyai/infrastructure';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter, Histogram } from 'prom-client';
@@ -109,17 +111,24 @@ export class FilesProcessor implements IApplicationHandler<any> {
     if (currentProcessingAttempts > RetryPolicy.MAX_RETRIES) {
       this.logger.error(`[KPI_WORKER_FAILURE] Attempt ${attemptId} exceeded MAX_RETRIES due to prior repeated crashes. Terminating.`);
       try { this.workerJobsTotal.labels('failed', 'SYSTEM_CRASH_LIMIT').inc(); } catch (e) {}
-      await this.stateRepository.transitionToTerminal(
-        attemptId,
-        fileId,
-        'failed',
-        {
-          lastError: 'Maximum attempts exceeded due to repeated worker crashes.',
-          errorCode: 'SYSTEM_CRASH_LIMIT',
-        },
-        undefined,
-        'System experienced repeated unexpected failures during processing.'
-      );
+      try {
+        await this.stateRepository.transitionToTerminal(
+          { attemptId, fileId, generation: currentProcessingAttempts },
+          'failed',
+          {
+            lastError: 'Maximum attempts exceeded due to repeated worker crashes.',
+            errorCode: 'SYSTEM_CRASH_LIMIT',
+          },
+          undefined,
+          'System experienced repeated unexpected failures during processing.'
+        );
+      } catch (err: any) {
+        if (err instanceof LostProcessingOwnershipError) {
+          this.logger.warn(`[KPI_WORKER_STALE] Worker lost ownership for attempt ${attemptId} during pre-execution guard. Exiting cleanly.`);
+        } else {
+          throw err;
+        }
+      }
       return;
     }
 
@@ -161,8 +170,7 @@ export class FilesProcessor implements IApplicationHandler<any> {
     // 4. Atomic Completion
     try {
       await this.stateRepository.transitionToTerminal(
-        attemptId,
-        fileId,
+        { attemptId, fileId, generation: currentProcessingAttempts },
         'completed',
         {},
         extractedText
@@ -185,7 +193,11 @@ export class FilesProcessor implements IApplicationHandler<any> {
 
       this.logger.log(`[KPI_WORKER_SUCCESS] Successfully completed processing for attempt ${attemptId}`);
       try { this.workerJobsTotal.labels('success', 'NONE').inc(); } catch (e) {}
-    } catch (completionError) {
+    } catch (completionError: any) {
+      if (completionError instanceof LostProcessingOwnershipError) {
+        this.logger.warn(`[KPI_WORKER_STALE] Worker lost ownership for attempt ${attemptId}. Execution authority revoked. Exiting cleanly.`);
+        return;
+      }
       this.logger.error(`[KPI_WORKER_FAILURE] Failed during completion transaction for attempt ${attemptId}`, completionError);
       const classification = ErrorClassifier.classify(completionError);
       await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
@@ -205,17 +217,25 @@ export class FilesProcessor implements IApplicationHandler<any> {
     if (newStatus === 'failed') {
       this.logger.error(`[KPI_WORKER_FAILURE] Terminal failure for attempt ${attemptId}. Reason: ${classification.errorCode}`);
       try { this.workerJobsTotal.labels('failed', classification.errorCode).inc(); } catch (e) {}
-      await this.stateRepository.transitionToTerminal(
-        attemptId,
-        fileId,
-        'failed',
-        {
-          lastError: classification.internalMessage,
-          errorCode: classification.errorCode,
-        },
-        undefined,
-        classification.userMessage
-      );
+      
+      try {
+        await this.stateRepository.transitionToTerminal(
+          { attemptId, fileId, generation: currentProcessingAttempts },
+          'failed',
+          {
+            lastError: classification.internalMessage,
+            errorCode: classification.errorCode,
+          },
+          undefined,
+          classification.userMessage
+        );
+      } catch (err: any) {
+        if (err instanceof LostProcessingOwnershipError) {
+          this.logger.warn(`Worker lost ownership during terminal failure recording for attempt ${attemptId}. Skipping.`);
+        } else {
+          throw err;
+        }
+      }
     } else {
       this.logger.warn(`[KPI_WORKER_RETRY] Scheduling retry for attempt ${attemptId}. Reason: ${classification.errorCode}`);
       try { this.workerJobsTotal.labels('retry', classification.errorCode).inc(); } catch (e) {}
@@ -366,11 +386,25 @@ export class FilesProcessor implements IApplicationHandler<any> {
       this.logger.log(`Session ${sessionId} fully completed and reconciled.`);
       
       // Inline Reconciliation: Complete the overarching Attempt and File
-      await this.stateRepository.transitionToTerminal(
-        attemptId,
-        fileId,
-        'completed'
-      );
+      // Wait: checkpoint handles its own state, but if it needs to terminal the attempt, it must pass the generation.
+      // Currently, checkpoints don't capture the attempt generation in payload.
+      // For now, we will skip fencing checkpoint completions or fetch the attempt.
+      // TODO: Pass generation inside ProcessCheckpointJobData in future slices.
+      const attempt = await db.query.fileProcessingAttempts.findFirst({ where: eq(fileProcessingAttempts.id, attemptId) });
+      if (attempt) {
+        try {
+          await this.stateRepository.transitionToTerminal(
+            { attemptId, fileId, generation: attempt.processingAttempts },
+            'completed'
+          );
+        } catch (err: any) {
+          if (err instanceof LostProcessingOwnershipError) {
+            this.logger.warn(`[KPI_WORKER_STALE] Worker lost ownership for attempt ${attemptId} during checkpoint reconciliation. Exiting cleanly.`);
+          } else {
+            throw err;
+          }
+        }
+      }
       
       // Increment subject fileCount
       if (fileRecord.subjectId) {
