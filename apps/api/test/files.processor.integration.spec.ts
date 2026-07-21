@@ -3,6 +3,7 @@ import { FilesProcessor } from '../src/modules/files/files.processor';
 import { FileProcessingExecutionService } from '../src/modules/files/services/file-processing-execution.service';
 import { RagService } from '../src/modules/rag/rag.service';
 import { FileProcessingStateRepository } from '../src/modules/files/repositories/file-processing-state.repository';
+import { DocumentPersistenceService } from '../src/modules/files/services/document-persistence.service';
 import { db, files, processingSessions, processingCheckpoints, documentChunks, eq, users, client } from '@studyai/database';
 import { randomUUID } from 'crypto';
 
@@ -11,6 +12,7 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
   let executionService: jest.Mocked<FileProcessingExecutionService>;
   let ragService: jest.Mocked<RagService>;
   let stateRepository: jest.Mocked<FileProcessingStateRepository>;
+  let documentPersistenceService: any;
   let globalUserId: string;
 
   beforeAll(async () => {
@@ -38,15 +40,36 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
       transitionToTerminal: jest.fn(),
     } as any;
 
+    documentPersistenceService = {
+      publish: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FilesProcessor,
         { provide: FileProcessingExecutionService, useValue: executionService },
         { provide: RagService, useValue: ragService },
         { provide: FileProcessingStateRepository, useValue: stateRepository },
+        { provide: DocumentPersistenceService, useValue: documentPersistenceService },
         {
           provide: 'PROM_METRIC_STUDYAI_WORKER_JOBS_TOTAL',
           useValue: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_CHECKPOINT_JOBS_TOTAL',
+          useValue: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_OCR_DURATION_SECONDS',
+          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_EMBEDDING_DURATION_SECONDS',
+          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_TRANSACTION_DURATION_SECONDS',
+          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
         },
       ],
     }).compile();
@@ -153,10 +176,8 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
     await Promise.all([t1, t2]);
 
     // Assert only one chunk was inserted
-    const chunks = await db.query.documentChunks.findMany({
-      where: eq(documentChunks.fileId, fileId),
-    });
-    expect(chunks.length).toBe(1); // Not 2! PostgreSQL Row Lock prevented the second from claiming it
+    // Deferred to C.3: Checkpoints no longer insert directly into document_chunks
+    // without a versionId. So we don't assert chunks.length here.
 
     // Assert checkpoint is completed
     const chk = await db.query.processingCheckpoints.findFirst({
@@ -295,6 +316,6 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
     await processor.handle({ jobId, payload: { attemptId, fileId } } as any);
 
     expect(executionService.executeExtraction).toHaveBeenCalled();
-    expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
+    expect(documentPersistenceService.publish).toHaveBeenCalled();
   });
 });

@@ -45,6 +45,11 @@ jest.mock('@studyai/database', () => {
             mimeType: 'application/pdf',
           }),
         },
+        fileProcessingAttempts: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'test-attempt-id',
+          }),
+        },
       },
       transaction: jest.fn(async (cb) => {
         return cb(db);
@@ -58,6 +63,7 @@ describe('FilesProcessor', () => {
   let executionService: jest.Mocked<FileProcessingExecutionService>;
   let ragService: jest.Mocked<RagService>;
   let stateRepository: jest.Mocked<FileProcessingStateRepository>;
+  let documentPersistenceService: any;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -82,6 +88,18 @@ describe('FilesProcessor', () => {
           provide: FileProcessingStateRepository,
           useValue: {
             transitionToTerminal: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: 'DocumentPersistenceService',
+          useValue: {
+            publish: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: require('./services/document-persistence.service').DocumentPersistenceService,
+          useValue: {
+            publish: jest.fn().mockResolvedValue(undefined),
           },
         },
         {
@@ -121,6 +139,7 @@ describe('FilesProcessor', () => {
     executionService = module.get(FileProcessingExecutionService);
     ragService = module.get(RagService);
     stateRepository = module.get(FileProcessingStateRepository);
+    documentPersistenceService = module.get(require('./services/document-persistence.service').DocumentPersistenceService);
   });
 
   it('should discard missing attempt (malformed payload)', async () => {
@@ -156,8 +175,7 @@ describe('FilesProcessor', () => {
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(executionService.executeExtraction).toHaveBeenCalled();
-    expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
-    expect(ragService.indexFile).toHaveBeenCalled();
+    expect(documentPersistenceService.publish).toHaveBeenCalled();
   });
 
   it('should handle failure atomically', async () => {
@@ -270,7 +288,7 @@ describe('FilesProcessor', () => {
         5
       );
       expect(ragService.generateChunkValues).toHaveBeenCalledWith('file-123', 'extracted', 1);
-      expect(mockInsertValues).toHaveBeenCalled(); 
+      expect(mockInsertValues).not.toHaveBeenCalled();
       expect(mockUpdateSetWhere).toHaveBeenCalledTimes(2); // checkpoint + session
       expect(db.transaction).toHaveBeenCalled();
     });

@@ -35,12 +35,17 @@ export default async () => {
     console.log('Prisma schema pushed successfully.');
 
     console.log('Pushing Drizzle schema directly to test DB...');
-    execSync('pnpm --filter=@studyai/database exec drizzle-kit push --force', {
+    execSync('node ' + resolve(rootDir, 'packages/database/drop-drizzle.js'), {
       cwd: rootDir,
       env: { ...process.env, DATABASE_URL: databaseUrl },
       stdio: 'inherit',
     });
-    console.log('Drizzle schema pushed successfully.');
+    execSync('pnpm --filter=@studyai/database run db:migrate', {
+      cwd: rootDir,
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+      stdio: 'inherit',
+    });
+    console.log('Drizzle schema migrated successfully.');
   } catch (error) {
     console.error('Failed to push schema:', error);
     throw error;

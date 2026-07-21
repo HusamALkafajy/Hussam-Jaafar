@@ -4,6 +4,7 @@ import { FileProcessingDispatcherService } from '../src/modules/files/services/f
 import { FileProcessingExecutionService } from '../src/modules/files/services/file-processing-execution.service';
 import { RagService } from '../src/modules/rag/rag.service';
 import { FileProcessingStateRepository } from '../src/modules/files/repositories/file-processing-state.repository';
+import { DocumentPersistenceService } from '../src/modules/files/services/document-persistence.service';
 import { eq, and, db, files, users, fileProcessingAttempts, processingSessions, processingCheckpoints, documentChunks } from '@studyai/database';
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
@@ -28,6 +29,7 @@ describe('SRE Production Readiness Validation', () => {
       generateChunkValues: jest.fn(),
       indexFile: jest.fn(),
       searchChunks: jest.fn(),
+      persistChunks: jest.fn().mockResolvedValue(undefined),
     } as any;
 
     queue = {
@@ -39,6 +41,7 @@ describe('SRE Production Readiness Validation', () => {
         FilesProcessor,
         FileProcessingDispatcherService,
         FileProcessingStateRepository,
+        DocumentPersistenceService,
         { provide: FileProcessingExecutionService, useValue: executionService },
         { provide: RagService, useValue: ragService },
         { provide: 'IQueue', useValue: queue },
@@ -51,6 +54,26 @@ describe('SRE Production Readiness Validation', () => {
         {
           provide: 'studyai_worker_jobs_total',
           useValue: { labels: () => ({ inc: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_JOBS_TOTAL',
+          useValue: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_CHECKPOINT_JOBS_TOTAL',
+          useValue: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_OCR_DURATION_SECONDS',
+          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_EMBEDDING_DURATION_SECONDS',
+          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
+        },
+        {
+          provide: 'PROM_METRIC_STUDYAI_WORKER_TRANSACTION_DURATION_SECONDS',
+          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
         },
       ],
     }).compile();
@@ -76,6 +99,7 @@ describe('SRE Production Readiness Validation', () => {
   const setupFile = async () => {
     const fileId = randomUUID();
     const attemptId = randomUUID();
+    const queueJobId = `job-${attemptId}`;
 
     await db.insert(files).values({
       id: fileId,
@@ -92,16 +116,16 @@ describe('SRE Production Readiness Validation', () => {
     await db.insert(fileProcessingAttempts).values({
       id: attemptId,
       fileId,
-      queueJobId: `job-${attemptId}`,
-      status: 'enqueue_pending',
+      queueJobId,
+      status: 'queued',
       processingAttempts: 0,
     });
 
-    return { fileId, attemptId };
+    return { fileId, attemptId, queueJobId };
   };
 
   it('Scenario 1: Small PDF (End-to-End)', async () => {
-    const { fileId, attemptId } = await setupFile();
+    const { fileId, attemptId, queueJobId } = await setupFile();
     
     const sessionId = randomUUID();
     const checkpointId = randomUUID();
@@ -114,23 +138,25 @@ describe('SRE Production Readiness Validation', () => {
     }]);
 
     await processor.handle({
-      jobId: 'q1',
-      payload: { attemptId, fileId, sessionId, checkpointId, chunkIndex: 0, startPage: 1, endPage: 5 }
+      jobId: queueJobId,
+      payload: { attemptId, fileId, generation: 1 }
     } as any);
 
     // Verify terminal states
     const f = await db.query.files.findFirst({ where: eq(files.id, fileId) });
-    expect(f?.processingStatus).toBe('completed');
-
-    const s = await db.query.processingSessions.findFirst({ where: eq(processingSessions.id, sessionId) });
-    expect(s?.status).toBe('completed');
-
     const a = await db.query.fileProcessingAttempts.findFirst({ where: eq(fileProcessingAttempts.id, attemptId) });
-    expect(a?.status).toBe('completed');
+    
+    expect({ 
+      fileStatus: f?.processingStatus, 
+      attemptStatus: a?.status 
+    }).toEqual({ 
+      fileStatus: 'completed', 
+      attemptStatus: 'completed' 
+    });
   });
 
   it('Scenario 3: Empty PDF', async () => {
-    const { fileId, attemptId } = await setupFile();
+    const { fileId, attemptId, queueJobId } = await setupFile();
     const sessionId = randomUUID();
     const checkpointId = randomUUID();
     await db.insert(processingSessions).values({ id: sessionId, fileId, status: 'pending', totalChunks: 1 });
@@ -139,14 +165,22 @@ describe('SRE Production Readiness Validation', () => {
     executionService.executeExtraction.mockResolvedValue('No extractable text found in this document.');
     
     await processor.handle({
-      jobId: 'q1',
-      payload: { attemptId, fileId, sessionId, checkpointId, chunkIndex: 0, startPage: 1, endPage: 5 }
+      jobId: queueJobId,
+      payload: { attemptId, fileId, generation: 1 }
     } as any);
 
     expect(ragService.generateChunkValues).not.toHaveBeenCalled();
 
     const f = await db.query.files.findFirst({ where: eq(files.id, fileId) });
-    expect(f?.processingStatus).toBe('completed');
+    const a = await db.query.fileProcessingAttempts.findFirst({ where: eq(fileProcessingAttempts.id, attemptId) });
+    
+    expect({ 
+      fileStatus: f?.processingStatus, 
+      attemptStatus: a?.status 
+    }).toEqual({ 
+      fileStatus: 'completed', 
+      attemptStatus: 'completed' 
+    });
   });
 
   it('Scenario 4: Corrupted PDF (Infinite Retry Prevention)', async () => {

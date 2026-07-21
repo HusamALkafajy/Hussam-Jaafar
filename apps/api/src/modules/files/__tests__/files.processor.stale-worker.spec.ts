@@ -42,10 +42,15 @@ describe('FilesProcessor: Stale Worker Ownership-Loss Catch Path', () => {
     mockCounter = { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) };
     mockHistogram = { startTimer: jest.fn().mockReturnValue(jest.fn()) };
 
+    const mockDocPersistService: any = {
+      publish: jest.fn(),
+    };
+
     processor = new FilesProcessor(
       mockExecService,
       mockRagService,
       mockStateRepo,
+      mockDocPersistService,
       mockCounter,
       mockCounter,
       mockHistogram,

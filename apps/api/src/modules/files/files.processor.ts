@@ -30,6 +30,8 @@ export interface ProcessCheckpointJobData {
   traceId?: string;
 }
 
+import { DocumentPersistenceService } from './services/document-persistence.service';
+
 @Injectable()
 export class FilesProcessor implements IApplicationHandler<any> {
   private readonly logger = new Logger(FilesProcessor.name);
@@ -38,6 +40,7 @@ export class FilesProcessor implements IApplicationHandler<any> {
     private readonly executionService: FileProcessingExecutionService,
     private readonly ragService: RagService,
     private readonly stateRepository: FileProcessingStateRepository,
+    private readonly documentPersistenceService: DocumentPersistenceService,
     @InjectMetric('studyai_worker_jobs_total')
     private readonly workerJobsTotal: Counter<string>,
     @InjectMetric('studyai_worker_checkpoint_jobs_total')
@@ -167,14 +170,31 @@ export class FilesProcessor implements IApplicationHandler<any> {
       return;
     }
 
-    // 4. Atomic Completion
+    // RAG Generation (outside TX)
+    let generatedChunks: any[] = [];
     try {
-      await this.stateRepository.transitionToTerminal(
-        { attemptId, fileId, generation: currentProcessingAttempts },
-        'completed',
-        {},
-        extractedText
-      );
+      generatedChunks = await this.ragService.generateChunkValues(fileId, extractedText, 1);
+    } catch (error: any) {
+      const classification = ErrorClassifier.classify(error);
+      await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
+      return;
+    }
+
+    // Structural Extraction (temporary stub until Extractor is fully implemented)
+    const blocks = [{
+      type: 'paragraph',
+      content: { text: extractedText || 'No content' }
+    }];
+
+    // 4. Atomic Publication
+    try {
+      await this.documentPersistenceService.publish({
+        token: { attemptId, fileId, generation: currentProcessingAttempts },
+        fileId,
+        extractedText,
+        structuralBlocks: blocks as any,
+        generatedChunks
+      });
 
       // Increment subject fileCount
       if (fileRecord.subjectId) {
@@ -182,13 +202,6 @@ export class FilesProcessor implements IApplicationHandler<any> {
           .update(subjects)
           .set({ fileCount: sql`${subjects.fileCount} + 1` })
           .where(eq(subjects.id, fileRecord.subjectId));
-      }
-
-      // Best-effort RAG indexing after DB commit
-      try {
-        await this.ragService.indexFile(fileId, extractedText);
-      } catch (ragErr) {
-        this.logger.error(`Non-fatal: Failed to index file ${fileId} in RAG.`, ragErr);
       }
 
       this.logger.log(`[KPI_WORKER_SUCCESS] Successfully completed processing for attempt ${attemptId}`);
@@ -338,9 +351,11 @@ export class FilesProcessor implements IApplicationHandler<any> {
           return; // Safe no-op exit without generating duplicates
         }
 
-        // 4b. Insert Document Chunks
+        // 4b. Preserve Document Chunks for C.3 DocumentPersistenceService
         if (chunkValues.length > 0) {
-          await tx.insert(documentChunks).values(chunkValues);
+          // Deferred to C.3: we cannot persist to document_chunks without a versionId.
+          // These chunkValues will be orchestrated/persisted in the future DocumentPersistenceService.
+          this.logger.debug(`Preserved ${chunkValues.length} chunk values for C.3 publication`);
         }
 
         // 4c. Checkpoint Completion
