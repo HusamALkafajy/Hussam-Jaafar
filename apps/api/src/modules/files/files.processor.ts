@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { db, eq, and, sql } from '@studyai/database';
-import { fileProcessingAttempts, files, subjects, processingCheckpoints, processingSessions, documentChunks } from '@studyai/database';
+import { fileProcessingAttempts, files, subjects, documentChunks } from '@studyai/database';
 import { FileProcessingExecutionService } from './services/file-processing-execution.service';
 import { RagService } from '../rag/rag.service';
 import { join } from 'path';
+import { TextFallbackExtractor } from './services/extractors/text-fallback.extractor';
 import { ErrorClassifier, ClassificationResult } from './utils/error-classifier.util';
 import { RetryPolicy } from './utils/retry-policy.util';
 import { LostProcessingOwnershipError } from './utils/domain.exceptions';
@@ -60,19 +61,7 @@ export class FilesProcessor implements IApplicationHandler<any> {
       this.logger.log(`[traceId=${traceId}] Worker executing job ${context.jobId}`);
     }
 
-    if (payload && 'checkpointId' in payload) {
-      try {
-        await this.handleCheckpoint(context as WorkerExecutionContext<ProcessCheckpointJobData>);
-        try { this.checkpointJobsTotal.labels('success', 'none').inc(); } catch (e) {}
-      } catch (error: any) {
-        let errType = 'unknown';
-        if (error.message?.includes('AI Error')) errType = 'ai_error';
-        else if (error.message?.includes('OCR Crash')) errType = 'ocr_error';
-        try { this.checkpointJobsTotal.labels('failed', errType).inc(); } catch (e) {}
-        throw error;
-      }
-      return;
-    }
+
 
     const { attemptId, fileId } = payload as ProcessFileJobData;
     const queueJobId = context.jobId;
@@ -170,28 +159,30 @@ export class FilesProcessor implements IApplicationHandler<any> {
       return;
     }
 
+    // Canonical Extraction Contract: Normalize text and build blocks
+    const extractedDocument = TextFallbackExtractor.extract(extractedText);
+    const canonicalText = extractedDocument.fullText;
+    const blocks = extractedDocument.blocks;
+
     // RAG Generation (outside TX)
     let generatedChunks: any[] = [];
     try {
-      generatedChunks = await this.ragService.generateChunkValues(fileId, extractedText, 1);
+      if (canonicalText && canonicalText !== 'No extractable text found in this document.') {
+        generatedChunks = await this.ragService.generateChunkValues(fileId, canonicalText, 1);
+      }
     } catch (error: any) {
+      console.error(`[DEBUG-PROCESSOR] Chunk generation failed`, error);
       const classification = ErrorClassifier.classify(error);
       await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
       return;
     }
-
-    // Structural Extraction (temporary stub until Extractor is fully implemented)
-    const blocks = [{
-      type: 'paragraph',
-      content: { text: extractedText || 'No content' }
-    }];
 
     // 4. Atomic Publication
     try {
       await this.documentPersistenceService.publish({
         token: { attemptId, fileId, generation: currentProcessingAttempts },
         fileId,
-        extractedText,
+        extractedText: canonicalText,
         structuralBlocks: blocks as any,
         generatedChunks
       });
@@ -275,163 +266,5 @@ export class FilesProcessor implements IApplicationHandler<any> {
     }
   }
 
-  private async handleCheckpoint(context: WorkerExecutionContext<ProcessCheckpointJobData>): Promise<void> {
-    const { attemptId, fileId, sessionId, checkpointId, startPage, endPage } = context.payload;
-    
-    // 1. Fetch file record (for extraction)
-    const fileRecord = await db.query.files.findFirst({
-      where: eq(files.id, fileId),
-    });
 
-    if (!fileRecord) {
-      this.logger.error(`File ${fileId} not found during checkpoint ${checkpointId}.`);
-      return; // Safe exit
-    }
-
-    const filePath = join(process.cwd(), 'apps', 'api', 'uploads', fileRecord.storageKey);
-
-    // 2. OCR Extraction (OUTSIDE TRANSACTION)
-    let extractedText = '';
-    const ocrTimer = this.ocrDuration.startTimer();
-    try {
-      extractedText = await this.executionService.executeExtraction(
-        fileId,
-        filePath,
-        fileRecord.fileType,
-        fileRecord.mimeType || 'application/octet-stream',
-        startPage,
-        endPage
-      );
-      ocrTimer({ status: 'success' });
-    } catch (error: any) {
-      ocrTimer({ status: 'failed' });
-      this.logger.error(`Checkpoint ${checkpointId} failed OCR extraction:`, error);
-      throw error; // Let BullMQ retry it
-    }
-
-    // 3. Chunk & Embed (OUTSIDE TRANSACTION)
-    let chunkValues: any[] = [];
-    try {
-      if (extractedText && extractedText.trim() !== 'No extractable text found in this document.') {
-        const embedTimer = this.embeddingDuration.startTimer();
-        try {
-          chunkValues = await this.ragService.generateChunkValues(fileId, extractedText, startPage);
-          embedTimer({ status: 'success' });
-        } catch (embedError) {
-          embedTimer({ status: 'failed' });
-          throw embedError;
-        }
-      }
-    } catch (error: any) {
-      this.logger.error(`Checkpoint ${checkpointId} failed embedding generation:`, error);
-      throw error; // Let BullMQ retry it
-    }
-
-    // 4. Atomic Ownership & Completion (INSIDE TRANSACTION)
-    let isLastCheckpoint = false;
-    const txTimer = this.dbTxDuration.startTimer();
-    let txSuccess = false;
-    try {
-      await db.transaction(async (tx) => {
-        // 4a. Checkpoint Ownership Claim (Atomic Row Lock)
-        const claimResult = await tx
-          .select()
-          .from(processingCheckpoints)
-          .where(
-            and(
-              eq(processingCheckpoints.id, checkpointId),
-              eq(processingCheckpoints.status, 'pending')
-            )
-          )
-          // FOR UPDATE guarantees single-worker ownership and prevents idempotency duplication
-          .for('update');
-
-        if (claimResult.length === 0) {
-          this.logger.log(`Checkpoint ${checkpointId} already processed or not pending. Safe no-op exit.`);
-          return; // Safe no-op exit without generating duplicates
-        }
-
-        // 4b. Preserve Document Chunks for C.3 DocumentPersistenceService
-        if (chunkValues.length > 0) {
-          // Deferred to C.3: we cannot persist to document_chunks without a versionId.
-          // These chunkValues will be orchestrated/persisted in the future DocumentPersistenceService.
-          this.logger.debug(`Preserved ${chunkValues.length} chunk values for C.3 publication`);
-        }
-
-        // 4c. Checkpoint Completion
-        await tx
-          .update(processingCheckpoints)
-          .set({ status: 'completed', updatedAt: new Date() })
-          .where(eq(processingCheckpoints.id, checkpointId));
-
-        // 4d. Processing Session Reconciliation
-        // Serialize session reconciliation to prevent Read Committed phantom reads
-        await tx
-          .select()
-          .from(processingSessions)
-          .where(eq(processingSessions.id, sessionId))
-          .for('update');
-
-        const pendingCheckpoints = await tx
-          .select()
-          .from(processingCheckpoints)
-          .where(
-            and(
-              eq(processingCheckpoints.sessionId, sessionId),
-              eq(processingCheckpoints.status, 'pending')
-            )
-          );
-
-        if (pendingCheckpoints.length === 0) {
-          // All checkpoints completed!
-          await tx
-            .update(processingSessions)
-            .set({ status: 'completed', completedAt: new Date() })
-            .where(eq(processingSessions.id, sessionId));
-            
-          isLastCheckpoint = true;
-        }
-      });
-      txSuccess = true;
-    } finally {
-      txTimer({ status: txSuccess ? 'success' : 'failed' });
-    }
-
-    if (isLastCheckpoint) {
-      this.logger.log(`Session ${sessionId} fully completed and reconciled.`);
-      
-      // Inline Reconciliation: Complete the overarching Attempt and File
-      // Wait: checkpoint handles its own state, but if it needs to terminal the attempt, it must pass the generation.
-      // Currently, checkpoints don't capture the attempt generation in payload.
-      // For now, we will skip fencing checkpoint completions or fetch the attempt.
-      // TODO: Pass generation inside ProcessCheckpointJobData in future slices.
-      const attempt = await db.query.fileProcessingAttempts.findFirst({ where: eq(fileProcessingAttempts.id, attemptId) });
-      if (attempt) {
-        try {
-          await this.stateRepository.transitionToTerminal(
-            { attemptId, fileId, generation: attempt.processingAttempts },
-            'completed'
-          );
-        } catch (err: any) {
-          if (err instanceof LostProcessingOwnershipError) {
-            this.logger.warn(`[KPI_WORKER_STALE] Worker lost ownership for attempt ${attemptId} during checkpoint reconciliation. Exiting cleanly.`);
-          } else {
-            throw err;
-          }
-        }
-      }
-      
-      // Increment subject fileCount
-      if (fileRecord.subjectId) {
-        await db
-          .update(subjects)
-          .set({ fileCount: sql`${subjects.fileCount} + 1` })
-          .where(eq(subjects.id, fileRecord.subjectId));
-      }
-      
-      try { this.workerJobsTotal.labels('success', 'NONE').inc(); } catch (e) {}
-    }
-
-    this.logger.log(`Checkpoint ${checkpointId} completed successfully.`);
-  }
 }

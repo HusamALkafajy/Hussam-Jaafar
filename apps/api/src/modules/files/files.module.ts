@@ -40,10 +40,9 @@ export class FilesModule implements OnModuleInit {
   onModuleInit() {
     const handlers = new Map<string, any>();
     handlers.set('process-file', this.filesProcessor);
-    handlers.set('process-checkpoint', this.filesProcessor);
 
     this.registry.register('default-worker-1', {
-      supportedJobTypes: ['process-file', 'process-checkpoint'],
+      supportedJobTypes: ['process-file'],
       maxConcurrency: 5,
       priority: 1,
       queues: ['studyai-main-queue']

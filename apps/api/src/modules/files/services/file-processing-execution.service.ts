@@ -56,6 +56,9 @@ export class FileProcessingExecutionService {
     }
 
     if (!extractedText || extractedText.trim() === '') {
+      if (type === 'pdf' || type === 'image') {
+        throw new Error('PDF/Image extraction returned no usable text. Failing explicitly to prevent empty publication.');
+      }
       this.logger.warn(`Empty extracted text for File ID: ${fileId}. Saving fallback message.`);
       extractedText = 'No extractable text found in this document.';
     }
