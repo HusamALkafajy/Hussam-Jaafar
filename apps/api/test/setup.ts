@@ -34,9 +34,9 @@ export default async () => {
     });
     console.log('Prisma schema pushed successfully.');
 
-    console.log('Pushing Drizzle schema directly to test DB...');
-    execSync('node ' + resolve(rootDir, 'packages/database/drop-drizzle.js'), {
-      cwd: rootDir,
+    console.log('Clearing Drizzle migration history...');
+    execSync(`node -e "if (!process.env.DATABASE_URL.includes('test')) { console.error('Safety guard failed'); process.exit(1); } const postgres = require('postgres'); const sql = postgres(process.env.DATABASE_URL); sql.unsafe('DROP SCHEMA IF EXISTS drizzle CASCADE;').then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)});"`, {
+      cwd: resolve(rootDir, 'packages/database'),
       env: { ...process.env, DATABASE_URL: databaseUrl },
       stdio: 'inherit',
     });
