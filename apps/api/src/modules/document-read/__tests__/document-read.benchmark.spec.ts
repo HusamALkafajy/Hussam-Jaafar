@@ -4,8 +4,24 @@ import { DocumentReadModule } from '../document-read.module';
 import { DocumentReadController } from '../document-read.controller';
 import { DocumentQueryService } from '@studyai/database';
 
-// Mock the database query service
-jest.mock('@studyai/database');
+jest.mock('@studyai/database', () => {
+  const original = jest.requireActual('@studyai/database');
+  return {
+    ...original,
+    db: {
+      select: jest.fn().mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ fileId: 'mock-file', versionId: 'mock-version', userId: 'mock-user', status: 'completed' }]),
+          }),
+        }),
+      }),
+    },
+    DocumentQueryService: {
+      getWindow: jest.fn(),
+    },
+  };
+});
 
 describe('DocumentReadController Benchmarks', () => {
   let app: INestApplication;

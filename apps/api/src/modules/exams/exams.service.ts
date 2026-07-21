@@ -10,6 +10,7 @@ import { AiService } from '../ai/ai.service';
 import { FilesService } from '../files/files.service';
 import { RagService } from '../rag/rag.service';
 import { GamificationService } from '../study-coach/gamification.service';
+import { DocumentReadService } from '../document-read/document-read.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { SubmitExamDto } from './dto/submit-exam.dto';
 import { ExamStatus } from '@studyai/types';
@@ -23,6 +24,7 @@ export class ExamsService {
     private readonly aiService: AiService,
     private readonly ragService: RagService,
     private readonly gamificationService: GamificationService,
+    private readonly documentReadService: DocumentReadService,
   ) {}
 
   async create(userId: string, dto: CreateExamDto) {
@@ -299,16 +301,20 @@ export class ExamsService {
 
     for (const wrong of wrongResults.slice(0, 5)) {
       try {
-        const chunks = await this.ragService.searchChunks(
-          examData.fileId,
-          wrong.questionText,
-          3,
-        );
-        if (chunks.length > 0) {
-          ragContextParts.push(
-            `[Context for: "${wrong.questionText}"]\n` +
-              chunks.map((c) => `Page ${c.pageNumber}: ${c.content}`).join('\n'),
+        // Resolve active version
+        const { versionId } = await this.documentReadService.resolveActiveReadableVersion(examData.fileId, userId);
+        if (versionId) {
+          const chunks = await this.ragService.searchChunks(
+            versionId,
+            wrong.questionText,
+            3,
           );
+          if (chunks.length > 0) {
+            ragContextParts.push(
+              `[Context for: "${wrong.questionText}"]\n` +
+                chunks.map((c) => `Page ${c.pageNumber}: ${c.content}`).join('\n'),
+            );
+          }
         }
       } catch (err) {
         this.logger.warn(`Failed to get RAG context for question ${wrong.questionId}:`, err);

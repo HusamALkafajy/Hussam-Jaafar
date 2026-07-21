@@ -4,10 +4,12 @@ import { FilesService } from './files.service';
 import { AiModule } from '../ai/ai.module';
 import { RagModule } from '../rag/rag.module';
 import { StudyCoachModule } from '../study-coach/study-coach.module';
+import { DocumentReadModule } from '../document-read/document-read.module';
 import { FileProcessingDispatcherService } from './services/file-processing-dispatcher.service';
 import { FileProcessingExecutionService } from './services/file-processing-execution.service';
 import { FileProcessingReconcilerService } from './services/file-processing-reconciler.service';
 import { FileProcessingStateRepository } from './repositories/file-processing-state.repository';
+import { DocumentPersistenceService } from './services/document-persistence.service';
 import { FilesProcessor } from './files.processor';
 
 @Module({
@@ -15,6 +17,7 @@ import { FilesProcessor } from './files.processor';
     AiModule,
     RagModule,
     StudyCoachModule,
+    DocumentReadModule,
   ],
   controllers: [FilesController],
   providers: [
@@ -23,9 +26,10 @@ import { FilesProcessor } from './files.processor';
     FileProcessingExecutionService,
     FileProcessingReconcilerService,
     FileProcessingStateRepository,
+    DocumentPersistenceService,
     FilesProcessor,
   ],
-  exports: [FilesService],
+  exports: [FilesService, DocumentPersistenceService],
 })
 export class FilesModule implements OnModuleInit {
   constructor(

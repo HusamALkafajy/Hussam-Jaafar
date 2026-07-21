@@ -42,6 +42,7 @@ describe('RagService', () => {
           },
         },
       ],
+
     }).compile();
 
     service = module.get<RagService>(RagService);
@@ -49,29 +50,17 @@ describe('RagService', () => {
   });
 
   describe('indexFile (V1)', () => {
-    it('should delete before insert and swallow embedding errors', async () => {
+    it('should throw immediately on embedding failure', async () => {
       // Mock failure for the second chunk
       aiService.getEmbedding
         .mockResolvedValueOnce([0.1])
         .mockRejectedValueOnce(new Error('API failure'))
         .mockResolvedValueOnce([0.2]);
 
-      // A simple 3-page text (will generate multiple chunks)
       const text = `This is a very long string that represents the content of Page 1 which is more than thirty characters.\fThis is a very long string that represents the content of Page 2 which is more than thirty characters.\fThis is a very long string that represents the content of Page 3 which is more than thirty characters.`;
       
-      await service.indexFile('file-123', text);
-      
-      expect(db.delete).toHaveBeenCalled();
-      expect(db.insert).toHaveBeenCalled();
-      
-      const insertMock = db.insert as jest.Mock;
-      const valuesMock = insertMock.mock.results[0].value.values as jest.Mock;
-      const values = valuesMock.mock.calls[0][0];
-      
-      // We expect 3 chunks generated. The 2nd failed embedding, so only 2 were inserted!
-      expect(values).toHaveLength(2);
-      expect(values[0].content).toBe('This is a very long string that represents the content of Page 1 which is more than thirty characters.');
-      expect(values[1].content).toBe('This is a very long string that represents the content of Page 3 which is more than thirty characters.');
+      await expect(service.indexFile('file-123', 'mock-version-123', text)).rejects.toThrow('API failure');
+      expect(db.insert).not.toHaveBeenCalled(); // nothing should be persisted
     });
   });
 
@@ -98,24 +87,16 @@ describe('RagService', () => {
         fileId: 'file-123',
         chunkIndex: 1,
         content: 'This is a very long string that represents the content of Page 2 which is more than thirty characters.',
-        pageNumber: 6, // 5 - 1 + 2
+        pageNumber: 6,
         embedding: [0.1, 0.2, 0.3],
       });
-
-      // NO DB CALLS
-      expect(db.delete).not.toHaveBeenCalled();
+      
       expect(db.insert).not.toHaveBeenCalled();
     });
 
     it('should throw immediately on embedding failure', async () => {
-      const text = `This is a very long string that represents the content of Page 1 which is more than thirty characters.\fThis is a very long string that represents the content of Page 2 which is more than thirty characters.`;
-      aiService.getEmbedding.mockRejectedValueOnce(new Error('Fatal API Error'));
-
-      await expect(service.generateChunkValues('file-123', text, 1))
-        .rejects
-        .toThrow('Fatal API Error');
-      
-      expect(db.delete).not.toHaveBeenCalled();
+      aiService.getEmbedding.mockRejectedValueOnce(new Error('API failure'));
+      await expect(service.generateChunkValues('file-123', 'Some long text that gets chunked...', 1)).rejects.toThrow('API failure');
       expect(db.insert).not.toHaveBeenCalled();
     });
 
@@ -123,6 +104,19 @@ describe('RagService', () => {
       const result = await service.generateChunkValues('file-123', '', 1);
       expect(result).toEqual([]);
       expect(aiService.getEmbedding).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('searchChunks (V1)', () => {
+    it('should map db chunks to response', async () => {
+      // Drizzle mock setup for limit
+      const dbMock = db as any;
+      dbMock.limit.mockResolvedValueOnce([{ content: 'test', pageNumber: 1, similarity: 0.9 }]);
+      
+      const chunks = await service.searchChunks('mock-version-123', 'query');
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].content).toBe('test');
+      expect(aiService.getEmbedding).toHaveBeenCalledWith('query');
     });
   });
 });

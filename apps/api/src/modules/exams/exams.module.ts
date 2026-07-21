@@ -5,9 +5,10 @@ import { FilesModule } from '../files/files.module';
 import { AiModule } from '../ai/ai.module';
 import { RagModule } from '../rag/rag.module';
 import { StudyCoachModule } from '../study-coach/study-coach.module';
+import { DocumentReadModule } from '../document-read/document-read.module';
 
 @Module({
-  imports: [FilesModule, AiModule, RagModule, StudyCoachModule],
+  imports: [FilesModule, AiModule, RagModule, StudyCoachModule, DocumentReadModule],
   controllers: [ExamsController],
   providers: [ExamsService],
   exports: [ExamsService],

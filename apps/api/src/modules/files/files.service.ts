@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { db } from '@studyai/database';
-import { files, subscriptions, users, subjects, fileProcessingAttempts } from '@studyai/database';
+import { files, subscriptions, users, subjects, fileProcessingAttempts, documentVersions } from '@studyai/database';
 import { eq, and, or, sql, desc } from '@studyai/database';
 
 import { FileType, ProcessingStatus, UserRole } from '@studyai/types';
@@ -10,6 +10,7 @@ import { FileProcessingDispatcherService } from './services/file-processing-disp
 
 const USE_BULLMQ_PROCESSING = true;
 import { GamificationService } from '../study-coach/gamification.service';
+import { DocumentReadService } from '../document-read/document-read.service';
 import { FileQueryDto } from './dto/file-query.dto';
 
 import * as fs from 'fs/promises';
@@ -28,6 +29,7 @@ export class FilesService {
     private readonly gamificationService: GamificationService,
     private readonly dispatcherService: FileProcessingDispatcherService,
     private readonly configService: ConfigService,
+    private readonly documentReadService: DocumentReadService,
   ) {
     this.ensureUploadDir();
     const openrouterKey = this.configService.get<string>('ai.openrouterApiKey');
@@ -329,13 +331,7 @@ export class FilesService {
         .where(eq(files.id, fileId));
 
       this.logger.log(`Background processing completed successfully for File ID: ${fileId}`);
-
-      // RAG indexing is best-effort — a failure here must NOT roll back the COMPLETED status.
-      try {
-        await this.ragService.indexFile(fileId, extractedText);
-      } catch (ragErr) {
-        this.logger.error(`Non-fatal: Failed to index file ${fileId} in RAG. Search will be degraded but document is accessible.`, ragErr);
-      }
+      // RAG indexing is deferred to C.3 DocumentPersistenceService
 
       // Increment subject fileCount (best-effort)
       try {
@@ -551,7 +547,17 @@ export class FilesService {
       }
     }
 
-    const chunks = await this.ragService.searchChunks(fileId, question, 5);
+    let versionId: string | null = null;
+    try {
+      const result = await this.documentReadService.resolveActiveReadableVersion(fileId, userId);
+      versionId = result.versionId;
+    } catch (e) {
+      if (!(e instanceof NotFoundException)) throw e;
+    }
+    let chunks: any[] = [];
+    if (versionId) {
+      chunks = await this.ragService.searchChunks(versionId, question, 5);
+    }
     const contextText = chunks
       .map((c) => `[Page ${c.pageNumber}] ${c.content}`)
       .join('\n\n');

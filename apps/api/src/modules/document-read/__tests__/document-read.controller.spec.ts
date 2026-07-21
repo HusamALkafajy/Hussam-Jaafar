@@ -47,8 +47,13 @@ describe('DocumentReadController', () => {
     controller = module.get<DocumentReadController>(DocumentReadController);
     service = module.get<DocumentReadService>(DocumentReadService);
 
-    // Mock validateAccessAndGetVersion to always resolve
-    jest.spyOn(service, 'validateAccessAndGetVersion').mockResolvedValue({
+    // Mock resolveActiveReadableVersion and validateReadableVersion to always resolve
+    jest.spyOn(service, 'resolveActiveReadableVersion').mockResolvedValue({
+      fileId: 'file-1',
+      versionId: mockVersionId,
+      status: 'completed'
+    });
+    jest.spyOn(service, 'validateReadableVersion').mockResolvedValue({
       fileId: 'file-1',
       versionId: mockVersionId,
       status: 'completed'

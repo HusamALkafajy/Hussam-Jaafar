@@ -55,19 +55,20 @@ export class RagService {
   }
 
   // 2. Index a file: split text into chunks, generate embeddings, and insert into DB
-  async indexFile(fileId: string, text: string, executor: DatabaseExecutor = db) {
-    this.logger.log(`Indexing file ID: ${fileId} for Advanced RAG...`);
+  async indexFile(fileId: string, versionId: string, text: string, executor: DatabaseExecutor = db) {
+    this.logger.log(`Indexing file ID: ${fileId}, version ID: ${versionId} for Advanced RAG...`);
     const chunkValues = await this.generateChunkValues(fileId, text, 1);
-    await this.persistChunks(fileId, chunkValues, executor);
-    this.logger.log(`Indexed ${chunkValues.length} chunks for file ${fileId} successfully.`);
+    await this.persistChunks(versionId, chunkValues, executor);
+    this.logger.log(`Indexed ${chunkValues.length} chunks for version ${versionId} successfully.`);
   }
 
   // 3. Database persistence boundary (isolated from external AI calls)
-  async persistChunks(fileId: string, chunkValues: any[], executor: DatabaseExecutor = db) {
+  async persistChunks(versionId: string, chunkValues: any[], executor: DatabaseExecutor = db) {
     if (chunkValues.length > 0) {
-      // Remove any previously indexed chunks to prevent duplicate entries
-      await executor.delete(documentChunks).where(eq(documentChunks.fileId, fileId));
-      await executor.insert(documentChunks).values(chunkValues);
+      // 100% Immutable: Just insert the version-scoped chunks. 
+      // Do NOT delete previous chunks.
+      const versionedChunks = chunkValues.map(c => ({ ...c, versionId }));
+      await executor.insert(documentChunks).values(versionedChunks);
     }
   }
 
@@ -93,7 +94,7 @@ export class RagService {
 
   // 5. Perform semantic vector search on file chunks using pgvector Cosine similarity
   async searchChunks(
-    fileId: string,
+    versionId: string,
     query: string,
     limit = 5,
   ): Promise<Array<{ content: string; pageNumber: number; similarity: number }>> {
@@ -111,7 +112,7 @@ export class RagService {
           similarity,
         })
         .from(documentChunks)
-        .where(eq(documentChunks.fileId, fileId))
+        .where(eq(documentChunks.versionId, versionId))
         .orderBy(sql`${documentChunks.embedding} <=> ${vectorStr}::vector`)
         .limit(limit);
 
@@ -121,7 +122,7 @@ export class RagService {
         similarity: Number(r.similarity),
       }));
     } catch (err) {
-      this.logger.error(`Vector search query failed on file ${fileId}:`, err);
+      this.logger.error(`Vector search query failed on version ${versionId}:`, err);
       return [];
     }
   }

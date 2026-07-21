@@ -1,13 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RagService } from '../rag.service';
 import { AiService } from '../../ai/ai.service';
-import { db, users, files, documentChunks } from '@studyai/database';
+import { db, users, files, documentChunks, documentVersions } from '@studyai/database';
 import { eq } from 'drizzle-orm';
 
 describe('RagService Transaction Executor', () => {
   let ragService: RagService;
   let userId: string;
   let fileId: string;
+  let versionId: string;
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -39,6 +40,12 @@ describe('RagService Transaction Executor', () => {
       fileSize: 1000,
     }).returning({ id: files.id });
     fileId = file[0].id;
+
+    const version = await db.insert(documentVersions).values({
+      fileId,
+      versionNumber: 1,
+    }).returning({ id: documentVersions.id });
+    versionId = version[0].id;
   });
 
   afterAll(async () => {
@@ -56,7 +63,7 @@ describe('RagService Transaction Executor', () => {
 
     try {
       await db.transaction(async (tx) => {
-        await ragService.persistChunks(fileId, chunkValues, tx);
+        await ragService.persistChunks(versionId, chunkValues, tx);
         throw new Error('Rollback RAG');
       });
     } catch (e: any) {
@@ -79,7 +86,7 @@ describe('RagService Transaction Executor', () => {
     }];
 
     await db.transaction(async (tx) => {
-      await ragService.persistChunks(fileId, chunkValues, tx);
+      await ragService.persistChunks(versionId, chunkValues, tx);
     });
 
     const chunks = await db.query.documentChunks.findMany({ where: eq(documentChunks.fileId, fileId) });
