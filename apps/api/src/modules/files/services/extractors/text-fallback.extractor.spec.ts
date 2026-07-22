@@ -1,16 +1,13 @@
 import { TextFallbackExtractor } from './text-fallback.extractor';
+import { EmptyDocumentError } from '../../contracts/document-extractor';
 
 describe('TextFallbackExtractor', () => {
   it('1. should handle an empty string', () => {
-    const result = TextFallbackExtractor.extract('');
-    expect(result.fullText).toBe('');
-    expect(result.blocks).toEqual([]);
+    expect(() => TextFallbackExtractor.extract('')).toThrow(EmptyDocumentError);
   });
 
   it('2. should handle whitespace-only input', () => {
-    const result = TextFallbackExtractor.extract('   \n  \t  ');
-    expect(result.fullText).toBe('');
-    expect(result.blocks).toEqual([]);
+    expect(() => TextFallbackExtractor.extract('   \n  \t  ')).toThrow(EmptyDocumentError);
   });
 
   it('3. should handle one paragraph', () => {

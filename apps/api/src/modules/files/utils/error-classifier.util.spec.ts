@@ -124,6 +124,19 @@ describe('ErrorClassifier', () => {
       expect(result.retryable).toBe(false);
       expect(result.errorCode).toBe('AUTHORIZATION_FAILED');
     });
+
+    it('classifies EmptyDocumentError as EMPTY_DOCUMENT', () => {
+      class EmptyDocumentError extends Error {
+        constructor(message: string) {
+          super(message);
+          this.name = 'EmptyDocumentError';
+        }
+      }
+      const error = new EmptyDocumentError('Empty file');
+      const result = ErrorClassifier.classify(error);
+      expect(result.retryable).toBe(false);
+      expect(result.errorCode).toBe('EMPTY_DOCUMENT');
+    });
   });
 
   describe('Fallback Code Mapping', () => {

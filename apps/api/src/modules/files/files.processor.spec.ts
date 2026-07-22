@@ -210,6 +210,15 @@ describe('FilesProcessor', () => {
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
   });
 
+  it('should handle EmptyDocumentError as non-retryable and exclude from publication', async () => {
+    const { EmptyDocumentError } = require('./contracts/document-extractor');
+    mockExtractor.extract.mockRejectedValueOnce(new EmptyDocumentError('Text input is null or undefined.'));
+    const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
+    await processor.handle(context);
+    expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
+    expect(documentPersistenceService.publish).not.toHaveBeenCalled();
+  });
+
   it('should handle native TypeError as NonRetryable', async () => {
     mockExtractor.extract.mockRejectedValueOnce(new TypeError('Cannot read properties of undefined'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
