@@ -12,6 +12,7 @@ import { DocumentPersistenceService } from './services/document-persistence.serv
 import { FilesProcessor } from './files.processor';
 import { ExtractorRegistry } from './services/extractor.registry';
 import { LegacyFallbackAdapter } from './services/extractors/legacy-fallback.adapter';
+import { NativePdfExtractor } from './services/extractors/native-pdf.extractor';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { LegacyFallbackAdapter } from './services/extractors/legacy-fallback.ada
     FilesProcessor,
     ExtractorRegistry,
     LegacyFallbackAdapter,
+    NativePdfExtractor,
   ],
   exports: [FilesService, DocumentPersistenceService],
 })
@@ -39,11 +41,12 @@ export class FilesModule implements OnModuleInit {
     private readonly filesProcessor: FilesProcessor,
     private readonly extractorRegistry: ExtractorRegistry,
     private readonly legacyFallbackAdapter: LegacyFallbackAdapter,
+    private readonly nativePdfExtractor: NativePdfExtractor,
   ) {}
 
   onModuleInit() {
     // Populate the extraction registry
-    this.extractorRegistry.register('application/pdf', this.legacyFallbackAdapter);
+    this.extractorRegistry.register('application/pdf', this.nativePdfExtractor);
     this.extractorRegistry.register('image/jpeg', this.legacyFallbackAdapter);
     this.extractorRegistry.register('image/png', this.legacyFallbackAdapter);
     this.extractorRegistry.register('image/webp', this.legacyFallbackAdapter);

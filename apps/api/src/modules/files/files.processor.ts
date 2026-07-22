@@ -128,6 +128,7 @@ export class FilesProcessor {
       const extractor = this.extractorRegistry.getExtractor(extractionContext.mimeType);
       extractedDocument = await extractor.extract(extractionContext);
     } catch (error: any) {
+      console.error('FilesProcessor Extraction Error:', error);
       const classification = ErrorClassifier.classify(error);
       await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
       return;
