@@ -9,7 +9,7 @@ describe('TextFallbackExtractor', () => {
 
   it('2. should handle whitespace-only input', () => {
     const result = TextFallbackExtractor.extract('   \n  \t  ');
-    expect(result.fullText).toBe('   \n  \t  ');
+    expect(result.fullText).toBe('');
     expect(result.blocks).toEqual([]);
   });
 
@@ -32,7 +32,7 @@ describe('TextFallbackExtractor', () => {
 
   it('5. should handle multiple consecutive blank lines', () => {
     const result = TextFallbackExtractor.extract('Para 1.\n\n\n\nPara 2.');
-    expect(result.fullText).toBe('Para 1.\n\n\n\nPara 2.');
+    expect(result.fullText).toBe('Para 1.\n\nPara 2.');
     expect(result.blocks).toEqual([
       { type: 'paragraph', text: 'Para 1.', metadata: {} },
       { type: 'paragraph', text: 'Para 2.', metadata: {} }
@@ -58,7 +58,7 @@ describe('TextFallbackExtractor', () => {
 
   it('8. should handle leading and trailing whitespace', () => {
     const result = TextFallbackExtractor.extract('   \n\n  Text  \n\n  ');
-    expect(result.fullText).toBe('   \n\n  Text  \n\n  ');
+    expect(result.fullText).toBe('Text');
     expect(result.blocks).toEqual([
       { type: 'paragraph', text: 'Text', metadata: {} }
     ]);

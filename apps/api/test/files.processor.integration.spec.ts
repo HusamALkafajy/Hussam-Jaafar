@@ -1,298 +1,88 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { FilesProcessor } from '../src/modules/files/files.processor';
-import { FileProcessingExecutionService } from '../src/modules/files/services/file-processing-execution.service';
-import { RagService } from '../src/modules/rag/rag.service';
+import { db, files, fileProcessingAttempts, documentVersions, users } from '@studyai/database';
+import { eq } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+import { ErrorClassifier } from '../src/modules/files/utils/error-classifier.util';
 import { FileProcessingStateRepository } from '../src/modules/files/repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from '../src/modules/files/services/document-persistence.service';
-import { db, files, processingSessions, processingCheckpoints, documentChunks, eq, users, client } from '@studyai/database';
-import { randomUUID } from 'crypto';
+import { RagService } from '../src/modules/rag/rag.service';
+import { ExtractorRegistry } from '../src/modules/files/services/extractor.registry';
 
 describe('FilesProcessor (Integration with PostgreSQL)', () => {
   let processor: FilesProcessor;
-  let executionService: jest.Mocked<FileProcessingExecutionService>;
-  let ragService: jest.Mocked<RagService>;
-  let stateRepository: jest.Mocked<FileProcessingStateRepository>;
-  let documentPersistenceService: any;
-  let globalUserId: string;
+  let stateRepository: FileProcessingStateRepository;
+  let documentPersistenceService: DocumentPersistenceService;
+  
+  let mockExtractor: { extract: jest.Mock };
+  let extractorRegistry: ExtractorRegistry;
+  
+  let ragService: {
+    generateChunkValues: jest.Mock;
+    persistChunks: jest.Mock;
+  };
+
+  const globalUserId = randomUUID();
 
   beforeAll(async () => {
-    // Just to ensure connection is valid
-    await db.execute('SELECT 1');
-    const result = await db.insert(users).values({
-      email: `test-${randomUUID()}@example.com`,
-      firstName: 'Test',
+    // Ensure test user exists to satisfy foreign key constraints
+    await db.insert(users).values({
+      id: globalUserId,
+      email: 'processor-test@example.com',
+      firstName: 'Processor',
       lastName: 'User',
-    }).returning({ id: users.id });
-    globalUserId = result[0].id;
+      passwordHash: 'hash',
+    }).onConflictDoNothing();
   });
 
-  beforeEach(async () => {
-    executionService = {
-      executeExtraction: jest.fn(),
-    } as any;
-
-    ragService = {
-      indexFile: jest.fn(),
-      generateChunkValues: jest.fn(),
-    } as any;
-
-    stateRepository = {
-      transitionToTerminal: jest.fn(),
-    } as any;
-
-    documentPersistenceService = {
-      publish: jest.fn(),
+  beforeEach(() => {
+    mockExtractor = {
+      extract: jest.fn().mockResolvedValue({ 
+        fullText: 'test text', 
+        blocks: [{ type: 'paragraph', text: 'test text', metadata: {} }] 
+      }),
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        FilesProcessor,
-        { provide: FileProcessingExecutionService, useValue: executionService },
-        { provide: RagService, useValue: ragService },
-        { provide: FileProcessingStateRepository, useValue: stateRepository },
-        { provide: DocumentPersistenceService, useValue: documentPersistenceService },
-        {
-          provide: 'PROM_METRIC_STUDYAI_WORKER_JOBS_TOTAL',
-          useValue: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
-        },
-        {
-          provide: 'PROM_METRIC_STUDYAI_WORKER_CHECKPOINT_JOBS_TOTAL',
-          useValue: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
-        },
-        {
-          provide: 'PROM_METRIC_STUDYAI_WORKER_OCR_DURATION_SECONDS',
-          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
-        },
-        {
-          provide: 'PROM_METRIC_STUDYAI_WORKER_EMBEDDING_DURATION_SECONDS',
-          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
-        },
-        {
-          provide: 'PROM_METRIC_STUDYAI_WORKER_TRANSACTION_DURATION_SECONDS',
-          useValue: { startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnValue({ observe: jest.fn() }) },
-        },
-      ],
-    }).compile();
+    extractorRegistry = {
+      getExtractor: jest.fn().mockReturnValue(mockExtractor),
+      registerExtractor: jest.fn(),
+    } as any;
 
-    processor = module.get<FilesProcessor>(FilesProcessor);
+    stateRepository = new FileProcessingStateRepository();
+    
+    ragService = {
+      generateChunkValues: jest.fn().mockResolvedValue([]),
+      persistChunks: jest.fn().mockResolvedValue(true),
+    };
+
+    documentPersistenceService = new DocumentPersistenceService(ragService as any);
+
+    processor = new FilesProcessor(
+      extractorRegistry,
+      stateRepository,
+      documentPersistenceService,
+      ragService as any,
+      { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any, // workerJobsTotal
+      { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any, // checkpointJobsTotal
+      { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any, // ocrDuration
+      { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any, // embeddingDuration
+      { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any // dbTxDuration
+    );
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     jest.clearAllMocks();
   });
 
-  afterAll(async () => {
-    await client.end();
-  });
-
-  const setupFileAndSession = async (checkpointCount = 1) => {
-    const fileId = randomUUID();
-    const sessionId = randomUUID();
-    
-    // Insert file
-    await db.insert(files).values({
-      id: fileId,
-      userId: globalUserId,
-      originalName: 'integration_test.pdf',
-      storageKey: 'test/integration_test.pdf',
-      storageUrl: 'http://localhost/test.pdf',
-      fileType: 'pdf',
-      mimeType: 'application/pdf',
-      fileSize: 1024,
-      processingStatus: 'processing',
-    });
-
-    // Insert session
-    await db.insert(processingSessions).values({
-      id: sessionId,
-      fileId,
-      status: 'processing',
-      totalChunks: checkpointCount,
-    });
-
-    // Insert checkpoints
-    const checkpoints = [];
-    for (let i = 0; i < checkpointCount; i++) {
-      const result = await db.insert(processingCheckpoints).values({
-        sessionId,
-        chunkIndex: i,
-        startPage: i * 5 + 1,
-        endPage: i * 5 + 5,
-        status: 'pending',
-      }).returning({ id: processingCheckpoints.id });
-      checkpoints.push(result[0].id);
-    }
-
-    return { fileId, sessionId, checkpoints };
-  };
-
-  it('1, 2, 3, 6: Checkpoint ownership is serialized using PostgreSQL row locking, prevents duplicate chunks', async () => {
-    const { fileId, sessionId, checkpoints } = await setupFileAndSession(1);
-    const checkpointId = checkpoints[0];
-
-    // Mock extraction
-    executionService.executeExtraction.mockResolvedValue('test text');
-    
-    // Mock Rag generation to generate chunks
-    ragService.generateChunkValues.mockResolvedValue([{
-      fileId,
-      content: 'test text',
-      chunkIndex: 0,
-      pageNumber: 1,
-      embedding: Array(1536).fill(0.1),
-    }]);
-
-    // Use a Promise barrier to ensure both workers hit the DB transaction exactly simultaneously
-    let worker1Ready: () => void = () => {};
-    let worker2Ready: () => void = () => {};
-    
-    const p1 = new Promise<void>(resolve => { worker1Ready = resolve; });
-    const p2 = new Promise<void>(resolve => { worker2Ready = resolve; });
-
-    executionService.executeExtraction.mockImplementationOnce(async () => {
-      worker1Ready();
-      await p2; // Wait for worker 2 to also be ready
-      return 'test text';
-    }).mockImplementationOnce(async () => {
-      worker2Ready();
-      await p1; // Wait for worker 1 to also be ready
-      return 'test text';
-    });
-
-    const payload = {
-      attemptId: randomUUID(),
-      fileId,
-      sessionId,
-      checkpointId,
-      chunkIndex: 0,
-      startPage: 1,
-      endPage: 5,
-    };
-
-    // Fire both concurrently
-    const t1 = processor.handle({ jobId: 'j1', payload } as any);
-    const t2 = processor.handle({ jobId: 'j2', payload } as any);
-
-    await Promise.all([t1, t2]);
-
-    // Assert only one chunk was inserted
-    // Deferred to C.3: Checkpoints no longer insert directly into document_chunks
-    // without a versionId. So we don't assert chunks.length here.
-
-    // Assert checkpoint is completed
-    const chk = await db.query.processingCheckpoints.findFirst({
-      where: eq(processingCheckpoints.id, checkpointId)
-    });
-    expect(chk?.status).toBe('completed');
-  });
-
-  it('4, 9: Embedding failure aborts the transaction atomically (Rollback removes partial mutations)', async () => {
-    const { fileId, sessionId, checkpoints } = await setupFileAndSession(1);
-    const checkpointId = checkpoints[0];
-
-    executionService.executeExtraction.mockResolvedValue('test text');
-    
-    // Simulate AI crash DURING generation (before transaction)
-    ragService.generateChunkValues.mockRejectedValue(new Error('AI Rate Limit'));
-
-    const payload = {
-      attemptId: randomUUID(),
-      fileId,
-      sessionId,
-      checkpointId,
-      chunkIndex: 0,
-      startPage: 1,
-      endPage: 5,
-    };
-
-    await expect(processor.handle({ jobId: 'j1', payload } as any)).rejects.toThrow('AI Rate Limit');
-
-    // Verify state was not mutated
-    const chk = await db.query.processingCheckpoints.findFirst({
-      where: eq(processingCheckpoints.id, checkpointId)
-    });
-    expect(chk?.status).toBe('pending');
-
-    const chunks = await db.query.documentChunks.findMany({
-      where: eq(documentChunks.fileId, fileId),
-    });
-    expect(chunks.length).toBe(0);
-  });
-
-  it('7: Retry after rollback succeeds correctly', async () => {
-    const { fileId, sessionId, checkpoints } = await setupFileAndSession(1);
-    const checkpointId = checkpoints[0];
-
-    // First attempt fails
-    executionService.executeExtraction.mockRejectedValueOnce(new Error('OCR Crash'));
-
-    const payload = { attemptId: randomUUID(), fileId, sessionId, checkpointId, chunkIndex: 0, startPage: 1, endPage: 5 };
-
-    await expect(processor.handle({ jobId: 'j1', payload } as any)).rejects.toThrow('OCR Crash');
-    
-    let chk = await db.query.processingCheckpoints.findFirst({ where: eq(processingCheckpoints.id, checkpointId) });
-    expect(chk?.status).toBe('pending');
-
-    // Retry succeeds
-    executionService.executeExtraction.mockResolvedValueOnce('test text');
-    ragService.generateChunkValues.mockResolvedValueOnce([{
-      fileId, content: 'test text', chunkIndex: 0, pageNumber: 1, embedding: Array(1536).fill(0.1),
-    }]);
-
-    await processor.handle({ jobId: 'j2', payload } as any);
-
-    chk = await db.query.processingCheckpoints.findFirst({ where: eq(processingCheckpoints.id, checkpointId) });
-    expect(chk?.status).toBe('completed');
-  });
-
-  it('5: Session reconciliation never strands a processing_session', async () => {
-    // Session with 2 checkpoints
-    const { fileId, sessionId, checkpoints } = await setupFileAndSession(2);
-
-    executionService.executeExtraction.mockResolvedValue('text');
-    ragService.generateChunkValues.mockResolvedValue([{
-      fileId, content: 'text', chunkIndex: 0, pageNumber: 1, embedding: Array(1536).fill(0.1),
-    }]);
-
-    // Process checkpoint 1
-    await processor.handle({ jobId: 'j1', payload: { attemptId: randomUUID(), fileId, sessionId, checkpointId: checkpoints[0], chunkIndex: 0, startPage: 1, endPage: 5 } } as any);
-    
-    let sess = await db.query.processingSessions.findFirst({ where: eq(processingSessions.id, sessionId) });
-    expect(sess?.status).toBe('processing'); // Still processing because chk 2 is pending
-
-    // Process checkpoint 2
-    await processor.handle({ jobId: 'j2', payload: { attemptId: randomUUID(), fileId, sessionId, checkpointId: checkpoints[1], chunkIndex: 1, startPage: 6, endPage: 10 } } as any);
-    
-    sess = await db.query.processingSessions.findFirst({ where: eq(processingSessions.id, sessionId) });
-    expect(sess?.status).toBe('completed'); // Now completed
-  });
-
-  it('8: Empty OCR checkpoints still transition correctly', async () => {
-    const { fileId, sessionId, checkpoints } = await setupFileAndSession(1);
-    
-    executionService.executeExtraction.mockResolvedValue('No extractable text found in this document.');
-    
-    await processor.handle({ jobId: 'j1', payload: { attemptId: randomUUID(), fileId, sessionId, checkpointId: checkpoints[0], chunkIndex: 0, startPage: 1, endPage: 5 } } as any);
-
-    expect(ragService.generateChunkValues).not.toHaveBeenCalled();
-
-    const chk = await db.query.processingCheckpoints.findFirst({ where: eq(processingCheckpoints.id, checkpoints[0]) });
-    expect(chk?.status).toBe('completed'); // Still transitioned!
-
-    const sess = await db.query.processingSessions.findFirst({ where: eq(processingSessions.id, sessionId) });
-    expect(sess?.status).toBe('completed');
-  });
-
-  it('10: Legacy V1 processing remains unaffected', async () => {
+  const setupFileAndAttempt = async () => {
     const fileId = randomUUID();
     const attemptId = randomUUID();
+    const jobId = randomUUID();
 
-    // Setup legacy file (no session)
     await db.insert(files).values({
       id: fileId,
       userId: globalUserId,
-      originalName: 'v1.pdf',
-      storageKey: 'test/v1.pdf',
+      originalName: 'test.pdf',
+      storageKey: `test/${fileId}.pdf`,
       storageUrl: 'http://localhost/test.pdf',
       fileType: 'pdf',
       mimeType: 'application/pdf',
@@ -300,8 +90,6 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
       processingStatus: 'pending',
     });
 
-    const jobId = randomUUID();
-    const { fileProcessingAttempts } = require('@studyai/database');
     await db.insert(fileProcessingAttempts).values({
       id: attemptId,
       fileId,
@@ -310,12 +98,94 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
       processingAttempts: 0,
     });
 
-    executionService.executeExtraction.mockResolvedValue('legacy text');
+    return { fileId, attemptId, jobId };
+  };
 
-    // Missing 'checkpointId' implies V1
-    await processor.handle({ jobId, payload: { attemptId, fileId } } as any);
+  it('1: Successful extraction publishes document and transitions attempt to completed', async () => {
+    const { fileId, attemptId, jobId } = await setupFileAndAttempt();
 
-    expect(executionService.executeExtraction).toHaveBeenCalled();
-    expect(documentPersistenceService.publish).toHaveBeenCalled();
+    mockExtractor.extract.mockResolvedValue({ 
+      fullText: 'test canonical text', 
+      blocks: [{ type: 'paragraph', text: 'test canonical text', metadata: {} }] 
+    });
+    
+    ragService.generateChunkValues.mockResolvedValue([{
+      fileId,
+      content: 'test canonical text',
+      chunkIndex: 0,
+      pageNumber: 1,
+      embedding: Array(1536).fill(0.1),
+    }]);
+
+    await processor.handle({ jobId, payload: { attemptId, fileId } });
+
+    // Verify extraction was called with correct context
+    expect(extractorRegistry.getExtractor).toHaveBeenCalledWith('application/pdf');
+    
+    // Verify attempt completed
+    const attempt = await db.query.fileProcessingAttempts.findFirst({
+      where: eq(fileProcessingAttempts.id, attemptId)
+    });
+    expect(attempt?.status).toBe('completed');
+    expect(attempt?.finishedAt).toBeTruthy();
+
+    // Verify file completed
+    const file = await db.query.files.findFirst({
+      where: eq(files.id, fileId)
+    });
+    expect(file?.processingStatus).toBe('completed');
+
+    // Verify document versions
+    const versions = await db.query.documentVersions.findMany({
+      where: eq(documentVersions.fileId, fileId)
+    });
+    expect(versions.length).toBe(1);
+    
+    // Since documentVersions schema doesn't have fullText directly we'll assert something else
+    // like the fact a version was created successfully.
+    expect(versions[0]).toBeTruthy();
   });
+
+  it('2: Extractor failure triggers typed error and terminal failure', async () => {
+    const { fileId, attemptId, jobId } = await setupFileAndAttempt();
+
+    mockExtractor.extract.mockRejectedValue(new Error('Some generic error'));
+
+    await processor.handle({ jobId, payload: { attemptId, fileId } });
+
+    const attempt = await db.query.fileProcessingAttempts.findFirst({
+      where: eq(fileProcessingAttempts.id, attemptId)
+    });
+    expect(attempt?.status).toBe('failed');
+    expect(attempt?.lastError).toContain('Some generic error');
+  });
+
+  it('3: Empty extraction publishes empty document but does not trigger RAG generation', async () => {
+    const { fileId, attemptId, jobId } = await setupFileAndAttempt();
+    
+    // Empty extraction
+    mockExtractor.extract.mockResolvedValue({ 
+      fullText: 'No extractable text found in this document.', 
+      blocks: [
+        { type: 'paragraph', text: 'No extractable text found in this document.', metadata: {} }
+      ] 
+    });
+    
+    await processor.handle({ jobId, payload: { attemptId, fileId } });
+
+    // RAG should not be called
+    expect(ragService.generateChunkValues).not.toHaveBeenCalled();
+
+    // Still completes successfully
+    const attempt = await db.query.fileProcessingAttempts.findFirst({
+      where: eq(fileProcessingAttempts.id, attemptId)
+    });
+    expect(attempt?.status).toBe('completed');
+    
+    const file = await db.query.files.findFirst({
+      where: eq(files.id, fileId)
+    });
+    expect(file?.processingStatus).toBe('completed');
+  });
+
 });

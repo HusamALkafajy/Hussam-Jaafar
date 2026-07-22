@@ -77,16 +77,43 @@ export class ErrorClassifier {
       };
     }
 
-    if (rootError instanceof NonRetryableUnsupportedFileError) {
+    if (rootError instanceof NonRetryableAuthorizationError) {
       return {
         retryable: false,
-        errorCode: 'UNSUPPORTED_DOCUMENT',
-        userMessage: 'The provided file type is not supported.',
+        errorCode: 'AUTHORIZATION_FAILED',
+        userMessage: 'You are not authorized to perform this action.',
         internalMessage: rootError.message,
       };
     }
 
-    if (rootError instanceof NonRetryableCorruptedDocumentError) {
+    if (rootError?.name === 'UnsupportedDocumentFormatError' || rootError instanceof NonRetryableUnsupportedFileError) {
+      return {
+        retryable: false,
+        errorCode: 'UNSUPPORTED_DOCUMENT',
+        userMessage: 'The provided document format is not supported.',
+        internalMessage: rootError.message,
+      };
+    }
+
+    if (rootError?.name === 'MissingTextLayerError') {
+      return {
+        retryable: false,
+        errorCode: 'MISSING_TEXT_LAYER',
+        userMessage: 'The document contains no text and requires OCR, which is not currently available.',
+        internalMessage: rootError.message,
+      };
+    }
+
+    if (rootError?.name === 'ExtractionResourceLimitError') {
+      return {
+        retryable: false,
+        errorCode: 'EXTRACTION_RESOURCE_LIMIT',
+        userMessage: 'The document is too large or complex to extract.',
+        internalMessage: rootError.message,
+      };
+    }
+
+    if (rootError?.name === 'MalformedDocumentError' || rootError instanceof NonRetryableCorruptedDocumentError) {
       return {
         retryable: false,
         errorCode: 'CORRUPTED_DOCUMENT',
@@ -95,11 +122,20 @@ export class ErrorClassifier {
       };
     }
 
-    if (rootError instanceof NonRetryableAuthorizationError) {
+    if (rootError?.name === 'EncryptedDocumentError') {
       return {
         retryable: false,
-        errorCode: 'AUTHORIZATION_FAILED',
-        userMessage: 'You are not authorized to perform this action.',
+        errorCode: 'ENCRYPTED_DOCUMENT',
+        userMessage: 'The document is encrypted or password protected.',
+        internalMessage: rootError.message,
+      };
+    }
+
+    if (rootError?.name === 'EmptyDocumentError') {
+      return {
+        retryable: false,
+        errorCode: 'EMPTY_DOCUMENT',
+        userMessage: 'The document contains no extractable text.',
         internalMessage: rootError.message,
       };
     }

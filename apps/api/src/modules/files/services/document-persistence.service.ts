@@ -99,7 +99,11 @@ export class DocumentPersistenceService {
       const astManifest = ASTBuilder.buildAndValidate(structuralBlocks, { versionId });
 
       if (!astManifest.success) {
-        throw new Error(`AST build failed for file ${fileId} version ${versionId}: ${JSON.stringify(astManifest.builderErrors)}`);
+        const errPayload = {
+          builder: astManifest.builderErrors,
+          validator: astManifest.validationResult?.errors || []
+        };
+        throw new Error(`AST build failed for file ${fileId} version ${versionId}: ${JSON.stringify(errPayload)}`);
       }
 
       const insertNodes = astManifest.nodes.map(node => ({

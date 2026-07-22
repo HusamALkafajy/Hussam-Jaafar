@@ -1,47 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { db, eq, and, sql } from '@studyai/database';
 import { fileProcessingAttempts, files, subjects, documentChunks } from '@studyai/database';
-import { FileProcessingExecutionService } from './services/file-processing-execution.service';
 import { RagService } from '../rag/rag.service';
 import { join } from 'path';
-import { TextFallbackExtractor } from './services/extractors/text-fallback.extractor';
+import { ExtractorRegistry } from './services/extractor.registry';
+import { DocumentExtractionContext } from './contracts/document-extractor';
 import { ErrorClassifier, ClassificationResult } from './utils/error-classifier.util';
 import { RetryPolicy } from './utils/retry-policy.util';
 import { LostProcessingOwnershipError } from './utils/domain.exceptions';
 import { FileProcessingStateRepository } from './repositories/file-processing-state.repository';
-import { WorkerExecutionToken } from './types/worker-execution-token.type';
-import { IApplicationHandler, WorkerExecutionContext } from '@studyai/infrastructure';
+import { DocumentPersistenceService } from './services/document-persistence.service';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter, Histogram } from 'prom-client';
 
-interface ProcessFileJobData {
-  attemptId: string;
-  fileId: string;
-  traceId?: string;
-}
-
-export interface ProcessCheckpointJobData {
-  attemptId: string;
-  fileId: string;
-  sessionId: string;
-  checkpointId: string;
-  chunkIndex: number;
-  startPage: number;
-  endPage: number;
-  traceId?: string;
-}
-
-import { DocumentPersistenceService } from './services/document-persistence.service';
-
 @Injectable()
-export class FilesProcessor implements IApplicationHandler<any> {
+export class FilesProcessor {
   private readonly logger = new Logger(FilesProcessor.name);
 
   constructor(
-    private readonly executionService: FileProcessingExecutionService,
-    private readonly ragService: RagService,
+    private readonly extractorRegistry: ExtractorRegistry,
     private readonly stateRepository: FileProcessingStateRepository,
     private readonly documentPersistenceService: DocumentPersistenceService,
+    private readonly ragService: RagService,
     @InjectMetric('studyai_worker_jobs_total')
     private readonly workerJobsTotal: Counter<string>,
     @InjectMetric('studyai_worker_checkpoint_jobs_total')
@@ -54,16 +34,9 @@ export class FilesProcessor implements IApplicationHandler<any> {
     private readonly dbTxDuration: Histogram<string>,
   ) {}
 
-  async handle(context: WorkerExecutionContext<any>): Promise<void> {
-    const payload = context.payload;
-    const traceId = payload?.traceId;
-    if (traceId) {
-      this.logger.log(`[traceId=${traceId}] Worker executing job ${context.jobId}`);
-    }
-
-
-
-    const { attemptId, fileId } = payload as ProcessFileJobData;
+  async handle(job: any): Promise<void> {
+    const context = job.data || job;
+    const { attemptId, fileId } = context.payload;
     const queueJobId = context.jobId;
 
     if (!queueJobId || !attemptId || !fileId) {
@@ -72,7 +45,6 @@ export class FilesProcessor implements IApplicationHandler<any> {
     }
 
     // 1. Atomic Claim (queued -> processing)
-    // Mathematically shifts the increment of processingAttempts here to track crashes.
     const claimResult = await db
       .update(fileProcessingAttempts)
       .set({ 
@@ -99,7 +71,7 @@ export class FilesProcessor implements IApplicationHandler<any> {
 
     const currentProcessingAttempts = claimResult[0].processingAttempts;
 
-    // 1.5 Pre-Execution Viability Guard (breaks infinite crash loops)
+    // 1.5 Pre-Execution Viability Guard
     if (currentProcessingAttempts > RetryPolicy.MAX_RETRIES) {
       this.logger.error(`[KPI_WORKER_FAILURE] Attempt ${attemptId} exceeded MAX_RETRIES due to prior repeated crashes. Terminating.`);
       try { this.workerJobsTotal.labels('failed', 'SYSTEM_CRASH_LIMIT').inc(); } catch (e) {}
@@ -124,13 +96,12 @@ export class FilesProcessor implements IApplicationHandler<any> {
       return;
     }
 
-    // Also transition file to processing
     await db
       .update(files)
       .set({ processingStatus: 'processing' })
       .where(and(eq(files.id, fileId), eq(files.processingStatus, 'pending')));
 
-    // 2. Fetch file metadata for extraction
+    // 2. Fetch file metadata
     const fileRecord = await db.query.files.findFirst({
       where: eq(files.id, fileId),
     });
@@ -144,23 +115,24 @@ export class FilesProcessor implements IApplicationHandler<any> {
 
     const filePath = join(process.cwd(), 'apps', 'api', 'uploads', fileRecord.storageKey);
 
-    // 3. External Extraction
-    let extractedText = '';
+    // 3. Generic Extraction Boundary
+    const extractionContext: DocumentExtractionContext = {
+      fileId,
+      filePath,
+      mimeType: fileRecord.mimeType || 'application/octet-stream',
+      fileType: fileRecord.fileType as any,
+    };
+
+    let extractedDocument;
     try {
-      extractedText = await this.executionService.executeExtraction(
-        fileId,
-        filePath,
-        fileRecord.fileType,
-        fileRecord.mimeType || 'application/octet-stream' // fallback
-      );
+      const extractor = this.extractorRegistry.getExtractor(extractionContext.mimeType);
+      extractedDocument = await extractor.extract(extractionContext);
     } catch (error: any) {
       const classification = ErrorClassifier.classify(error);
       await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
       return;
     }
 
-    // Canonical Extraction Contract: Normalize text and build blocks
-    const extractedDocument = TextFallbackExtractor.extract(extractedText);
     const canonicalText = extractedDocument.fullText;
     const blocks = extractedDocument.blocks;
 
@@ -187,7 +159,6 @@ export class FilesProcessor implements IApplicationHandler<any> {
         generatedChunks
       });
 
-      // Increment subject fileCount
       if (fileRecord.subjectId) {
         await db
           .update(subjects)
@@ -245,8 +216,6 @@ export class FilesProcessor implements IApplicationHandler<any> {
       try { this.workerJobsTotal.labels('retry', classification.errorCode).inc(); } catch (e) {}
       const nextRetryAt = new Date(Date.now() + retryResult.delayMs);
       
-      // For retrying, we don't cascade to parent file, just update attempt
-      // Note: we do NOT increment processingAttempts here anymore, it's done during claim
       await db
         .update(fileProcessingAttempts)
         .set({ 
@@ -265,6 +234,4 @@ export class FilesProcessor implements IApplicationHandler<any> {
         );
     }
   }
-
-
 }

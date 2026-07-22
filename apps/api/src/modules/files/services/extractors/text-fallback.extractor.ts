@@ -1,5 +1,7 @@
 import { StructuralBlock } from '@studyai/ast';
 import { ExtractedDocument } from '../../contracts/extracted-document';
+import { EmptyDocumentError } from '../../contracts/document-extractor';
+import { ExtractedDocumentFactory } from './extracted-document.factory';
 
 export class TextFallbackExtractor {
   /**
@@ -20,23 +22,18 @@ export class TextFallbackExtractor {
    * @returns An ExtractedDocument containing the fullText and StructuralBlocks.
    */
   static extract(rawText: string): ExtractedDocument {
-    // Empty document semantics: preserve text, return empty blocks
+    // Empty document semantics: explicitly fail extraction.
+    // Synthetic minimal blocks must not be fabricated to bypass AST validation.
     if (!rawText) {
-      return {
-        fullText: rawText,
-        blocks: []
-      };
+      throw new EmptyDocumentError('Text input is null or undefined.');
     }
 
     // Normalize CRLF and bare CR to LF
     const normalizedText = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-    // If it's only whitespace, we preserve the text but return empty blocks
+    // If it's only whitespace, we fail extraction.
     if (normalizedText.trim().length === 0) {
-      return {
-        fullText: normalizedText,
-        blocks: []
-      };
+      throw new EmptyDocumentError('Text input contains only whitespace.');
     }
 
     // Split by double newline to identify paragraph boundaries.
@@ -57,9 +54,6 @@ export class TextFallbackExtractor {
       }
     }
 
-    return {
-      fullText: normalizedText,
-      blocks
-    };
+    return ExtractedDocumentFactory.fromBlocks(blocks);
   }
 }

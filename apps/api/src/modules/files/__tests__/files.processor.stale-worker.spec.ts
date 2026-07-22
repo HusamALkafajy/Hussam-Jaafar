@@ -13,12 +13,12 @@
 import { FileProcessingStateRepository } from '../repositories/file-processing-state.repository';
 import { LostProcessingOwnershipError } from '../utils/domain.exceptions';
 import { FilesProcessor } from '../files.processor';
-import { FileProcessingExecutionService } from '../services/file-processing-execution.service';
+
 import { RagService } from '../../rag/rag.service';
 
 describe('FilesProcessor: Stale Worker Ownership-Loss Catch Path', () => {
   let mockStateRepo: jest.Mocked<FileProcessingStateRepository>;
-  let mockExecService: jest.Mocked<FileProcessingExecutionService>;
+  let mockExtractorRegistry: any;
   let mockRagService: jest.Mocked<RagService>;
   let mockCounter: any;
   let mockHistogram: any;
@@ -29,9 +29,9 @@ describe('FilesProcessor: Stale Worker Ownership-Loss Catch Path', () => {
       transitionToTerminal: jest.fn(),
     } as any;
     
-    mockExecService = {
-      executeExtraction: jest.fn().mockResolvedValue('text'),
-    } as any;
+    mockExtractorRegistry = {
+      getExtractor: jest.fn().mockReturnValue({ extract: jest.fn() }),
+    };
 
     mockRagService = {
       indexFile: jest.fn(),
@@ -47,10 +47,10 @@ describe('FilesProcessor: Stale Worker Ownership-Loss Catch Path', () => {
     };
 
     processor = new FilesProcessor(
-      mockExecService,
-      mockRagService,
+      mockExtractorRegistry,
       mockStateRepo,
       mockDocPersistService,
+      mockRagService,
       mockCounter,
       mockCounter,
       mockHistogram,

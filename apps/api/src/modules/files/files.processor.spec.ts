@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FilesProcessor } from './files.processor';
-import { FileProcessingExecutionService } from './services/file-processing-execution.service';
+import { ExtractorRegistry } from './services/extractor.registry';
 import { RagService } from '../rag/rag.service';
 import { db } from '@studyai/database';
 import { FileProcessingStateRepository } from './repositories/file-processing-state.repository';
@@ -60,7 +60,8 @@ jest.mock('@studyai/database', () => {
 
 describe('FilesProcessor', () => {
   let processor: FilesProcessor;
-  let executionService: jest.Mocked<FileProcessingExecutionService>;
+  let extractorRegistry: jest.Mocked<ExtractorRegistry>;
+  let mockExtractor: any;
   let ragService: jest.Mocked<RagService>;
   let stateRepository: jest.Mocked<FileProcessingStateRepository>;
   let documentPersistenceService: any;
@@ -68,13 +69,17 @@ describe('FilesProcessor', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
 
+    mockExtractor = {
+      extract: jest.fn().mockResolvedValue({ fullText: 'extracted text', blocks: [] }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FilesProcessor,
         {
-          provide: FileProcessingExecutionService,
+          provide: ExtractorRegistry,
           useValue: {
-            executeExtraction: jest.fn().mockResolvedValue('extracted'),
+            getExtractor: jest.fn().mockReturnValue(mockExtractor),
           },
         },
         {
@@ -136,7 +141,7 @@ describe('FilesProcessor', () => {
     }).compile();
 
     processor = module.get<FilesProcessor>(FilesProcessor);
-    executionService = module.get(FileProcessingExecutionService);
+    extractorRegistry = module.get(ExtractorRegistry);
     ragService = module.get(RagService);
     stateRepository = module.get(FileProcessingStateRepository);
     documentPersistenceService = module.get(require('./services/document-persistence.service').DocumentPersistenceService);
@@ -168,18 +173,19 @@ describe('FilesProcessor', () => {
 
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
-    expect(executionService.executeExtraction).not.toHaveBeenCalled();
+    expect(extractorRegistry.getExtractor).not.toHaveBeenCalled();
   });
 
   it('should complete and update file and attempt atomically', async () => {
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
-    expect(executionService.executeExtraction).toHaveBeenCalled();
+    expect(extractorRegistry.getExtractor).toHaveBeenCalled();
+    expect(mockExtractor.extract).toHaveBeenCalled();
     expect(documentPersistenceService.publish).toHaveBeenCalled();
   });
 
   it('should handle failure atomically', async () => {
-    executionService.executeExtraction.mockRejectedValueOnce(new Error('failed'));
+    mockExtractor.extract.mockRejectedValueOnce(new Error('failed'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled(); // Failure handler uses transaction
@@ -187,7 +193,7 @@ describe('FilesProcessor', () => {
   });
   it('should handle failure atomically with RetryableInfrastructureError', async () => {
     const { RetryableInfrastructureError } = require('./utils/domain.exceptions');
-    executionService.executeExtraction.mockRejectedValueOnce(new RetryableInfrastructureError('DB down'));
+    mockExtractor.extract.mockRejectedValueOnce(new RetryableInfrastructureError('DB down'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     
@@ -198,14 +204,14 @@ describe('FilesProcessor', () => {
 
   it('should handle failure atomically with NonRetryableValidationError', async () => {
     const { NonRetryableValidationError } = require('./utils/domain.exceptions');
-    executionService.executeExtraction.mockRejectedValueOnce(new NonRetryableValidationError('Bad input'));
+    mockExtractor.extract.mockRejectedValueOnce(new NonRetryableValidationError('Bad input'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
   });
 
   it('should handle native TypeError as NonRetryable', async () => {
-    executionService.executeExtraction.mockRejectedValueOnce(new TypeError('Cannot read properties of undefined'));
+    mockExtractor.extract.mockRejectedValueOnce(new TypeError('Cannot read properties of undefined'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
@@ -214,7 +220,7 @@ describe('FilesProcessor', () => {
   it('should propagate AggregateError root causes to classifier', async () => {
     const { RetryableRateLimitError } = require('./utils/domain.exceptions');
     const aggregate = new AggregateError([new RetryableRateLimitError('Too many requests')]);
-    executionService.executeExtraction.mockRejectedValueOnce(aggregate);
+    mockExtractor.extract.mockRejectedValueOnce(aggregate);
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(db.update).toHaveBeenCalled();
@@ -227,7 +233,7 @@ describe('FilesProcessor', () => {
     const wrapper = new Error('Wrapper');
     (wrapper as any).cause = rootError;
     
-    executionService.executeExtraction.mockRejectedValueOnce(wrapper);
+    mockExtractor.extract.mockRejectedValueOnce(wrapper);
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();

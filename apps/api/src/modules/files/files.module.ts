@@ -6,11 +6,12 @@ import { RagModule } from '../rag/rag.module';
 import { StudyCoachModule } from '../study-coach/study-coach.module';
 import { DocumentReadModule } from '../document-read/document-read.module';
 import { FileProcessingDispatcherService } from './services/file-processing-dispatcher.service';
-import { FileProcessingExecutionService } from './services/file-processing-execution.service';
 import { FileProcessingReconcilerService } from './services/file-processing-reconciler.service';
 import { FileProcessingStateRepository } from './repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from './services/document-persistence.service';
 import { FilesProcessor } from './files.processor';
+import { ExtractorRegistry } from './services/extractor.registry';
+import { LegacyFallbackAdapter } from './services/extractors/legacy-fallback.adapter';
 
 @Module({
   imports: [
@@ -23,21 +24,34 @@ import { FilesProcessor } from './files.processor';
   providers: [
     FilesService,
     FileProcessingDispatcherService,
-    FileProcessingExecutionService,
     FileProcessingReconcilerService,
     FileProcessingStateRepository,
     DocumentPersistenceService,
     FilesProcessor,
+    ExtractorRegistry,
+    LegacyFallbackAdapter,
   ],
   exports: [FilesService, DocumentPersistenceService],
 })
 export class FilesModule implements OnModuleInit {
   constructor(
     @Inject('IWorkerRegistry') private readonly registry: any,
-    private readonly filesProcessor: FilesProcessor
+    private readonly filesProcessor: FilesProcessor,
+    private readonly extractorRegistry: ExtractorRegistry,
+    private readonly legacyFallbackAdapter: LegacyFallbackAdapter,
   ) {}
 
   onModuleInit() {
+    // Populate the extraction registry
+    this.extractorRegistry.register('application/pdf', this.legacyFallbackAdapter);
+    this.extractorRegistry.register('image/jpeg', this.legacyFallbackAdapter);
+    this.extractorRegistry.register('image/png', this.legacyFallbackAdapter);
+    this.extractorRegistry.register('image/webp', this.legacyFallbackAdapter);
+    this.extractorRegistry.register('application/vnd.openxmlformats-officedocument.wordprocessingml.document', this.legacyFallbackAdapter);
+    
+    // Fallback for missing MIME type (from legacy defaults)
+    this.extractorRegistry.register('application/octet-stream', this.legacyFallbackAdapter);
+
     const handlers = new Map<string, any>();
     handlers.set('process-file', this.filesProcessor);
 
