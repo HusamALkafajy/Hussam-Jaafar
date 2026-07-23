@@ -6,6 +6,7 @@ import {
   NonRetryableUnsupportedFileError,
   NonRetryableCorruptedDocumentError,
   NonRetryableAuthorizationError,
+  ExtractionTimeoutError,
 } from './domain.exceptions';
 
 export interface ClassificationResult {
@@ -109,6 +110,15 @@ export class ErrorClassifier {
         retryable: false,
         errorCode: 'EXTRACTION_RESOURCE_LIMIT',
         userMessage: 'The document is too large or complex to extract.',
+        internalMessage: rootError.message,
+      };
+    }
+
+    if (rootError instanceof ExtractionTimeoutError || rootError?.name === 'ExtractionTimeoutError') {
+      return {
+        retryable: false,
+        errorCode: 'EXTRACTION_TIMEOUT',
+        userMessage: 'The document took too long to extract and was aborted.',
         internalMessage: rootError.message,
       };
     }

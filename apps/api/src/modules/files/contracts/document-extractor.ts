@@ -5,6 +5,7 @@ export interface DocumentExtractionContext {
   filePath: string;
   mimeType: string;
   fileType?: string; // Optional discriminator e.g. 'pdf', 'docx'
+  signal?: AbortSignal;
 }
 
 export interface DocumentExtractor {

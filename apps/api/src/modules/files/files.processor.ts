@@ -7,7 +7,7 @@ import { ExtractorRegistry } from './services/extractor.registry';
 import { DocumentExtractionContext } from './contracts/document-extractor';
 import { ErrorClassifier, ClassificationResult } from './utils/error-classifier.util';
 import { RetryPolicy } from './utils/retry-policy.util';
-import { LostProcessingOwnershipError } from './utils/domain.exceptions';
+import { LostProcessingOwnershipError, ExtractionTimeoutError } from './utils/domain.exceptions';
 import { FileProcessingStateRepository } from './repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from './services/document-persistence.service';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
@@ -115,12 +115,16 @@ export class FilesProcessor {
 
     const filePath = join(process.cwd(), 'apps', 'api', 'uploads', fileRecord.storageKey);
 
-    // 3. Generic Extraction Boundary
+    // 3. Generic Extraction Boundary with Execution Hard Bound (5 minutes)
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(new ExtractionTimeoutError('Extraction exceeded the maximum execution bound of 5 minutes.')), 300_000);
+    
     const extractionContext: DocumentExtractionContext = {
       fileId,
       filePath,
       mimeType: fileRecord.mimeType || 'application/octet-stream',
       fileType: fileRecord.fileType as any,
+      signal: abortController.signal,
     };
 
     let extractedDocument;
@@ -129,9 +133,16 @@ export class FilesProcessor {
       extractedDocument = await extractor.extract(extractionContext);
     } catch (error: any) {
       console.error('FilesProcessor Extraction Error:', error);
-      const classification = ErrorClassifier.classify(error);
+      // Map native AbortError to our domain exception if aborted by signal but extractor threw Generic
+      let finalError = error;
+      if (abortController.signal.aborted && !(error instanceof ExtractionTimeoutError) && error.name !== 'ExtractionTimeoutError') {
+         finalError = abortController.signal.reason || new ExtractionTimeoutError('Extraction exceeded the maximum execution bound of 5 minutes.');
+      }
+      const classification = ErrorClassifier.classify(finalError);
       await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
       return;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     const canonicalText = extractedDocument.fullText;

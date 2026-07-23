@@ -32,14 +32,44 @@ export class NativePdfExtractor implements DocumentExtractor {
     let doc: pdfjsLib.PDFDocumentProxy;
     try {
       // Use standard Node.js entry point, parsing from byte array
-      doc = await pdfjsLib.getDocument({
+      const loadingTask = pdfjsLib.getDocument({
         data: new Uint8Array(rawData),
         useSystemFonts: true,
-      }).promise;
+      });
+
+      const abortHandler = () => {
+        try {
+          loadingTask.destroy();
+        } catch (e) {
+          // ignore destroy errors
+        }
+      };
+
+      if (context.signal) {
+        if (context.signal.aborted) {
+          abortHandler();
+        } else {
+          context.signal.addEventListener('abort', abortHandler, { once: true });
+        }
+      }
+
+      doc = await loadingTask.promise;
+      
+      if (context.signal) {
+        context.signal.removeEventListener('abort', abortHandler);
+      }
     } catch (error: any) {
       if (error.name === 'PasswordException') {
         throw new EncryptedDocumentError('The PDF is encrypted and requires a password.');
       }
+      
+      if (context.signal?.aborted || error.message === 'Loading aborted') {
+        // We do not throw ExtractionTimeoutError here. The caller (FilesProcessor) 
+        // that initiated the abort will catch its own AbortError/TimeoutError.
+        // We just bubble up a generic or abort error, which will be intercepted by the orchestrator.
+        throw error;
+      }
+      
       console.error('PDF Parse Error:', error);
       throw new MalformedDocumentError(`Failed to parse PDF document: ${error.message}`);
     }
