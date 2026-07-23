@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { CANONICAL_UPLOAD_FORMATS } from '../../common/constants/file-formats.constant';
 import { db } from '@studyai/database';
 import { files, subscriptions, users, subjects, fileProcessingAttempts, documentVersions } from '@studyai/database';
 import { eq, and, or, sql, desc } from '@studyai/database';
@@ -125,19 +126,10 @@ export class FilesService {
     }
 
     // 1. Determine file type
-    let fileType: FileType;
     const mime = expressFile.mimetype;
+    const fileType = CANONICAL_UPLOAD_FORMATS[mime];
 
-    if (mime === 'application/pdf') {
-      fileType = FileType.PDF;
-    } else if (
-      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      mime === 'application/msword'
-    ) {
-      fileType = FileType.DOCX;
-    } else if (mime.startsWith('image/')) {
-      fileType = FileType.IMAGE;
-    } else {
+    if (!fileType) {
       throw new BadRequestException('Unsupported file type');
     }
 
@@ -640,8 +632,7 @@ export class FilesService {
         return 'application/pdf';
       case '.docx':
         return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      case '.doc':
-        return 'application/msword';
+
       case '.png':
         return 'image/png';
       case '.jpg':
@@ -682,17 +673,9 @@ export class FilesService {
       }
     }
 
-    let fileType: FileType;
-    if (mime === 'application/pdf') {
-      fileType = FileType.PDF;
-    } else if (
-      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      mime === 'application/msword'
-    ) {
-      fileType = FileType.DOCX;
-    } else if (mime.startsWith('image/')) {
-      fileType = FileType.IMAGE;
-    } else {
+    // Determine file type
+    const fileType = CANONICAL_UPLOAD_FORMATS[mime];
+    if (!fileType) {
       await fs.unlink(filePath).catch(() => {});
       throw new BadRequestException('Unsupported file type');
     }

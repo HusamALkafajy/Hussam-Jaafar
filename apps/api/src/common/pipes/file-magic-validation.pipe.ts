@@ -1,4 +1,5 @@
 import { PipeTransform, Injectable, BadRequestException } from '@nestjs/common';
+import { ALLOWED_UPLOAD_MIMES } from '../constants/file-formats.constant';
 
 /**
  * A robust file validation pipe that checks BOTH the declared MIME type AND
@@ -30,18 +31,7 @@ export class FileMagicValidationPipe implements PipeTransform {
       mimeTypes: ['application/pdf'],
       magic: Buffer.from([0x25, 0x50, 0x44, 0x46]), // %PDF
     },
-    {
-      label: 'DOCX/ZIP',
-      mimeTypes: [
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      ],
-      magic: Buffer.from([0x50, 0x4b, 0x03, 0x04]), // PK (ZIP)
-    },
-    {
-      label: 'DOC (legacy Word)',
-      mimeTypes: ['application/msword'],
-      magic: Buffer.from([0xd0, 0xcf, 0x11, 0xe0]), // Compound Document
-    },
+
     {
       label: 'PNG',
       mimeTypes: ['image/png'],
@@ -60,14 +50,10 @@ export class FileMagicValidationPipe implements PipeTransform {
     },
   ];
 
-  private static readonly ALLOWED_MIMES = new Set([
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'image/jpeg',
-    'image/png',
-    'image/jpg',
-    'image/webp',
+
+
+  private static readonly MIME_ALIASES = new Map<string, string>([
+    ['image/jpg', 'image/jpeg'],
   ]);
 
   private static readonly MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -83,12 +69,10 @@ export class FileMagicValidationPipe implements PipeTransform {
     }
 
     const declaredMime = (file.mimetype || '').toLowerCase().trim();
+    const normalizedDeclaredMime = FileMagicValidationPipe.MIME_ALIASES.get(declaredMime) || declaredMime;
     const buf = file.buffer;
 
-    // ── Step 1: check declared MIME type ──────────────────────────────────
-    const mimeAllowed = FileMagicValidationPipe.ALLOWED_MIMES.has(declaredMime);
-
-    // ── Step 2: check magic bytes ─────────────────────────────────────────
+    // ── Step 1: Detect MIME from magic bytes ──────────────────────────────
     let detectedMime: string | null = null;
     if (buf && buf.length >= 4) {
       for (const sig of FileMagicValidationPipe.MAGIC_SIGNATURES) {
@@ -101,7 +85,6 @@ export class FileMagicValidationPipe implements PipeTransform {
             ) {
               detectedMime = 'image/webp';
             }
-            // RIFF without WEBP marker is not a recognized type — don't set detectedMime
           } else {
             detectedMime = sig.mimeTypes[0];
           }
@@ -110,39 +93,32 @@ export class FileMagicValidationPipe implements PipeTransform {
       }
     }
 
-    const magicAllowed =
-      detectedMime !== null &&
-      FileMagicValidationPipe.ALLOWED_MIMES.has(detectedMime);
-
-    // ── Step 3: Fallback check on original filename extension ─────────────────
-    let extensionAllowed = false;
-    if (!mimeAllowed && !magicAllowed && declaredMime === 'application/octet-stream' && file.originalname) {
-      const lowerName = file.originalname.toLowerCase();
-      if (lowerName.endsWith('.pdf')) {
-        detectedMime = 'application/pdf';
-        extensionAllowed = true;
-      } else if (lowerName.endsWith('.doc')) {
-        detectedMime = 'application/msword';
-        extensionAllowed = true;
-      } else if (lowerName.endsWith('.docx')) {
-        detectedMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        extensionAllowed = true;
-      }
+    if (!detectedMime) {
+      throw new BadRequestException('Unrecognized file signature.');
     }
 
-    if (!mimeAllowed && !magicAllowed && !extensionAllowed) {
+    if (!ALLOWED_UPLOAD_MIMES.has(detectedMime)) {
+      throw new BadRequestException(`Unsupported file format detected: ${detectedMime}`);
+    }
+
+    // ── Step 2: Ensure consistency between declared and detected ──────────
+    let isConsistent = normalizedDeclaredMime === detectedMime;
+
+    // Allow application/octet-stream if the file extension matches the detected type
+    if (!isConsistent && normalizedDeclaredMime === 'application/octet-stream' && file.originalname) {
+      const lowerName = file.originalname.toLowerCase();
+      if (detectedMime === 'application/pdf' && lowerName.endsWith('.pdf')) isConsistent = true;
+    }
+
+    if (!isConsistent) {
       throw new BadRequestException(
-        `Only PDF, Word documents (.doc, .docx), and images (.png, .jpg, .jpeg, .webp) are allowed. ` +
-          `Received MIME type: "${file.mimetype}"${detectedMime ? `, detected: "${detectedMime}"` : ' (unrecognized file signature)'}. ` +
-          `If you are uploading a valid file, ensure your client sends the correct Content-Type header.`,
+        `File format mismatch. Declared: ${file.mimetype}, Detected: ${detectedMime}. ` +
+        `If you are uploading a valid file, ensure your client sends the correct Content-Type header.`
       );
     }
 
-    // If magic bytes or extension identified a more specific MIME, normalise it so the
-    // service layer sees the correct type (e.g. octet-stream → application/pdf).
-    if (!mimeAllowed && (magicAllowed || extensionAllowed) && detectedMime) {
-      file.mimetype = detectedMime;
-    }
+    // Set the normalized mime type for the service layer
+    file.mimetype = detectedMime;
 
     return file;
   }
