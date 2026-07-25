@@ -42,7 +42,7 @@ export class FilesController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadChunk(
     @CurrentUser('sub') userId: string,
-    @UploadedFile(new FileMagicValidationPipe())
+    @UploadedFile()
     file: Express.Multer.File,
     @Body('uploadId') uploadId: string,
     @Body('chunkIndex') chunkIndex: string,

@@ -172,6 +172,21 @@ export class FlashcardsService {
       .orderBy(desc(flashcardSets.createdAt));
   }
 
+  async findByFileId(fileId: string, userId: string) {
+    const setResult = await db
+      .select()
+      .from(flashcardSets)
+      .where(and(eq(flashcardSets.fileId, fileId), eq(flashcardSets.userId, userId)))
+      .orderBy(desc(flashcardSets.createdAt))
+      .limit(1);
+
+    if (setResult.length === 0) {
+      throw new NotFoundException('Flashcard set not found for this file');
+    }
+
+    return this.findById(setResult[0].id, userId);
+  }
+
   async findById(id: string, userId: string) {
     const setResult = await db
       .select()

@@ -14,6 +14,13 @@ export * from './security/policy/policy-engine';
 export * from './security/policy/security-policies';
 export * from './security/quota';
 
+export * from './recommendation';
+export * from './recommendation-context';
+export * from './recommendation-analytics';
+export * from './recommendation-strategy';
+export * from './recommendation-context';
+export * from './recommendation-engine';
+
 export * from './integration/integration-gateway';
 export * from './integration/connector-registry';
 
@@ -24,3 +31,7 @@ export * from './workflow/job/job-queue';
 
 export * from './events';
 export * from './learning-engine';
+
+export * from './adaptive/learner-profile';
+export * from './adaptive/adaptive-goal';
+export * from './adaptive/mastery-model';

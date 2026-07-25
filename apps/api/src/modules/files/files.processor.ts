@@ -10,6 +10,8 @@ import { RetryPolicy } from './utils/retry-policy.util';
 import { LostProcessingOwnershipError, ExtractionTimeoutError } from './utils/domain.exceptions';
 import { FileProcessingStateRepository } from './repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from './services/document-persistence.service';
+import { PipelineRunner } from './services/pipeline/pipeline-runner';
+import { PipelineContext } from './services/pipeline/pipeline-stage.interface';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter, Histogram } from 'prom-client';
 
@@ -18,10 +20,9 @@ export class FilesProcessor {
   private readonly logger = new Logger(FilesProcessor.name);
 
   constructor(
-    private readonly extractorRegistry: ExtractorRegistry,
+    private readonly pipelineRunner: PipelineRunner,
     private readonly stateRepository: FileProcessingStateRepository,
     private readonly documentPersistenceService: DocumentPersistenceService,
-    private readonly ragService: RagService,
     @InjectMetric('studyai_worker_jobs_total')
     private readonly workerJobsTotal: Counter<string>,
     @InjectMetric('studyai_worker_checkpoint_jobs_total')
@@ -115,28 +116,43 @@ export class FilesProcessor {
 
     const filePath = join(process.cwd(), 'apps', 'api', 'uploads', fileRecord.storageKey);
 
-    // 3. Generic Extraction Boundary with Execution Hard Bound (5 minutes)
+    // 3. Generic Pipeline Boundary with Execution Hard Bound (5 minutes)
     const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(new ExtractionTimeoutError('Extraction exceeded the maximum execution bound of 5 minutes.')), 300_000);
+    const timeoutId = setTimeout(() => abortController.abort(new ExtractionTimeoutError('Pipeline exceeded the maximum execution bound of 5 minutes.')), 300_000);
     
-    const extractionContext: DocumentExtractionContext = {
+    const pipelineContext: PipelineContext = {
+      attemptId,
+      fileId,
+      userId: fileRecord.userId,
+      signal: abortController.signal,
+      state: {},
+      reportProgress: async (stage, progress) => {
+        // Here we could update `fileProcessingAttempts` if we added a JSON state field, 
+        // or just log for now.
+        this.logger.debug(`[PipelineProgress] Stage: ${stage}, Progress: ${progress}%`);
+      },
+      log: (level, message, meta) => {
+        if (level === 'error') this.logger.error(message, meta);
+        else if (level === 'warn') this.logger.warn(message, meta);
+        else this.logger.log(message);
+      }
+    };
+
+    const initialInput = {
       fileId,
       filePath,
       mimeType: fileRecord.mimeType || 'application/octet-stream',
       fileType: fileRecord.fileType as any,
-      signal: abortController.signal,
     };
 
-    let extractedDocument;
+    let finalState;
     try {
-      const extractor = this.extractorRegistry.getExtractor(extractionContext.mimeType);
-      extractedDocument = await extractor.extract(extractionContext);
+      finalState = await this.pipelineRunner.execute(initialInput, pipelineContext);
     } catch (error: any) {
-      console.error('FilesProcessor Extraction Error:', error);
-      // Map native AbortError to our domain exception if aborted by signal but extractor threw Generic
+      console.error('FilesProcessor Pipeline Error:', error);
       let finalError = error;
       if (abortController.signal.aborted && !(error instanceof ExtractionTimeoutError) && error.name !== 'ExtractionTimeoutError') {
-         finalError = abortController.signal.reason || new ExtractionTimeoutError('Extraction exceeded the maximum execution bound of 5 minutes.');
+         finalError = abortController.signal.reason || new ExtractionTimeoutError('Pipeline exceeded the maximum execution bound of 5 minutes.');
       }
       const classification = ErrorClassifier.classify(finalError);
       await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
@@ -145,21 +161,9 @@ export class FilesProcessor {
       clearTimeout(timeoutId);
     }
 
-    const canonicalText = extractedDocument.fullText;
-    const blocks = extractedDocument.blocks;
-
-    // RAG Generation (outside TX)
-    let generatedChunks: any[] = [];
-    try {
-      if (canonicalText && canonicalText !== 'No extractable text found in this document.') {
-        generatedChunks = await this.ragService.generateChunkValues(fileId, canonicalText, 1);
-      }
-    } catch (error: any) {
-      console.error(`[DEBUG-PROCESSOR] Chunk generation failed`, error);
-      const classification = ErrorClassifier.classify(error);
-      await this.handleFailure(attemptId, fileId, queueJobId, classification, currentProcessingAttempts);
-      return;
-    }
+    const { extractedDocument, chunks } = finalState;
+    const canonicalText = extractedDocument?.fullText || '';
+    const blocks = extractedDocument?.blocks || [];
 
     // 4. Atomic Publication
     try {
@@ -168,7 +172,11 @@ export class FilesProcessor {
         fileId,
         extractedText: canonicalText,
         structuralBlocks: blocks as any,
-        generatedChunks
+        generatedChunks: chunks?.map((c: any) => ({
+          text: c.text,
+          chunkIndex: c.chunkIndex,
+          metadata: c.metadata,
+        })) || [] // Semantic chunks mapped to persistence
       });
 
       if (fileRecord.subjectId) {

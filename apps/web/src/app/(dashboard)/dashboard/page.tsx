@@ -32,6 +32,7 @@ import { ActivityFeed } from '../../../components/activity-feed';
 import { UploadQueue } from '../../../components/upload/upload-queue';
 import { useFTUE } from '../../../hooks/use-ftue';
 import { FTUEDashboardEmpty } from '../../../components/onboarding/ftue-dashboard-empty';
+import { RecommendationsPanel } from '../../../components/dashboard/recommendations/recommendations-panel';
 
 export default function DashboardPage() {
   const { t, locale } = useLocale();
@@ -101,33 +102,8 @@ export default function DashboardPage() {
           {/* Main Content Column */}
           <Stack gap={8} className="lg:col-span-2">
             
-            {/* Continue Studying (Pinned/Recent) */}
-            <Section>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold flex items-center gap-2">
-                  <Pin className="w-5 h-5 text-primary" />
-                  Pinned Items
-                </h3>
-              </div>
-              <Grid cols={1} gap={4}>
-                {data.pinnedDocuments.map(doc => (
-                  <Card key={doc.id} className="p-4 hover:border-primary/50 transition-colors cursor-pointer group">
-                    <Stack gap={3}>
-                      <div className="flex items-start justify-between">
-                        <div className="p-2 bg-primary/10 text-primary rounded-lg">
-                          <FileText className="w-4 h-4" />
-                        </div>
-                        <Badge variant="outline" className="text-xs">PDF</Badge>
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-1">{doc.title}</h4>
-                        <p className="text-xs text-muted-foreground mt-1">Added {formatDate(doc.createdAt, locale)}</p>
-                      </div>
-                    </Stack>
-                  </Card>
-                ))}
-              </Grid>
-            </Section>
+            {/* Personalized Recommendations Panel (Consumes API) */}
+            <RecommendationsPanel />
 
             {/* Recent Subjects */}
             <Section>

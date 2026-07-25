@@ -244,8 +244,15 @@ export default function FilesPage() {
         </div>
       ) : filesList.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-4 border border-dashed border-slate-800 rounded-xl bg-slate-950/10">
-          <FileText className="w-16 h-16 text-slate-600 animate-pulse" />
+          <FileText className="w-16 h-16 text-slate-600 animate-pulse" aria-hidden="true" />
           <p className="text-slate-400 text-center">{t('files.emptyState')}</p>
+          <Button
+            variant="outline"
+            onClick={() => setUploadOpen(true)}
+            className="mt-2"
+          >
+            {t('dashboard.uploadNewFile')}
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -268,8 +275,9 @@ export default function FilesPage() {
                   <button
                     onClick={(e) => handleDelete(file.id, e)}
                     className="p-1.5 rounded hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
+                    aria-label={`Delete ${file.originalName}`}
                   >
-                    <Trash2 className="w-4.5 h-4.5" />
+                    <Trash2 className="w-4.5 h-4.5" aria-hidden="true" />
                   </button>
                 </div>
 
@@ -313,8 +321,9 @@ export default function FilesPage() {
               <button
                 onClick={() => setUploadOpen(false)}
                 className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                aria-label="Close upload modal"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 

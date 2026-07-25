@@ -56,11 +56,20 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
 
     documentPersistenceService = new DocumentPersistenceService(ragService as any);
 
+    const pipelineRunner = {
+      stages: [],
+      registerStages: jest.fn(),
+      execute: jest.fn().mockResolvedValue({
+        chunks: [{ text: 'extracted dummy text', metadata: { pageNumber: 1 } }],
+        metadata: { title: 'dummy' },
+        rawText: 'extracted dummy text'
+      })
+    } as any;
+
     processor = new FilesProcessor(
-      extractorRegistry,
+      pipelineRunner,
       stateRepository,
       documentPersistenceService,
-      ragService as any,
       { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any, // workerJobsTotal
       { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any, // checkpointJobsTotal
       { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any, // ocrDuration

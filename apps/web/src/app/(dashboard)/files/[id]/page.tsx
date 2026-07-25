@@ -4,7 +4,7 @@ import React, { useEffect, useState, use, useRef, useCallback } from 'react';
 import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
-import { Button } from '../../../../components/ui/button';
+import { Button, buttonVariants } from '../../../../components/ui/button';
 import { Badge } from '../../../../components/ui/badge';
 import { Spinner } from '../../../../components/ui/spinner';
 import { Input } from '../../../../components/ui/input';
@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { formatBytes, formatDate } from '../../../../lib/utils';
+import { formatBytes, formatDate, cn } from '../../../../lib/utils';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -49,21 +49,18 @@ function TabNav({ active, onChange, locale }: { active: TabId; onChange: (id: Ta
           const Icon = tab.icon;
           const isActive = active === tab.id;
           return (
-            <button
+            <Button
               key={tab.id}
+              variant={isActive ? 'default' : 'ghost'}
               onClick={() => onChange(tab.id)}
-              className={`
-                relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold
-                whitespace-nowrap transition-all duration-200 cursor-pointer shrink-0
-                ${isActive
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                }
-              `}
+              className={cn(
+                "rounded-xl gap-2",
+                isActive ? "shadow-lg shadow-indigo-600/25" : "text-slate-400 hover:text-slate-200"
+              )}
             >
               <Icon className="w-4 h-4 shrink-0" />
               <span>{locale === 'ar' ? tab.labelAr : tab.label}</span>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -91,7 +88,7 @@ function FileHeader({
   const StatusIcon = status.icon;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-indigo-950/30 p-6 shadow-xl">
+    <Card className="relative overflow-hidden border border-white/5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-indigo-950/30 p-6 shadow-xl ring-0">
       {/* Decorative glow */}
       <div className="pointer-events-none absolute -top-20 -right-20 w-64 h-64 rounded-full bg-indigo-600/10 blur-3xl" />
 
@@ -100,12 +97,12 @@ function FileHeader({
         <div className="flex items-start gap-4">
           <Link
             href="/files"
-            className="mt-1 p-2 rounded-xl border border-white/10 hover:bg-white/5 text-slate-400 hover:text-white transition-all"
+            className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "mt-1 rounded-xl border-white/10 bg-transparent hover:bg-white/5 text-slate-400 hover:text-white")}
           >
             <ArrowLeft className="w-4 h-4 rtl-flip" />
           </Link>
 
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 flex items-center justify-center shrink-0">
             <FileText className="w-6 h-6 text-indigo-400" />
           </div>
         </div>
@@ -143,9 +140,17 @@ function FileHeader({
               {locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
             </Button>
           )}
+          {file.processingStatus === 'completed' && (
+            <Link href={`/tutor/${file.id}`}>
+              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-600/20">
+                <Brain className="w-4 h-4 mr-1.5" />
+                {locale === 'ar' ? 'المعلم الذكي' : 'AI Tutor'}
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 

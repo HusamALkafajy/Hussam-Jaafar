@@ -113,5 +113,95 @@ export default [
         }
       ]
     }
+  },
+  {
+    // Phase 4-D Architectural Governance: Knowledge Graph Isolation
+    files: ['apps/api/src/modules/**/*.ts'],
+    ignores: [
+      'apps/api/src/modules/knowledge/providers/knowledge-graph-consumer.ts',
+      'apps/api/src/modules/knowledge/knowledge.module.ts',
+      '**/*.spec.ts',
+      '**/*.test.ts'
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/knowledge-graph.repository'],
+              message: 'Architecture Violation: KnowledgeGraphRepository must only be consumed by the KnowledgeGraphConsumer.'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    // Phase 4-D Architectural Governance: Consumer Isolation
+    // Consumers must not import KnowledgeEvidenceAssembler (wait, Tutor needs it, so we restrict who can import Assembler)
+    files: ['apps/api/src/modules/**/*.ts'],
+    ignores: [
+      'apps/api/src/modules/tutor/retrieval.orchestrator.ts',
+      'apps/api/src/modules/tutor/tutor.module.ts',
+      'apps/api/src/modules/quizzes/engine/quiz.generator.ts',
+      'apps/api/src/modules/quizzes/quizzes.module.ts',
+      'apps/api/src/modules/knowledge/knowledge.module.ts',
+      '**/*.spec.ts'
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/knowledge-evidence-assembler'],
+              message: 'Architecture Violation: KnowledgeEvidenceAssembler is restricted to approved consumers (e.g., Tutor).'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    // Phase 4-D Architectural Governance: Consumer Graph Assembly Bypass
+    // Consumers (like Flashcards/Quiz) must use the KnowledgeGraphConsumer, not bypass it
+    files: ['apps/api/src/modules/flashcards/engine/**/*.ts', 'apps/api/src/modules/quizzes/engine/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/knowledge-graph.repository'],
+              message: 'Architecture Violation: Educational engines must use KnowledgeGraphConsumer, not the Repository.'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    // Phase 4-D Architectural Governance: Assembler Purity
+    // Assembler must not import Tutor or Flashcard engine specifics (circular logic)
+    // It may only import contracts.
+    files: ['apps/api/src/modules/knowledge/**/*.ts'],
+    ignores: [
+      'apps/api/src/modules/knowledge/knowledge.module.ts',
+      '**/*.spec.ts'
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['../../tutor/!(contracts)/**', '../../flashcards/engine/!(contracts)/**', '../../quizzes/engine/!(contracts)/**'],
+              message: 'Architecture Violation: Knowledge layer must remain domain-agnostic and not depend on consumer engines (only contracts are allowed).'
+            }
+          ]
+        }
+      ]
+    }
   }
 ];

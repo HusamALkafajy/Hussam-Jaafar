@@ -21,7 +21,7 @@ export class AdaptiveLearningOrchestrator {
 
     // 1. Rank Recommendations
     const rankedRecs = this.recommendationRanker.rank(context);
-    builder.withRecommendedAssets(rankedRecs.map(r => r.targetId).filter(id => id !== undefined) as string[]);
+    builder.withRecommendedAssets(rankedRecs.map(r => r.targetResourceId).filter(id => id !== undefined) as string[]);
 
     // 2. Generate Review Queue
     const reviewQueue = this.reviewPlanner.planReviews(context);

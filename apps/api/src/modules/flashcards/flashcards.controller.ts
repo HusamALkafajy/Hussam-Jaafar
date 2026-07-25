@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, UseGuards, Query } from '@nestjs/common';
 import { FlashcardsService } from './flashcards.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -16,7 +16,10 @@ export class FlashcardSetsController {
   }
 
   @Get()
-  async getSets(@CurrentUser('sub') userId: string) {
+  async getSets(@CurrentUser('sub') userId: string, @Query('fileId') fileId?: string) {
+    if (fileId) {
+      return this.flashcardsService.findByFileId(fileId, userId);
+    }
     return this.flashcardsService.findAll(userId);
   }
 

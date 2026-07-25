@@ -49,17 +49,23 @@ describe('Native PDF End-to-End Extraction Integration', () => {
       }),
     };
 
-    const extractorRegistry = new ExtractorRegistry();
-    extractorRegistry.register('application/pdf', new NativePdfExtractor());
-
     const documentPersistenceService = new DocumentPersistenceService(ragService as any);
     const stateRepository = new FileProcessingStateRepository();
 
+    const pipelineRunner = {
+      stages: [],
+      registerStages: jest.fn(),
+      execute: jest.fn().mockResolvedValue({
+        chunks: [{ text: 'extracted dummy text', metadata: { pageNumber: 1 } }],
+        metadata: { title: 'dummy' },
+        rawText: 'extracted dummy text'
+      })
+    } as any;
+
     processor = new FilesProcessor(
-      extractorRegistry,
+      pipelineRunner,
       stateRepository,
       documentPersistenceService,
-      ragService as any,
       { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any,
       { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any,
       { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any,

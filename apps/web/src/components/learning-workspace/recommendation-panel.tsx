@@ -18,7 +18,7 @@ export function RecommendationPanel() {
         Suggested Activity
       </div>
       <p className="text-sm font-medium">
-        {rec.reason}
+        {rec.explanation}
       </p>
       <div className="text-xs text-muted-foreground flex justify-between items-center mt-1">
         <span>Confidence: {Math.round(rec.confidence * 100)}%</span>
@@ -30,12 +30,12 @@ export function RecommendationPanel() {
         className="w-full mt-2" 
         size="sm"
         onClick={() => {
-          if (rec.targetId) {
-            updateUI({ selectedAssetId: rec.targetId });
+          if (rec.targetResourceId) {
+            updateUI({ selectedAssetId: rec.targetResourceId });
           }
         }}
       >
-        {rec.nextAction} <ArrowRight className="w-3.5 h-3.5 ml-2" />
+        {rec.type} <ArrowRight className="w-3.5 h-3.5 ml-2" />
       </Button>
     </div>
   );

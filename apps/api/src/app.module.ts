@@ -10,6 +10,7 @@ import authConfig from './config/auth.config';
 import aiConfig from './config/ai.config';
 import stripeConfig from './config/stripe.config';
 import queueConfig from './config/queue.config';
+import { validate } from './config/env.validation';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -36,12 +37,17 @@ import { CustomThrottlerGuard } from './common/guards/throttler.guard';
 import { QuotaInterceptor } from './common/interceptors/quota.interceptor';
 import { QuotaModule } from './modules/quota/quota.module';
 import { DocumentReadModule } from './modules/document-read/document-read.module';
+import { EventsModule } from './modules/events/events.module';
+import { QuizzesModule } from './modules/quizzes/quizzes.module';
+import { TutorModule } from './modules/tutor/tutor.module';
+import { AdaptiveLearningModule } from './modules/adaptive-learning/adaptive-learning.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env'],
+      validate,
       load: [appConfig, databaseConfig, authConfig, aiConfig, stripeConfig, queueConfig],
     }),
     InfrastructureModule,
@@ -83,6 +89,10 @@ import { DocumentReadModule } from './modules/document-read/document-read.module
     TelemetryModule,
     QuotaModule,
     DocumentReadModule,
+    EventsModule,
+    QuizzesModule,
+    TutorModule,
+    AdaptiveLearningModule,
   ],
   providers: [
     {

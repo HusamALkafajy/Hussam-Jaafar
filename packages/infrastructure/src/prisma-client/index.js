@@ -507,7 +507,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\packages\\infrastructure\\src\\prisma-client",
+      "value": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai-e3.1-cert\\packages\\infrastructure\\src\\prisma-client",
       "fromEnvVar": null
     },
     "config": {
@@ -529,7 +529,7 @@ const config = {
       "metrics",
       "tracing"
     ],
-    "sourceFilePath": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai\\packages\\infrastructure\\prisma\\schema.prisma",
+    "sourceFilePath": "C:\\Users\\Hussam\\Documents\\ViberDownloads\\studyai-e3.1-cert\\packages\\infrastructure\\prisma\\schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {

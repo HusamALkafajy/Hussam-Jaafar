@@ -46,11 +46,16 @@ describe('FilesProcessor: Stale Worker Ownership-Loss Catch Path', () => {
       publish: jest.fn(),
     };
 
+    const mockPipelineRunner = {
+      stages: [],
+      registerStages: jest.fn(),
+      execute: jest.fn()
+    } as any;
+
     processor = new FilesProcessor(
-      mockExtractorRegistry,
+      mockPipelineRunner,
       mockStateRepo,
       mockDocPersistService,
-      mockRagService,
       mockCounter,
       mockCounter,
       mockHistogram,

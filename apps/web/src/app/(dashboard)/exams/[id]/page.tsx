@@ -4,9 +4,10 @@ import React, { useEffect, useState, use } from 'react';
 import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
-import { Button } from '../../../../components/ui/button';
+import { Button, buttonVariants } from '../../../../components/ui/button';
 import { Badge } from '../../../../components/ui/badge';
 import { Spinner } from '../../../../components/ui/spinner';
+import { cn } from '../../../../lib/utils';
 import {
   GraduationCap,
   Clock,
@@ -211,7 +212,7 @@ function ExamSession({ examId }: { examId: string }) {
         <div className="flex items-start gap-4">
           <Link
             href={isCompleted ? '/exams' : `/files/${exam.fileId}`}
-            className="mt-1 p-2 rounded-lg border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "mt-1 rounded-lg border-slate-800 bg-transparent hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer")}
           >
             <ArrowRight className="w-4 h-4 rtl-flip" />
           </Link>

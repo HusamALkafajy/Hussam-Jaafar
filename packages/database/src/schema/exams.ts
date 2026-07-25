@@ -12,6 +12,7 @@ export const exams = pgTable('exams', {
   fileId: uuid('file_id').references(() => files.id, { onDelete: 'cascade' }).notNull(),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   title: varchar('title', { length: 255 }).notNull(),
+  originGraphVersion: varchar('origin_graph_version', { length: 255 }), // Added for deterministic tracking
   difficulty: examDifficultyEnum('difficulty').default('medium').notNull(),
   totalQuestions: integer('total_questions').notNull(),
   timeLimitMinutes: integer('time_limit_minutes'),

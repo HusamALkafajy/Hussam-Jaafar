@@ -1,3 +1,4 @@
+export * from './enums';
 export * from './users';
 export * from './subscriptions';
 export * from './subjects';
@@ -18,3 +19,4 @@ export * from './groups';
 export * from './file_processing_attempts';
 export * from './document_engine';
 export * from './infrastructure';
+export * from './knowledge';

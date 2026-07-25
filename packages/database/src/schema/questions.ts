@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, jsonb, boolean, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, jsonb, boolean, integer, timestamp, pgEnum, varchar } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { exams } from './exams';
 
@@ -13,6 +13,9 @@ export const questions = pgTable('questions', {
   options: jsonb('options'), // array of strings for MCQ
   correctAnswer: text('correct_answer').notNull(),
   userAnswer: text('user_answer'),
+  version: varchar('version', { length: 255 }), // Added for deterministic hash
+  knowledgeNodeId: varchar('knowledge_node_id', { length: 255 }), // Added
+  sourceReferences: text('source_references'), // Stored as JSON string
   isCorrect: boolean('is_correct'),
   explanation: text('explanation'),
   aiFeedback: text('ai_feedback'),    // Per-question personalized AI mini-lesson (populated after exam grading)

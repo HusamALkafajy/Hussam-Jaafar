@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, Res, UseGuards, Query, Param, HttpCode, HttpStatus, All } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Res, UseGuards, Query, Param, HttpCode, HttpStatus, All, UnauthorizedException } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -30,10 +30,7 @@ export class AuthController {
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.validateUser(dto.email, dto.password);
     if (!result) {
-      return res.status(HttpStatus.UNAUTHORIZED).json({
-        success: false,
-        message: 'Invalid credentials',
-      });
+      throw new UnauthorizedException('Invalid credentials');
     }
     const logged = await this.authService.login(result);
     this.authService.setAuthCookies(res, logged);
@@ -57,10 +54,7 @@ export class AuthController {
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const refreshToken = req.cookies['refresh_token'];
     if (!refreshToken) {
-      return res.status(HttpStatus.UNAUTHORIZED).json({
-        success: false,
-        message: 'No refresh token provided',
-      });
+      throw new UnauthorizedException('No refresh token provided');
     }
     const result = await this.authService.refresh(refreshToken);
     this.authService.setAuthCookies(res, result);

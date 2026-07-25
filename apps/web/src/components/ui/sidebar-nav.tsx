@@ -36,6 +36,7 @@ const SidebarNavItem = React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttri
         active ? "bg-muted text-foreground" : "text-muted-foreground",
         className
       )}
+      aria-current={active ? "page" : undefined}
       {...props}
     >
       {icon && <span className="flex size-4 items-center justify-center">{icon}</span>}

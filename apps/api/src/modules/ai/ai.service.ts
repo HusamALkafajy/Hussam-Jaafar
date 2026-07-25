@@ -15,6 +15,7 @@ import {
   ADAPTIVE_QUESTION_SYSTEM_PROMPT,
   getAdaptiveQuestionUserPrompt,
 } from './prompts/adaptive-exam.prompts';
+import { PEDAGOGICAL_TUTOR_SYSTEM_PROMPT } from './prompts/tutor.prompts';
 import * as fs from 'fs/promises';
 
 /**
@@ -874,6 +875,32 @@ export class AiService {
     } catch (error: any) {
       this.logger.error('Error in chatWithDocument:', error);
       throw new InternalServerErrorException(`Document Q&A failed: ${error.message}`);
+    }
+  }
+
+  async chatWithTutor(contextText: string, question: string, history: any[]): Promise<string> {
+    if (this.isMockMode()) {
+      return `This is a mock response from the Pedagogical Tutor to your question: "${question}". I am replying based on the mock pedagogical context.`;
+    }
+
+    try {
+      const formattedHistory = history.map((msg) => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content,
+      }));
+
+      const messages = [
+        { role: 'system', content: `${PEDAGOGICAL_TUTOR_SYSTEM_PROMPT}\n\n${contextText}` },
+        ...formattedHistory,
+        { role: 'user', content: question }
+      ];
+
+      // Tutor uses standard text output, not JSON, because it needs to generate rich Markdown text
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, false));
+      return responseText;
+    } catch (error: any) {
+      this.logger.error('Error in chatWithTutor:', error);
+      throw new InternalServerErrorException(`Pedagogical Tutor Q&A failed: ${error.message}`);
     }
   }
 

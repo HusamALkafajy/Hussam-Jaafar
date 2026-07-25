@@ -58,7 +58,7 @@ export class InsightBuilder {
           id: `rec_${rec.id}`,
           category: 'Recommendation',
           title: 'Suggested Next Step',
-          description: rec.reason,
+          description: rec.explanation,
           payload: rec
         });
       });

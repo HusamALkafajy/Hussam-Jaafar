@@ -113,6 +113,34 @@
       "when": 1784579752102,
       "tag": "0017_complete_loki",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784839956813,
+      "tag": "0018_striped_sage",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784893645942,
+      "tag": "0019_chief_lester",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784893950578,
+      "tag": "0020_lively_zarda",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784996604728,
+      "tag": "0021_magenta_the_phantom",
+      "breakpoints": true
     }
   ]
 }

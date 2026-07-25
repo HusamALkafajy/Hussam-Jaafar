@@ -10,7 +10,6 @@ describe('Auth Email Normalization (Integration)', () => {
   let app: INestApplication;
   
   beforeAll(async () => {
-    console.log('>>> DB URL IN TEST:', process.env.DATABASE_URL);
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

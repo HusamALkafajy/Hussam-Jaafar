@@ -45,3 +45,25 @@ export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+export const recommendationEventActionEnum = pgEnum('recommendation_event_action', [
+  'displayed', 'clicked', 'accepted', 'dismissed', 'completed', 'ignored', 'expired'
+]);
+
+export const recommendationAnalytics = pgTable('recommendation_analytics', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  recommendationId: uuid('recommendation_id'),
+  ruleIdentifier: varchar('rule_identifier', { length: 255 }).notNull(),
+  recommendationType: varchar('recommendation_type', { length: 100 }).notNull(),
+  action: recommendationEventActionEnum('action').notNull(),
+  context: jsonb('context'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const recommendationAnalyticsRelations = relations(recommendationAnalytics, ({ one }) => ({
+  user: one(users, {
+    fields: [recommendationAnalytics.userId],
+    references: [users.id],
+  }),
+}));
