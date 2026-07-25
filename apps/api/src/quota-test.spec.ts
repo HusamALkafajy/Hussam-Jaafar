@@ -27,7 +27,6 @@ describe('QuotaInterceptor Lifecycle (e2e)', () => {
     await app.listen(0);
 
     jwtService = app.get(JwtService);
-    // eslint-disable-next-line no-restricted-syntax
     redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
     // Ensure clean state

@@ -53,7 +53,7 @@ export class FlashcardGenerator implements AssetGenerator<Flashcard> {
       sourceEdgeIds: [],
       difficulty: payload.difficulty || 0.5,
       confidenceScore: payload.confidenceScore,
-      language: 'en', // TODO: detect from graph
+      language: 'en', // Note: Hardcoded to English until multi-language extraction is supported by the graph pipeline.
       tags: payload.tags || [],
       version: payload.version,
       createdAt: payload.createdAt,

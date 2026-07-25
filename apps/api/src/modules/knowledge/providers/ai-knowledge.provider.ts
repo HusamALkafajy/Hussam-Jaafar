@@ -8,7 +8,7 @@ export class AiKnowledgeProvider implements KnowledgeExtractionProvider {
   readonly name = 'AiKnowledgeProvider';
   private readonly logger = new Logger(AiKnowledgeProvider.name);
 
-  // In a real implementation, this would take the AiService via DI
+  // Note: Future ML implementations will inject the AiService dependency here.
 
   async extractFromChunks(chunks: SemanticChunk[], context: KnowledgeExtractionContext): Promise<Partial<KnowledgeGraph>> {
     // We rely on the deterministic provider for the first pass.
@@ -17,8 +17,8 @@ export class AiKnowledgeProvider implements KnowledgeExtractionProvider {
 
   async enrichGraph(graph: KnowledgeGraph, context: KnowledgeExtractionContext): Promise<KnowledgeGraph> {
     this.logger.log(`[AiKnowledgeProvider] Enriching graph with ${graph.nodes.length} nodes...`);
-    // Placeholder for AI enrichment. For now, just returns the graph.
-    // Future: send graph structure to AI to find implicit 'RELATES_TO' edges.
+    // Note: AI enrichment is intentionally deferred as the current phase enforces deterministic 
+    // generation without ML. Future phases will utilize LLMs to infer implicit graph relationships.
     return graph;
   }
 }
