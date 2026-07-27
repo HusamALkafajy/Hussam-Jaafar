@@ -33,7 +33,7 @@ export function redactLogValue(value: unknown, seen = new WeakSet<object>()): un
 export class StructuredLogger implements LoggerService {
   private readonly developmentLogger = new ConsoleLogger('StudyAI');
 
-  constructor(private readonly production = process.env.NODE_ENV === 'production') {}
+  constructor(private readonly production = false) {}
 
   log(message: unknown, ...optionalParams: unknown[]): void {
     this.write('log', message, optionalParams);

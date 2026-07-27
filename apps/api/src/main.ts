@@ -6,7 +6,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as cookieParser from 'cookie-parser';
 import * as express from 'express';
@@ -19,8 +19,9 @@ import { requestContextMiddleware } from './common/request-context';
 import { StructuredLogger } from './common/logging/structured-logger';
 
 async function bootstrap() {
+  // Bootstrap runs before ConfigService is available to dependency injection.
+  // eslint-disable-next-line no-restricted-syntax
   const appLogger = new StructuredLogger(process.env.NODE_ENV === 'production');
-  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule, { rawBody: true, logger: appLogger });
   const configService = app.get(ConfigService);
 
@@ -100,7 +101,7 @@ async function bootstrap() {
   });
 
   await app.listen(port);
-  logger.log(`StudyAI NestJS API Gateway successfully running on port: ${port}`);
-  logger.log(`CORS allowed origins configured for: ${frontendUrl}`);
+  appLogger.log(`StudyAI NestJS API Gateway successfully running on port: ${port}`);
+  appLogger.log(`CORS allowed origins configured for: ${frontendUrl}`);
 }
 bootstrap();
