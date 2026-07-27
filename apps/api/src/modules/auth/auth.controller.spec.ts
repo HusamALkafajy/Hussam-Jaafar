@@ -16,6 +16,12 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { HttpStatus } from '@nestjs/common';
 
+jest.mock('bcrypt', () => ({
+  compare: jest.fn(),
+  genSalt: jest.fn(),
+  hash: jest.fn(),
+}));
+
 // ─── Minimal mock AuthService ─────────────────────────────────────────────────
 
 const mockTokenPair = {
@@ -190,22 +196,16 @@ describe('AuthController — token transport contract', () => {
   // ── setAuthCookies (service method) ─────────────────────────────────────────
 
   describe('AuthService.setAuthCookies — cookie attribute contract', () => {
-    it('sets refresh_token as httpOnly', () => {
-      // Verify that the real setAuthCookies (not the mock) sets httpOnly.
-      // We need the real service for this test; instantiate it directly.
+    function captureCookies(nodeEnv: 'production' | 'development' | 'test') {
       const mockConfig = {
         get: jest.fn((key: string) => {
-          if (key === 'NODE_ENV') return 'production';
+          if (key === 'NODE_ENV') return nodeEnv;
           return undefined;
         }),
       };
-      const mockJwt = {};
-      const mockUsers = {};
-
-      // Partial instantiation: only test setAuthCookies method
       const service = new (require('./auth.service').AuthService)(
-        mockUsers as any,
-        mockJwt as any,
+        {} as any,
+        {} as any,
         mockConfig as any,
       );
 
@@ -221,15 +221,36 @@ describe('AuthController — token transport contract', () => {
         refreshToken: 'rt',
       });
 
+      return cookies;
+    }
+
+    it('sets Secure on authentication cookies in production', () => {
+      const cookies = captureCookies('production');
+      expect(cookies.find((c) => c.name === 'refresh_token')?.options.secure).toBe(true);
+      expect(cookies.find((c) => c.name === 'csrf_token')?.options.secure).toBe(true);
+    });
+
+    it.each(['development', 'test'] as const)(
+      'allows authentication cookies over approved local HTTP in %s',
+      (nodeEnv) => {
+        const cookies = captureCookies(nodeEnv);
+        expect(cookies.find((c) => c.name === 'refresh_token')?.options.secure).toBe(false);
+        expect(cookies.find((c) => c.name === 'csrf_token')?.options.secure).toBe(false);
+      },
+    );
+
+    it('retains HttpOnly refresh protection and the intended SameSite contract', () => {
+      const cookies = captureCookies('production');
       const refreshCookie = cookies.find((c) => c.name === 'refresh_token');
-      const accessCookie = cookies.find((c) => c.name === 'access_token');
+      const csrfCookie = cookies.find((c) => c.name === 'csrf_token');
 
-      // refresh_token MUST be httpOnly
-      expect(refreshCookie).toBeDefined();
-      expect(refreshCookie?.options.httpOnly).toBe(true);
-
-      // access_token MUST NOT be set as any cookie
-      expect(accessCookie).toBeUndefined();
+      expect(refreshCookie?.options).toEqual(
+        expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+      );
+      expect(csrfCookie?.options).toEqual(
+        expect.objectContaining({ httpOnly: false, sameSite: 'lax' }),
+      );
+      expect(cookies.find((c) => c.name === 'access_token')).toBeUndefined();
     });
   });
 });
