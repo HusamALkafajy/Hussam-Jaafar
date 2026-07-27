@@ -106,6 +106,28 @@ describe('AuthProvider — session lifecycle', () => {
     expect(sessionStorage.getItem('access_token')).toBeNull();
   });
 
+  it('7b: valid login establishes state and redirects to files', async () => {
+    mockApiPost
+      .mockRejectedValueOnce(new Error('No existing session'))
+      .mockResolvedValueOnce({ user: mockUser, accessToken: 'login-access-token' });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.login('user@test.com', 'TestPass123!');
+    });
+
+    expect(mockApiPost).toHaveBeenLastCalledWith(
+      '/auth/login',
+      { email: 'user@test.com', password: 'TestPass123!' },
+      undefined,
+    );
+    expect(mockSetAccessToken).toHaveBeenLastCalledWith('login-access-token');
+    expect(result.current.user).toEqual(mockUser);
+    expect(mockPush).toHaveBeenCalledWith('/files');
+  });
+
   it('8: logout invalidates a concurrent in-flight refresh result (generation counter)', async () => {
     // Simulate a slow refresh that resolves AFTER logout fires
     let resolveRefresh!: (value: any) => void;

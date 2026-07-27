@@ -158,14 +158,14 @@ describe('AuthController — token transport contract', () => {
       expect(mockAuthService.refresh).not.toHaveBeenCalledWith('body-should-be-ignored');
     });
 
-    it('returns 401 when no refresh_token cookie is present', async () => {
+    it('rejects with 401 when no refresh_token cookie is present', async () => {
       const res = makeMockResponse();
       const req = { cookies: {}, body: {} };
 
-      await controller.refresh(req as any, res as any);
+      await expect(controller.refresh(req as any, res as any)).rejects.toMatchObject({
+        status: HttpStatus.UNAUTHORIZED,
+      });
 
-      // Controller returns 401 without calling authService.refresh
-      expect(res.status).toHaveBeenCalledWith(HttpStatus.UNAUTHORIZED);
       expect(mockAuthService.refresh).not.toHaveBeenCalled();
     });
 
