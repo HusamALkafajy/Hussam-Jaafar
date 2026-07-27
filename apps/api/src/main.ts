@@ -16,10 +16,12 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { TelemetryInterceptor } from './modules/telemetry/telemetry.interceptor';
 import { requestContextMiddleware } from './common/request-context';
+import { StructuredLogger } from './common/logging/structured-logger';
 
 async function bootstrap() {
+  const appLogger = new StructuredLogger(process.env.NODE_ENV === 'production');
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger: appLogger });
   const configService = app.get(ConfigService);
 
   // Stripe webhook needs raw body for signature verification — must be before other body parsers
@@ -74,7 +76,7 @@ async function bootstrap() {
   );
 
   // 5. Global filters & interceptors
-  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalFilters(new HttpExceptionFilter(appLogger));
   app.useGlobalInterceptors(new TransformInterceptor());
   
   const telemetryInterceptor = app.get(TelemetryInterceptor);
