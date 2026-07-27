@@ -1,7 +1,4 @@
-CREATE TYPE "public"."auth_provider" AS ENUM('email', 'google', 'apple');--> statement-breakpoint
-CREATE TYPE "public"."locale" AS ENUM('ar', 'en');--> statement-breakpoint
-CREATE TYPE "public"."role" AS ENUM('student', 'teacher', 'parent', 'admin');--> statement-breakpoint
-CREATE TYPE "public"."subscription_tier" AS ENUM('free', 'pro', 'institution');--> statement-breakpoint
+-- Base identity enums are created by migration 0000.
 CREATE TYPE "public"."kg_edge_type" AS ENUM('DEFINES', 'EXEMPLIFIES', 'DEPENDS_ON', 'PREREQUISITE_OF', 'EXPLAINS', 'CONTRADICTS', 'BELONGS_TO');--> statement-breakpoint
 CREATE TYPE "public"."kg_node_type" AS ENUM('Concept', 'Definition', 'Rule', 'Algorithm', 'Formula', 'Example', 'Term');--> statement-breakpoint
 CREATE TABLE "knowledge_edges" (
