@@ -44,6 +44,10 @@ coverage/
 # Database
 *.sqlite
 *.sqlite3
+backups/
+*.dump
+*.backup
+*.sql.gz
 
 # Uploads (local dev)
 uploads/
