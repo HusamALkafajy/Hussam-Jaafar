@@ -141,6 +141,13 @@
       "when": 1784996604728,
       "tag": "0021_magenta_the_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785190238218,
+      "tag": "0022_supreme_texas_twister",
+      "breakpoints": true
     }
   ]
 }

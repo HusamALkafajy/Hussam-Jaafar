@@ -20,3 +20,4 @@ export * from './file_processing_attempts';
 export * from './document_engine';
 export * from './infrastructure';
 export * from './knowledge';
+export * from './prisma_contract';
