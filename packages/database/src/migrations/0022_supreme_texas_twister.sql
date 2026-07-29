@@ -466,7 +466,7 @@ BEGIN
     END IF;
 
     SELECT string_agg(
-      regexp_replace(pg_get_indexdef(i.indexrelid), '"?(pg_temp_[0-9]+|public)"?[.]', '', 'g'),
+      regexp_replace(pg_get_indexdef(i.indexrelid), '"?(pg_temp(_[0-9]+)?|public)"?[.]', '', 'g'),
       E'\\n' ORDER BY i.indexrelid::regclass::text
     ) INTO actual_definition
     FROM pg_index i
@@ -475,7 +475,7 @@ BEGIN
     WHERE n.nspname = 'public' AND c.relname = object_name;
 
     SELECT string_agg(
-      regexp_replace(pg_get_indexdef(i.indexrelid), '"?(pg_temp_[0-9]+|public)"?[.]', '', 'g'),
+      regexp_replace(pg_get_indexdef(i.indexrelid), '"?(pg_temp(_[0-9]+)?|public)"?[.]', '', 'g'),
       E'\\n' ORDER BY i.indexrelid::regclass::text
     ) INTO expected_definition
     FROM pg_index i

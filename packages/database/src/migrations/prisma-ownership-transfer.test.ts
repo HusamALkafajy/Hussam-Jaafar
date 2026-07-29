@@ -39,6 +39,26 @@ const candidateCommands = [...migrationSql.matchAll(/\$ddl\$(.*?)\$ddl\$/gs)]
   .map((match) => match[1].trim())
   .filter(Boolean);
 
+const indexSchemaPatterns = [
+  ...migrationSql.matchAll(
+    /regexp_replace\(pg_get_indexdef\(i\.indexrelid\), '([^']+)'/g,
+  ),
+].map((match) => match[1]);
+
+type IndexDefinition = {
+  name: string;
+  definition: string;
+};
+
+const indexFingerprint = (indexes: IndexDefinition[]) => {
+  const schemaPattern = indexSchemaPatterns[0] ?? '(?!)';
+
+  return [...indexes]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map(({ definition }) => definition.replace(new RegExp(schemaPattern, 'g'), ''))
+    .join('\n');
+};
+
 const snapshotNames = (objects: Record<string, { name: string }>) =>
   Object.values(objects).map((object) => object.name).sort();
 
@@ -143,6 +163,110 @@ describe('Prisma-to-Drizzle ownership transfer', () => {
     expect(migrationSql).not.toMatch(
       /\b(?:DROP\s+(?:TABLE|TYPE|SCHEMA|INDEX)|TRUNCATE|DELETE\s+FROM)\b/i,
     );
+  });
+
+  it('normalizes the pg_temp alias in exact index fingerprints', () => {
+    expect(indexSchemaPatterns).toEqual([
+      '"?(pg_temp(_[0-9]+)?|public)"?[.]',
+      '"?(pg_temp(_[0-9]+)?|public)"?[.]',
+    ]);
+
+    const publicWorkflowIndexes = [
+      {
+        name: 'Workflow_pkey',
+        definition:
+          'CREATE UNIQUE INDEX "Workflow_pkey" ON public."Workflow" USING btree (id)',
+      },
+      {
+        name: 'Workflow_status_idx',
+        definition:
+          'CREATE INDEX "Workflow_status_idx" ON public."Workflow" USING btree (status)',
+      },
+    ];
+    const expectedWorkflowIndexes = [
+      {
+        name: 'Workflow_pkey',
+        definition:
+          'CREATE UNIQUE INDEX "Workflow_pkey" ON pg_temp."Workflow" USING btree (id)',
+      },
+      {
+        name: 'Workflow_status_idx',
+        definition:
+          'CREATE INDEX "Workflow_status_idx" ON pg_temp_7."Workflow" USING btree (status)',
+      },
+    ];
+
+    expect(indexFingerprint(publicWorkflowIndexes)).toBe(
+      indexFingerprint(expectedWorkflowIndexes),
+    );
+  });
+
+  it('keeps index adoption fingerprints fail-closed for structural differences', () => {
+    const expectedWorkflowIndex = {
+      name: 'Workflow_status_idx',
+      definition:
+        'CREATE INDEX "Workflow_status_idx" ON pg_temp."Workflow" USING btree (status)',
+    };
+    const authoritativeWorkflowIndex = {
+      name: 'Workflow_status_idx',
+      definition:
+        'CREATE INDEX "Workflow_status_idx" ON public."Workflow" USING btree (status)',
+    };
+    const expectedCompositeIndex = {
+      name: 'StoredEvent_status_occurredAt_idx',
+      definition:
+        'CREATE INDEX "StoredEvent_status_occurredAt_idx" ON pg_temp."StoredEvent" USING btree (status, "occurredAt")',
+    };
+
+    expect(indexFingerprint([authoritativeWorkflowIndex])).toBe(
+      indexFingerprint([expectedWorkflowIndex]),
+    );
+    expect(
+      indexFingerprint([
+        {
+          ...authoritativeWorkflowIndex,
+          definition:
+            'CREATE INDEX "Workflow_status_idx" ON public."Workflow" USING btree (id)',
+        },
+      ]),
+    ).not.toBe(indexFingerprint([expectedWorkflowIndex]));
+    expect(indexFingerprint([])).not.toBe(indexFingerprint([expectedWorkflowIndex]));
+    expect(
+      indexFingerprint([
+        {
+          name: 'Workflow_state_idx',
+          definition:
+            'CREATE INDEX "Workflow_state_idx" ON public."Workflow" USING btree (status)',
+        },
+      ]),
+    ).not.toBe(indexFingerprint([expectedWorkflowIndex]));
+    expect(
+      indexFingerprint([
+        {
+          ...expectedCompositeIndex,
+          definition:
+            'CREATE INDEX "StoredEvent_status_occurredAt_idx" ON public."StoredEvent" USING btree ("occurredAt", status)',
+        },
+      ]),
+    ).not.toBe(indexFingerprint([expectedCompositeIndex]));
+    expect(
+      indexFingerprint([
+        {
+          ...authoritativeWorkflowIndex,
+          definition:
+            'CREATE INDEX "Workflow_status_idx" ON public."Workflow" USING hash (status)',
+        },
+      ]),
+    ).not.toBe(indexFingerprint([expectedWorkflowIndex]));
+    expect(
+      indexFingerprint([
+        {
+          ...authoritativeWorkflowIndex,
+          definition:
+            'CREATE INDEX "Workflow_status_idx" ON public."Workflow" USING btree (status) WHERE (status = \'PENDING\')',
+        },
+      ]),
+    ).not.toBe(indexFingerprint([expectedWorkflowIndex]));
   });
 
   it('keeps the generated migration metadata tied to the transfer migration', () => {
