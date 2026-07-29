@@ -7,31 +7,31 @@ export class EnvironmentSource implements IConfigurationSource {
     return {
       environment: process.env.NODE_ENV || 'development',
       database: {
-        url: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/studyai'
+        url: process.env.DATABASE_URL,
       },
       storage: {
         provider: process.env.STORAGE_PROVIDER || 'local',
         bucket: process.env.STORAGE_BUCKET || 'studyai-assets',
-        basePath: process.env.STORAGE_PATH || './.storage'
+        basePath: process.env.STORAGE_PATH || './.storage',
       },
       queue: {
         provider: process.env.QUEUE_PROVIDER || 'memory',
-        redisUrl: process.env.REDIS_URL
+        redisUrl: process.env.REDIS_URL,
       },
       observability: {
         loggerProvider: process.env.LOGGER_PROVIDER || 'console',
         metricsProvider: process.env.METRICS_PROVIDER || 'memory',
-        tracingEnabled: process.env.TRACING_ENABLED === 'true'
+        tracingEnabled: process.env.TRACING_ENABLED === 'true',
       },
       security: {
-        jwtSecret: process.env.JWT_SECRET || 'dev-secret-do-not-use-in-prod',
-        jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d'
+        jwtSecret: process.env.JWT_SECRET,
+        jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
       },
       ai: {
         provider: process.env.AI_PROVIDER || 'openai',
-        apiKey: process.env.AI_API_KEY || 'dev-key',
-        model: process.env.AI_MODEL || 'gpt-4o'
-      }
+        apiKey: process.env.AI_API_KEY,
+        model: process.env.AI_MODEL || 'gpt-4o',
+      },
     };
   }
 }
@@ -67,10 +67,10 @@ export class ConfigurationPlatform {
   static load(): ConfigurationSnapshot {
     const source = new EnvironmentSource();
     const rawConfig = source.load();
-    
+
     const validator: ConfigurationSchemaValidator = new ConfigurationSchemaValidator();
     validator.validate(rawConfig);
-    
+
     return new ConfigurationSnapshot(rawConfig as ApplicationConfiguration);
   }
 }

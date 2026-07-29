@@ -1,9 +1,3 @@
-// eslint-disable-next-line no-restricted-syntax
-if (process.env.NODE_ENV !== 'production') {
-  // eslint-disable-next-line no-restricted-syntax
-  process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://studyai:studyai_dev_password@localhost:5432/studyai';
-}
-
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -79,7 +73,7 @@ async function bootstrap() {
   // 5. Global filters & interceptors
   app.useGlobalFilters(new HttpExceptionFilter(appLogger));
   app.useGlobalInterceptors(new TransformInterceptor());
-  
+
   const telemetryInterceptor = app.get(TelemetryInterceptor);
   app.useGlobalInterceptors(telemetryInterceptor);
 

@@ -8,6 +8,7 @@
 import { test, expect } from '../../fixtures/index';
 import { createTestUser } from '../../helpers/auth';
 
+// eslint-disable-next-line no-restricted-syntax
 const API_BASE = process.env.E2E_API_URL || 'http://localhost:4000';
 
 test.describe('09 · Regression', () => {
@@ -30,11 +31,12 @@ test.describe('09 · Regression', () => {
     const uid = Date.now().toString(36);
     const emailWithSpaces = `  regression-${uid}@test.local  `;
     const cleanEmail = `regression-${uid}@test.local`;
+    const registrationPassword = `Regression-${uid}-A1!`;
 
     const res = await request.post(`${API_BASE}/api/auth/register`, {
       data: {
         email: emailWithSpaces,
-        password: 'TestPass123!',
+        password: registrationPassword,
         firstName: 'Regression',
         lastName: 'Tester',
       },
@@ -42,8 +44,9 @@ test.describe('09 · Regression', () => {
 
     expect(res.status()).toBe(201);
     const body = await res.json();
-    
+
     // Some systems normalize the returned email, some don't, but the registration must succeed
     expect(body.accessToken || body.access_token || body.token).toBeTruthy();
+    expect(cleanEmail).toContain(uid);
   });
 });

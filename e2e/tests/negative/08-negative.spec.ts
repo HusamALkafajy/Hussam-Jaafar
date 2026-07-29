@@ -14,15 +14,17 @@ import path from 'path';
 import fs from 'fs';
 
 const UNSUPPORTED_TXT = path.join(__dirname, '..', '..', 'fixtures', 'files', 'unsupported.txt');
+// eslint-disable-next-line no-restricted-syntax
 const API_BASE = process.env.E2E_API_URL || 'http://localhost:4000';
 
 test.describe('08 · Negative — Error Handling', () => {
   test('UI: wrong credentials shows error message', async ({ page, request }) => {
     const user = await createTestUser(request);
+    const wrongPassword = `Wrong-${Date.now()}-A1!`;
 
     await page.goto('/login');
     await page.locator('#email').fill(user.email);
-    await page.locator('#password').fill('WRONG_PASSWORD_999');
+    await page.locator('#password').fill(wrongPassword);
     await page.getByRole('button', { name: /login|sign in/i }).click();
 
     // Should remain on login page
@@ -30,22 +32,25 @@ test.describe('08 · Negative — Error Handling', () => {
 
     // Error indicator should be visible
     await expect(
-      page.locator('[class*="rose"], [class*="error"], [class*="danger"]').first()
+      page.locator('[class*="rose"], [class*="error"], [class*="danger"]').first(),
     ).toBeVisible({ timeout: 10_000 });
   });
 
   test('UI: registering with mismatched passwords shows error', async ({ page }) => {
+    const mismatchPassword = `Mismatch-${Date.now()}-A1!`;
+    const differentPassword = `Different-${Date.now()}-B2!`;
+
     await page.goto('/register');
     await page.locator('#firstName').fill('Test');
     await page.locator('#lastName').fill('User');
     await page.locator('#email').fill(`mismatch-${Date.now()}@test.local`);
-    await page.locator('#password').fill('Password123!');
-    await page.locator('#confirmPassword').fill('DifferentPassword456!');
+    await page.locator('#password').fill(mismatchPassword);
+    await page.locator('#confirmPassword').fill(differentPassword);
     await page.getByRole('button', { name: /register|sign up/i }).click();
 
     // Should show a mismatch error
     await expect(
-      page.getByText(/passwords do not match|mismatch/i)
+      page.getByText(/passwords do not match|mismatch/i),
     ).toBeVisible({ timeout: 5_000 });
   });
 
@@ -91,7 +96,7 @@ test.describe('08 · Negative — Error Handling', () => {
     const res = await request.post(`${API_BASE}/api/auth/register`, {
       data: {
         email: authenticatedUser.email, // already exists
-        password: 'TestPass123!',
+        password: authenticatedUser.password,
         firstName: 'Dupe',
         lastName: 'User',
       },

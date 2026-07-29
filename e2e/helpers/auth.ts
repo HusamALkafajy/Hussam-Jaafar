@@ -17,6 +17,7 @@ export interface TestUser {
   accessToken: string;
 }
 
+// eslint-disable-next-line no-restricted-syntax
 const API_BASE = process.env.E2E_API_URL || 'http://localhost:4000';
 
 /**
@@ -25,9 +26,10 @@ const API_BASE = process.env.E2E_API_URL || 'http://localhost:4000';
  */
 export async function createTestUser(request: APIRequestContext): Promise<TestUser> {
   const uid = randomUUID().replace(/-/g, '').slice(0, 12);
+  const generatedPassword = `E2E-${uid}-${randomUUID()}-A1!`;
   const user = {
     email: `e2e-${uid}@test-studyai.local`,
-    password: 'TestPass123!',
+    password: generatedPassword,
     firstName: 'E2E',
     lastName: `User-${uid}`,
   };
@@ -65,7 +67,7 @@ export async function createTestUser(request: APIRequestContext): Promise<TestUs
 export async function loginUser(
   request: APIRequestContext,
   email: string,
-  password: string
+  password: string,
 ): Promise<string> {
   const res = await request.post(`${API_BASE}/api/auth/login`, {
     data: { email, password },
@@ -125,4 +127,3 @@ export async function verifyLoggedOut(page: Page): Promise<void> {
   // Should redirect to /login
   await expect(page).toHaveURL(/\/(login|\/)?$/, { timeout: 10_000 });
 }
-

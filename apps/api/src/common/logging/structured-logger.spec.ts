@@ -26,32 +26,29 @@ describe('StructuredLogger', () => {
   it('redacts sensitive fields recursively without logging a request body', () => {
     const output = jest.spyOn(console, 'error').mockImplementation();
     const logger = new StructuredLogger(true);
+    const redactionSentinel = `redaction-${Date.now()}-${Math.random()}`;
 
     logger.error({
       event: 'auth.failure',
-      password: 'do-not-log',
+      password: redactionSentinel,
       nested: {
-        accessToken: 'access-secret',
-        refresh_token: 'refresh-secret',
-        authorization: 'Bearer header-secret',
-        cookie: 'session=secret',
-        apiKey: 'provider-secret',
+        accessToken: redactionSentinel,
+        refresh_token: redactionSentinel,
+        authorization: `Bearer ${redactionSentinel}`,
+        cookie: `session=${redactionSentinel}`,
+        apiKey: redactionSentinel,
       },
     });
 
     const serialized = output.mock.calls[0][0] as string;
-    expect(serialized).not.toContain('do-not-log');
-    expect(serialized).not.toContain('access-secret');
-    expect(serialized).not.toContain('refresh-secret');
-    expect(serialized).not.toContain('header-secret');
-    expect(serialized).not.toContain('session=secret');
-    expect(serialized).not.toContain('provider-secret');
+    expect(serialized).not.toContain(redactionSentinel);
     expect(JSON.parse(serialized).message.nested.cookie).toBe('[REDACTED]');
   });
 
   it('redacts token-like values embedded in strings', () => {
+    const redactionSentinel = `token.${Date.now()}.${Math.random()}`;
     expect(
-      redactLogValue('authorization=Bearer abc.def.ghi password=unsafe'),
+      redactLogValue(`authorization=Bearer ${redactionSentinel} password=${redactionSentinel}`),
     ).toBe('authorization=[REDACTED] password=[REDACTED]');
   });
 });

@@ -1,7 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-process.env.STRIPE_SECRET_KEY = 'sk_test_mock';
-process.env.JWT_SECRET = 'test_jwt_secret_mock_12345';
-process.env.DATABASE_URL = 'postgresql://studyai_test:studyai_test_password@127.0.0.1:5434/studyai_test';
+
+const requiredTestEnvironment = ['STRIPE_SECRET_KEY', 'JWT_SECRET', 'DATABASE_URL'] as const;
+
+for (const variableName of requiredTestEnvironment) {
+  if (!process.env[variableName]) {
+    throw new Error(`${variableName} must be supplied through the environment.`);
+  }
+}
+
 import { INestApplication, ValidationPipe, ConflictException } from '@nestjs/common';
 import { AppModule } from '../../../app.module';
 import { db, users, files, exams, questions, eq } from '@studyai/database';
@@ -13,12 +19,12 @@ describe('Exams Submission Concurrency (e2e)', () => {
   jest.setTimeout(30000); // 30s timeout to prevent flakiness under load
   let app: INestApplication;
   let jwtService: JwtService;
-  
+
   // Test data IDs
   const testUserId = uuidv4();
   const testEmail = `test-concurrency-${Date.now()}@example.com`;
   const fileId = uuidv4();
-  
+
   let token: string;
 
   // AI mock controller
@@ -65,7 +71,7 @@ describe('Exams Submission Concurrency (e2e)', () => {
       id: testUserId,
       email: testEmail,
       firstName: 'Test',
-      lastName: 'Concurrency'
+      lastName: 'Concurrency',
     });
 
     await db.insert(files).values({
@@ -127,19 +133,19 @@ describe('Exams Submission Concurrency (e2e)', () => {
     it('exactly 1 of 2 simultaneous requests acquires ownership', async () => {
       const { examId, questionId } = await createExam();
       const url = await app.getUrl();
-      
+
       const payload1 = { answers: [{ questionId, userAnswer: '2' }] };
       const payload2 = { answers: [{ questionId, userAnswer: '3' }] };
 
       const p1 = fetch(`${url}/exams/${examId}/submit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload1)
+        body: JSON.stringify(payload1),
       });
       const p2 = fetch(`${url}/exams/${examId}/submit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload2)
+        body: JSON.stringify(payload2),
       });
 
       // Give the server time to start Phase 2 (AI call) on the winning request
@@ -150,7 +156,7 @@ describe('Exams Submission Concurrency (e2e)', () => {
         strengthAnalysis: { topics: [], description: 'OK' },
         weaknessAnalysis: { topics: [], weakTopics: [], description: 'OK' },
         studyPlan: { steps: [], recommendations: [] },
-        perQuestionFeedback: []
+        perQuestionFeedback: [],
       });
 
       const res1 = await p1;
@@ -163,7 +169,7 @@ describe('Exams Submission Concurrency (e2e)', () => {
       // Assert DB state
       const [dbExam] = await db.select().from(exams).where(eq(exams.id, examId));
       expect(dbExam.evaluationVersion).toBe(1); // Incremented exactly once
-      
+
       const [dbQ] = await db.select().from(questions).where(eq(questions.examId, examId));
       // Whichever request won, its answer is persisted. The losing request's answer is NOT persisted.
       const winningAnswer = res1.status === 201 ? '2' : '3';
@@ -173,12 +179,12 @@ describe('Exams Submission Concurrency (e2e)', () => {
     it('exactly 1 of 10 simultaneous requests acquires ownership', async () => {
       const { examId, questionId } = await createExam();
       const url = await app.getUrl();
-      
+
       const promises = Array.from({ length: 10 }).map((_, i) => {
         return fetch(`${url}/exams/${examId}/submit`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ answers: [{ questionId, userAnswer: `${i}` }] })
+          body: JSON.stringify({ answers: [{ questionId, userAnswer: `${i}` }] }),
         });
       });
 
@@ -189,15 +195,15 @@ describe('Exams Submission Concurrency (e2e)', () => {
         strengthAnalysis: { topics: [], description: 'OK' },
         weaknessAnalysis: { topics: [], weakTopics: [], description: 'OK' },
         studyPlan: { steps: [], recommendations: [] },
-        perQuestionFeedback: []
+        perQuestionFeedback: [],
       });
 
       const responses = await Promise.all(promises);
       const statuses = responses.map(r => r.status).sort();
-      
+
       const successes = statuses.filter(s => s === 201);
       const conflicts = statuses.filter(s => s === 409);
-      
+
       expect(successes.length).toBe(1);
       expect(conflicts.length).toBe(9);
 
@@ -210,12 +216,12 @@ describe('Exams Submission Concurrency (e2e)', () => {
     it('answers remain untouched if claim fails due to active lock', async () => {
       const { examId, questionId } = await createExam();
       const url = await app.getUrl();
-      
+
       // Request 1 takes the lock and hangs in AI phase
       const p1 = fetch(`${url}/exams/${examId}/submit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: [{ questionId, userAnswer: 'first-answer' }] })
+        body: JSON.stringify({ answers: [{ questionId, userAnswer: 'first-answer' }] }),
       });
 
       // Wait a tiny bit to ensure Phase 1 committed
@@ -225,7 +231,7 @@ describe('Exams Submission Concurrency (e2e)', () => {
       const res2 = await fetch(`${url}/exams/${examId}/submit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: [{ questionId, userAnswer: 'second-answer' }] })
+        body: JSON.stringify({ answers: [{ questionId, userAnswer: 'second-answer' }] }),
       });
       expect(res2.status).toBe(409);
 
@@ -243,12 +249,12 @@ describe('Exams Submission Concurrency (e2e)', () => {
     it('fencing gate prevents stale worker from completing exam or unlocking new lock', async () => {
       const { examId, questionId } = await createExam();
       const url = await app.getUrl();
-      
+
       // 1. Worker A starts and holds version 1
       const pA = fetch(`${url}/exams/${examId}/submit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: [{ questionId, userAnswer: 'A' }] })
+        body: JSON.stringify({ answers: [{ questionId, userAnswer: 'A' }] }),
       });
 
       await new Promise(r => setTimeout(r, 250));
@@ -262,7 +268,7 @@ describe('Exams Submission Concurrency (e2e)', () => {
 
       // 3. Resolve AI for Worker A. It will attempt Phase 3 with claimedVersion=1.
       resolveAi({});
-      
+
       const resA = await pA;
       // Worker A throws ConflictException from Phase 3 gate
       expect(resA.status).toBe(409);
@@ -278,12 +284,12 @@ describe('Exams Submission Concurrency (e2e)', () => {
   describe('Part 8: Direct Transaction Semantics', () => {
     it('throw ConflictException inside db.transaction causes rollback and propagates ConflictException', async () => {
       const { examId } = await createExam();
-      
+
       try {
         await db.transaction(async (tx) => {
           // Attempt an update
           await tx.update(exams).set({ status: 'completed' }).where(eq(exams.id, examId));
-          
+
           // Throw application exception
           throw new ConflictException('Test rollback');
         });
@@ -293,7 +299,7 @@ describe('Exams Submission Concurrency (e2e)', () => {
         expect(err).toBeInstanceOf(ConflictException);
         expect(err.message).toBe('Test rollback');
       }
-      
+
       // Assert rollback
       const [dbExam] = await db.select().from(exams).where(eq(exams.id, examId));
       expect(dbExam.status).toBe('active'); // Not completed

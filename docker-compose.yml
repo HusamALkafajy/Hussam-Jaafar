@@ -9,7 +9,7 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: studyai
-      POSTGRES_PASSWORD: studyai_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: studyai
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -43,7 +43,7 @@ services:
       - /var/lib/postgresql/data
     environment:
       POSTGRES_USER: studyai_test
-      POSTGRES_PASSWORD: studyai_test_password
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:?TEST_POSTGRES_PASSWORD must be set}
       POSTGRES_DB: studyai_test
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U studyai_test"]

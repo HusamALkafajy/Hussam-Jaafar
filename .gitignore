@@ -17,8 +17,10 @@ build/
 .env.*.local
 # Local test environment files — contain real DB credentials, must never be committed
 apps/api/.env.test
+docker/.env.prod
 !.env.example
 !apps/api/.env.example
+!docker/.env.prod.example
 
 # IDE
 .vscode/
@@ -40,6 +42,7 @@ yarn-error.log*
 
 # Testing
 coverage/
+e2e-results/
 
 # Database
 *.sqlite

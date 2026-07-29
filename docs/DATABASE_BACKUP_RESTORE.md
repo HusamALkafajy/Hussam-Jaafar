@@ -1,9 +1,10 @@
 # Database Backup and Restore
 
-These procedures operate on the exact PostgreSQL database named by
-`DATABASE_URL`. They never discover or infer a production target. Use a secret
-manager or an ephemeral shell environment for credentials; do not place them in
-command history, logs, or repository files.
+These procedures operate on the exact PostgreSQL database named by the
+`DATABASE_URL` environment variable. They never discover or infer a production
+target. Supply that variable through a secret manager or an ephemeral shell
+environment; do not place a connection string in command history, logs, or
+repository files.
 
 ## Prerequisites
 
@@ -12,16 +13,17 @@ command history, logs, or repository files.
 - A target PostgreSQL server with the `vector` extension available. The project
   migration `packages/database/src/migrations/0002_volatile_thaddeus_ross.sql`
   creates the extension and a `vector(1536)` column.
+- An externally supplied, non-empty `DATABASE_URL` and a non-secret
+  `DATABASE_TARGET_LABEL` that unmistakably names the environment.
 - Authorized storage with encryption at rest and access restricted to recovery
   operators.
 
 ## Create and verify a backup
 
-Set both the connection and a non-secret label that unmistakably names the
-environment:
+After your approved secret-management workflow has populated `DATABASE_URL`,
+set a non-secret target label and run:
 
 ```bash
-export DATABASE_URL='postgresql://user:password@host:5432/database'
 export DATABASE_TARGET_LABEL='staging-us-east/database'
 ./scripts/backup-db.sh
 ```
@@ -47,10 +49,10 @@ Restoration is destructive because existing objects are cleaned before import.
 Never run it against production without a separately reviewed recovery plan,
 authorization, maintenance window, and tested rollback path.
 
-The script requires two independent confirmations:
+The script requires two independent confirmations. After an approved secret
+workflow has populated `DATABASE_URL`, set these non-secret values:
 
 ```bash
-export DATABASE_URL='postgresql://user:password@host:5432/empty_recovery_database'
 export DATABASE_TARGET_LABEL='recovery-drill/local'
 export BACKUP_FILE='/secure/path/studyai-TIMESTAMP.dump'
 export CONFIRM_RESTORE_TARGET='recovery-drill/local'

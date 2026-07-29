@@ -8,6 +8,12 @@ import { PrismaWorkflowRepository } from './workflow.repository.prisma';
 // Note: Requires a running PostgreSQL instance for execution.
 // -----------------------------------------------------------------------------
 
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+
+if (!testDatabaseUrl) {
+  throw new Error('TEST_DATABASE_URL must be supplied through the environment.');
+}
+
 describe('Repository Integration Tests', () => {
   let prisma: PrismaClient;
   let learningRepo: PrismaLearningRepository;
@@ -17,15 +23,15 @@ describe('Repository Integration Tests', () => {
     prisma = new PrismaClient({
       datasources: {
         db: {
-          url: process.env.TEST_DATABASE_URL || 'postgresql://test:test@localhost:5432/studyai_test'
-        }
-      }
+          url: testDatabaseUrl,
+        },
+      },
     });
     await prisma.$connect();
-    
+
     const mockOutbox = {
       storeEvent: async () => {},
-      publishPendingEvents: async () => {}
+      publishPendingEvents: async () => {},
     };
 
     learningRepo = new PrismaLearningRepository(prisma, mockOutbox);
@@ -54,8 +60,8 @@ describe('Repository Integration Tests', () => {
         type: 'DOCUMENT',
         status: 'READY',
         capabilities: [
-          { id: 'cap-1', feature: 'SUMMARY', enabled: true }
-        ]
+          { id: 'cap-1', feature: 'SUMMARY', enabled: true },
+        ],
       };
 
       await learningRepo.save(asset);
@@ -72,7 +78,7 @@ describe('Repository Integration Tests', () => {
         userId: 'user-1',
         title: 'Delete Me',
         type: 'TEXT',
-        status: 'READY'
+        status: 'READY',
       };
 
       await learningRepo.save(asset);
@@ -89,7 +95,7 @@ describe('Repository Integration Tests', () => {
         id: 'wf-1',
         type: 'PROCESS_ASSET',
         status: 'PENDING',
-        version: 1
+        version: 1,
       };
 
       await workflowRepo.save(workflow);
@@ -97,12 +103,12 @@ describe('Repository Integration Tests', () => {
       // Simulate concurrent update bypassing the repository (or using old version)
       await prisma.workflow.update({
         where: { id: 'wf-1' },
-        data: { version: 2, status: 'RUNNING' }
+        data: { version: 2, status: 'RUNNING' },
       });
 
       // Attempt to save with old version should fail or be handled by the adapter
       const oldWorkflow = { ...workflow, status: 'COMPLETED' };
-      
+
       try {
         await workflowRepo.save(oldWorkflow);
         // If it reaches here without error, the adapter needs to strictly enforce OCC
