@@ -7,6 +7,8 @@ if (!databaseUrl) {
 }
 
 export default defineConfig({
+  // Supported commands use scripts/run-drizzle-kit.cjs, which sets the CWD to
+  // this package before Drizzle Kit resolves these relative paths.
   schema: './src/schema/index.ts',
   out: './src/migrations',
   dialect: 'postgresql',

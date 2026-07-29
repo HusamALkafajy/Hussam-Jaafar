@@ -6,10 +6,11 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
+    "db:generate": "node scripts/run-drizzle-kit.cjs generate",
+    "db:migrate": "node scripts/run-drizzle-kit.cjs migrate",
+    "db:push": "node scripts/run-drizzle-kit.cjs push",
+    "db:studio": "node scripts/run-drizzle-kit.cjs studio",
+    "db:check": "node scripts/run-drizzle-kit.cjs check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -24,8 +24,6 @@
     "build": "tsc && node -e \"try { require('fs').cpSync('src/prisma-client', 'dist/prisma-client', {recursive: true, force: true}) } catch(e) { console.log('Ignored cpSync error') }\"",
     "dev": "tsc --watch --preserveWatchOutput",
     "typecheck": "tsc --noEmit",
-    "db:generate": "dotenv -e ../../.env.local -c local -- prisma generate",
-    "db:migrate": "dotenv -e ../../.env.local -c local -- prisma migrate deploy",
-    "db:push": "dotenv -e ../../.env.local -c local -- prisma db push"
+    "db:generate": "dotenv -e ../../.env.local -c local -- prisma generate"
   }
 }

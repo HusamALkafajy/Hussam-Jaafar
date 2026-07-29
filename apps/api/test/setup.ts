@@ -20,34 +20,17 @@ export default async () => {
     throw new Error('CRITICAL: DATABASE_URL is not configured for test environment. Aborting to protect dev data.');
   }
 
-  console.log(`Connecting to test database: ${databaseUrl}`);
-
-  // Execute Prisma migrations from monorepo root
   const rootDir = resolve(__dirname, '../../../');
-  console.log(`Pushing latest schema from root: ${rootDir}`);
+  console.log('Applying the Drizzle migration chain to the configured isolated test database.');
   try {
-    console.log('Deploying Prisma schema directly using db push...');
-    execSync('pnpm --filter=@studyai/infrastructure exec prisma db push --accept-data-loss', {
-      cwd: rootDir,
-      env: { ...process.env, DATABASE_URL: databaseUrl },
-      stdio: 'inherit',
-    });
-    console.log('Prisma schema pushed successfully.');
-
-    console.log('Clearing Drizzle migration history...');
-    execSync(`node -e "if (!process.env.DATABASE_URL.includes('test')) { console.error('Safety guard failed'); process.exit(1); } const postgres = require('postgres'); const sql = postgres(process.env.DATABASE_URL); sql.unsafe('DROP SCHEMA IF EXISTS drizzle CASCADE;').then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)});"`, {
-      cwd: resolve(rootDir, 'packages/database'),
-      env: { ...process.env, DATABASE_URL: databaseUrl },
-      stdio: 'inherit',
-    });
     execSync('pnpm --filter=@studyai/database run db:migrate', {
       cwd: rootDir,
       env: { ...process.env, DATABASE_URL: databaseUrl },
       stdio: 'inherit',
     });
-    console.log('Drizzle schema migrated successfully.');
+    console.log('Drizzle migration chain completed.');
   } catch (error) {
-    console.error('Failed to push schema:', error);
+    console.error('Failed to apply the Drizzle migration chain:', error);
     throw error;
   }
   console.log('--- TEST BOOTSTRAP COMPLETE ---\n');
