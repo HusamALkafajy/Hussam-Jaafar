@@ -445,7 +445,7 @@ BEGIN
     END IF;
 
     SELECT string_agg(
-      con.conname || '|' || con.contype || '|' || regexp_replace(pg_get_constraintdef(con.oid, true), '"?(pg_temp_[0-9]+|public)"?[.]', '', 'g'),
+      con.conname || '|' || con.contype::text || '|' || regexp_replace(pg_get_constraintdef(con.oid, true), '"?(pg_temp_[0-9]+|public)"?[.]', '', 'g'),
       E'\\n' ORDER BY con.conname, con.contype
     ) INTO actual_definition
     FROM pg_constraint con
@@ -454,7 +454,7 @@ BEGIN
     WHERE n.nspname = 'public' AND c.relname = object_name;
 
     SELECT string_agg(
-      con.conname || '|' || con.contype || '|' || regexp_replace(pg_get_constraintdef(con.oid, true), '"?(pg_temp_[0-9]+|public)"?[.]', '', 'g'),
+      con.conname || '|' || con.contype::text || '|' || regexp_replace(pg_get_constraintdef(con.oid, true), '"?(pg_temp_[0-9]+|public)"?[.]', '', 'g'),
       E'\\n' ORDER BY con.conname, con.contype
     ) INTO expected_definition
     FROM pg_constraint con

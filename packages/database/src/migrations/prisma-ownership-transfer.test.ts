@@ -122,6 +122,29 @@ describe('Prisma-to-Drizzle ownership transfer', () => {
     expect(migrationSql).not.toMatch(/_prisma_migrations/i);
   });
 
+  it('casts PostgreSQL constraint types before building adoption fingerprints', () => {
+    const normalizedSql = migrationSql.replace(/\s+/g, ' ');
+    const constraintTypeExpressions = [
+      ...normalizedSql.matchAll(
+        /con\.conname \|\| '\|' \|\| (con\.contype(?:::[a-z]+)?) \|\| '\|'/gi,
+      ),
+    ].map((match) => match[1].toLowerCase());
+
+    expect(constraintTypeExpressions).toEqual([
+      'con.contype::text',
+      'con.contype::text',
+    ]);
+    expect(migrationSql).toContain(
+      'constraints for % do not match the retained Prisma contract',
+    );
+    expect(migrationSql).toContain(
+      'IF actual_definition IS DISTINCT FROM expected_definition THEN',
+    );
+    expect(migrationSql).not.toMatch(
+      /\b(?:DROP\s+(?:TABLE|TYPE|SCHEMA|INDEX)|TRUNCATE|DELETE\s+FROM)\b/i,
+    );
+  });
+
   it('keeps the generated migration metadata tied to the transfer migration', () => {
     expect(migrationSnapshot.prevId).toBe(previousSnapshot.id);
     expect(migrationJournal.entries.at(-1)).toMatchObject({
