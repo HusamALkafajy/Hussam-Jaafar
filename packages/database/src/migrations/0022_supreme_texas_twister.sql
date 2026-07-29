@@ -125,7 +125,7 @@ CREATE TABLE "AnalyticsSnapshot" (
 	"id" text PRIMARY KEY NOT NULL,
 	"planId" text NOT NULL,
 	"topic" text NOT NULL,
-	"mastery" double precision DEFAULT 0 NOT NULL,
+	"mastery" double precision DEFAULT 0.0 NOT NULL,
 	"targetDate" timestamp (3)
 );$ddl$,
     $ddl$CREATE TABLE "PlatformAsset" (
@@ -256,7 +256,7 @@ CREATE TABLE "AnalyticsSnapshot" (
 	"currentJobId" text,
 	"processedJobs" integer DEFAULT 0 NOT NULL,
 	"failedJobs" integer DEFAULT 0 NOT NULL,
-	"averageDuration" double precision DEFAULT 0 NOT NULL,
+	"averageDuration" double precision DEFAULT 0.0 NOT NULL,
 	"version" text NOT NULL
 );$ddl$,
     $ddl$CREATE TABLE "Workflow" (

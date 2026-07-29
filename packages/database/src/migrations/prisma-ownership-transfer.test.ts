@@ -50,6 +50,14 @@ type IndexDefinition = {
   definition: string;
 };
 
+type ColumnFingerprint = {
+  attnum: number;
+  name: string;
+  type: string;
+  notNull: boolean;
+  defaultExpression: string;
+};
+
 const indexFingerprint = (indexes: IndexDefinition[]) => {
   const schemaPattern = indexSchemaPatterns[0] ?? '(?!)';
 
@@ -61,6 +69,29 @@ const indexFingerprint = (indexes: IndexDefinition[]) => {
 
 const snapshotNames = (objects: Record<string, { name: string }>) =>
   Object.values(objects).map((object) => object.name).sort();
+
+const columnDefinition = (sql: string, tableName: string, columnName: string) => {
+  const tableMatch = sql.match(
+    new RegExp(`CREATE TABLE "${tableName}" \\(([\\s\\S]*?)\\n\\);`, 'i'),
+  );
+  const column = tableMatch?.[1]
+    .split('\n')
+    .find((line) => line.trim().startsWith(`"${columnName}" `));
+
+  if (!column) {
+    throw new Error(`Missing ${tableName}.${columnName} column definition`);
+  }
+
+  return column.trim().replace(/,$/, '').replace(/\s+/g, ' ').toLowerCase();
+};
+
+const columnFingerprint = ({
+  attnum,
+  name,
+  type,
+  notNull,
+  defaultExpression,
+}: ColumnFingerprint) => `${attnum}|${name}|${type}|${notNull}|${defaultExpression}`;
 
 const tableColumns = (sql: string) =>
   Object.fromEntries(
@@ -78,7 +109,6 @@ const tableColumns = (sql: string) =>
                 /\bDEFAULT\s+((?:'[^']*'|[A-Za-z0-9_.]+))\s+NOT NULL\b/gi,
                 'NOT NULL DEFAULT $1',
               )
-              .replace(/\bDEFAULT\s+0\.0\b/gi, 'DEFAULT 0')
               .replace(/\s*\(\s*/g, '(')
               .replace(/\s*\)/g, ')')
               .replace(/\s+/g, ' ')
@@ -127,6 +157,76 @@ describe('Prisma-to-Drizzle ownership transfer', () => {
 
     expect(Object.keys(migrationColumns).sort()).toEqual(Object.keys(sourceColumns).sort());
     expect(migrationColumns).toEqual(sourceColumns);
+  });
+
+  it('preserves authoritative double-precision default literals in the expected contract', () => {
+    const historicalMastery = columnDefinition(
+      prismaInitialSql,
+      'LearningObjective',
+      'mastery',
+    );
+    const expectedMastery = columnDefinition(
+      candidateCommands.join('\n'),
+      'LearningObjective',
+      'mastery',
+    );
+    const historicalAverageDuration = columnDefinition(
+      prismaInitialSql,
+      'WorkerRuntime',
+      'averageDuration',
+    );
+    const expectedAverageDuration = columnDefinition(
+      candidateCommands.join('\n'),
+      'WorkerRuntime',
+      'averageDuration',
+    );
+
+    expect(historicalMastery).toBe(
+      '"mastery" double precision not null default 0.0',
+    );
+    expect(expectedMastery).toBe(
+      '"mastery" double precision default 0.0 not null',
+    );
+    expect(expectedMastery).not.toMatch(/\bdefault 0(?:\s|$)/);
+    expect(historicalAverageDuration).toBe(
+      '"averageduration" double precision not null default 0.0',
+    );
+    expect(expectedAverageDuration).toBe(
+      '"averageduration" double precision default 0.0 not null',
+    );
+  });
+
+  it('keeps mastery default validation exact and fail-closed', () => {
+    const expectedMastery: ColumnFingerprint = {
+      attnum: 4,
+      name: 'mastery',
+      type: 'double precision',
+      notNull: true,
+      defaultExpression: '0.0',
+    };
+    const expectedFingerprint = columnFingerprint(expectedMastery);
+
+    expect(columnFingerprint({ ...expectedMastery })).toBe(expectedFingerprint);
+    expect(
+      columnFingerprint({ ...expectedMastery, defaultExpression: '0.5' }),
+    ).not.toBe(expectedFingerprint);
+    expect(
+      columnFingerprint({ ...expectedMastery, defaultExpression: '' }),
+    ).not.toBe(expectedFingerprint);
+    expect(
+      columnFingerprint({ ...expectedMastery, notNull: false }),
+    ).not.toBe(expectedFingerprint);
+    expect(
+      columnFingerprint({ ...expectedMastery, type: 'numeric' }),
+    ).not.toBe(expectedFingerprint);
+    expect(migrationSql.match(/pg_get_expr\(d\.adbin, d\.adrelid\)/g)).toHaveLength(2);
+    expect(migrationSql).toContain(`format('%s|%s|%s|%s|%s'`);
+    expect(migrationSql).toContain(
+      'IF actual_definition IS DISTINCT FROM expected_definition THEN',
+    );
+    expect(migrationSql).not.toMatch(
+      /\b(?:DROP\s+(?:TABLE|TYPE|SCHEMA|INDEX)|TRUNCATE|DELETE\s+FROM)\b/i,
+    );
   });
 
   it('implements a fail-closed all-absent or all-present adoption decision', () => {
