@@ -149,7 +149,7 @@ export class FilesProcessor {
     try {
       finalState = await this.pipelineRunner.execute(initialInput, pipelineContext);
     } catch (error: any) {
-      console.error('FilesProcessor Pipeline Error:', error);
+      this.logger.error('FilesProcessor pipeline failed', error);
       let finalError = error;
       if (abortController.signal.aborted && !(error instanceof ExtractionTimeoutError) && error.name !== 'ExtractionTimeoutError') {
          finalError = abortController.signal.reason || new ExtractionTimeoutError('Pipeline exceeded the maximum execution bound of 5 minutes.');

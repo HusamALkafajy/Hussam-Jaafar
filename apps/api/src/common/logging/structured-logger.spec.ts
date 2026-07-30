@@ -16,6 +16,7 @@ describe('StructuredLogger', () => {
     expect(entry).toEqual(
       expect.objectContaining({
         level: 'log',
+        source: 'StudyAI',
         requestId: 'request-123',
         message: { event: 'request.complete', statusCode: 200 },
       }),
@@ -79,5 +80,48 @@ describe('StructuredLogger', () => {
     );
 
     expect(redactLogValue(value)).toBe('database=[REDACTED] cache=[REDACTED]');
+  });
+
+  it('redacts email addresses and JWTs in fields and free-form strings', () => {
+    const email = ['learner', '@example.com'].join('');
+    const jwt = ['eyJ', 'header', '.', 'payload', '.', 'signature'].join('');
+
+    expect(
+      redactLogValue({
+        email,
+        detail: `Authentication rejected for ${email} with token ${jwt}`,
+        prompt: 'private prompt contents',
+      }),
+    ).toEqual({
+      email: '[REDACTED]',
+      detail: 'Authentication rejected for [REDACTED] with token [REDACTED]',
+      prompt: '[REDACTED]',
+    });
+  });
+
+  it('serializes Error objects with source context while redacting their contents', () => {
+    const output = jest.spyOn(console, 'error').mockImplementation();
+    const logger = new StructuredLogger(true, 'Authentication');
+    const email = ['learner', '@example.com'].join('');
+    const error = new Error(`Authentication lookup failed for ${email}`);
+
+    logger.error('Authentication lookup failed', error);
+
+    const entry = JSON.parse(output.mock.calls[0][0] as string);
+    expect(entry).toEqual(
+      expect.objectContaining({
+        level: 'error',
+        source: 'Authentication',
+        message: 'Authentication lookup failed',
+      }),
+    );
+    expect(entry.context[0]).toEqual(
+      expect.objectContaining({
+        name: 'Error',
+        message: 'Authentication lookup failed for [REDACTED]',
+        stack: expect.any(String),
+      }),
+    );
+    expect(output.mock.calls[0][0]).not.toContain(email);
   });
 });

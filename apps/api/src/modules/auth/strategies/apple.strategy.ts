@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
+  private readonly logger = new Logger(AppleStrategy.name);
+
   constructor(private readonly configService: ConfigService) {
     super();
   }
@@ -25,8 +27,8 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
           email = userData.email || email;
           firstName = userData.name?.firstName || firstName;
           lastName = userData.name?.lastName || lastName;
-        } catch (e) {
-          console.warn('Failed parsing Apple user profile payload:', e);
+        } catch (error) {
+          this.logger.warn('Apple user profile payload parsing failed', error);
         }
       }
 

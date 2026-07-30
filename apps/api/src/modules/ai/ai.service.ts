@@ -1,4 +1,4 @@
-import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { requestContext } from '../../common/request-context';
@@ -676,7 +676,9 @@ export class AiService {
     try {
       return JSON.parse(result) as T;
     } catch (error) {
-      console.error('[sanitizeAndParseJson] JSON parse failed. Raw truncated text:\n', raw);
+      this.logger.error('AI response JSON parsing failed', error, {
+        responseLength: raw.length,
+      });
       throw new Error('Explanation generation failed: The AI response was too long and got truncated. Please try again with a shorter section.');
     }
   }

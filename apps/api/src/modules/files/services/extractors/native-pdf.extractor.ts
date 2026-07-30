@@ -11,12 +11,15 @@ import {
 } from '../../contracts/document-extractor';
 import { ExtractedDocument } from '../../contracts/extracted-document';
 import { ExtractedDocumentFactory } from './extracted-document.factory';
+import { Logger } from '@nestjs/common';
 
 // Suppress standard font warnings for Node.js usage.
 // pdfjs-dist's legacy build is safest for CommonJS Node environments.
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
 
 export class NativePdfExtractor implements DocumentExtractor {
+  private readonly logger = new Logger(NativePdfExtractor.name);
+
   async extract(context: DocumentExtractionContext): Promise<ExtractedDocument> {
     if (!context.filePath) {
       throw new MalformedDocumentError('PDF extraction requires a valid file path.');
@@ -70,7 +73,7 @@ export class NativePdfExtractor implements DocumentExtractor {
         throw error;
       }
       
-      console.error('PDF Parse Error:', error);
+      this.logger.error('PDF parsing failed', error);
       throw new MalformedDocumentError(`Failed to parse PDF document: ${error.message}`);
     }
 

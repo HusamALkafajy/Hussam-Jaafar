@@ -2,11 +2,14 @@ import { ConsoleLogger, LoggerService } from '@nestjs/common';
 import { requestContext } from '../request-context';
 
 const REDACTED = '[REDACTED]';
-const SENSITIVE_KEY = /(password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key)/i;
+const SENSITIVE_KEY =
+  /(password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key|email|jwt|prompt|raw.?response|response.?text)/i;
 const DATABASE_OR_CACHE_URL =
   /\b(?:postgres(?:ql)?|redis(?:s)?|mysql|mariadb|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi;
 const CREDENTIAL_URL =
   /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:[^@/\s]+@[^\s"'<>]+/gi;
+const EMAIL_ADDRESS = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const JWT_TOKEN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 
 type LogLevel = 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal';
 
@@ -15,6 +18,8 @@ export function redactLogValue(value: unknown, seen = new WeakSet<object>()): un
     return value
       .replace(DATABASE_OR_CACHE_URL, REDACTED)
       .replace(CREDENTIAL_URL, REDACTED)
+      .replace(EMAIL_ADDRESS, REDACTED)
+      .replace(JWT_TOKEN, REDACTED)
       .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED}`)
       .replace(
         /((?:password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key)\s*[:=]\s*)(Bearer\s+[^\s,;]+|"[^"]*"|'[^']*'|[^\s,;]+)/gi,
@@ -48,9 +53,14 @@ export function redactLogValue(value: unknown, seen = new WeakSet<object>()): un
 }
 
 export class StructuredLogger implements LoggerService {
-  private readonly developmentLogger = new ConsoleLogger('StudyAI');
+  private readonly developmentLogger: ConsoleLogger;
 
-  constructor(private readonly production = false) {}
+  constructor(
+    private readonly production = false,
+    private readonly source = 'StudyAI',
+  ) {
+    this.developmentLogger = new ConsoleLogger(source);
+  }
 
   log(message: unknown, ...optionalParams: unknown[]): void {
     this.write('log', message, optionalParams);
@@ -89,6 +99,7 @@ export class StructuredLogger implements LoggerService {
     const entry = {
       timestamp: new Date().toISOString(),
       level,
+      source: this.source,
       requestId: context?.requestId,
       message: safeMessage,
       ...(safeParams.length > 0 ? { context: safeParams } : {}),

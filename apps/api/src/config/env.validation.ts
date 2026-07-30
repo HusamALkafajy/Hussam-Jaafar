@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { IsEnum, IsNumber, IsString, IsOptional, validateSync, MinLength } from 'class-validator';
+import { StructuredLogger } from '../common/logging/structured-logger';
 
 enum Environment {
   Development = 'development',
@@ -88,7 +89,11 @@ export function validate(config: Record<string, unknown>) {
   }
 
   if (warnings.length > 0) {
-    console.warn(`\n⚠️ Configuration Warnings:\n- ${warnings.join('\n- ')}\n`);
+    const logger = new StructuredLogger(
+      validatedConfig.NODE_ENV === Environment.Production,
+      'EnvironmentValidation',
+    );
+    logger.warn('Optional configuration is incomplete', { warnings });
   }
 
   return validatedConfig;

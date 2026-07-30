@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
@@ -7,6 +7,8 @@ import { UsersService } from '../../users/users.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly logger = new Logger(JwtStrategy.name);
+
   constructor(
     config: ConfigService,
     private readonly usersService: UsersService,
@@ -28,18 +30,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: { sub: string; email: string; role: string }) {
-    console.log('[JwtStrategy Debug] Validating payload:', JSON.stringify(payload));
     let user;
     try {
       user = await this.usersService.findById(payload.sub);
-      console.log('[JwtStrategy Debug] User query result:', user ? `Found id=${user.id} email=${user.email} isActive=${user.isActive}` : 'Not found');
     } catch (err) {
-      console.error('[JwtStrategy Debug] usersService.findById failed with error:', err);
+      this.logger.error('JWT user lookup failed', err);
       // Convert not-found or other errors into Unauthorized to avoid leaking existence
       throw new UnauthorizedException('User account is inactive or not found');
     }
     if (!user || !user.isActive) {
-      console.warn('[JwtStrategy Debug] Validation failed. User null or inactive:', !user ? 'User null' : `isActive=${user.isActive}`);
+      this.logger.warn('JWT validation rejected an inactive or missing user');
       throw new UnauthorizedException('User account is inactive or not found');
     }
     return {
