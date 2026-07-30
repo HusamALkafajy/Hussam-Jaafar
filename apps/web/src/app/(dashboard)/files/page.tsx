@@ -17,12 +17,33 @@ import {
   Trash2,
   FolderOpen,
   Filter,
-  X,
   CheckCircle,
   AlertTriangle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { formatBytes, formatDate } from '../../../lib/utils';
+import { MAX_FILE_SIZE } from '../../../lib/constants';
 import { useRouter } from 'next/navigation';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../../components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '../../../components/ui/dialog';
 
 export default function FilesPage() {
   const router = useRouter();
@@ -46,8 +67,14 @@ export default function FilesPage() {
   const [uploadError, setUploadError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    originalName: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
 
   const loadData = useCallback(async (page = 1, showSpinner = true) => {
     if (showSpinner) setLoading(true);
@@ -161,38 +188,99 @@ export default function FilesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this file?')) return;
+  const resetUploadState = () => {
+    setUploadStatus('idle');
+    setSelectedFile(null);
+    setUploadProgress(0);
+    setUploadMessage('');
+    setUploadError('');
+  };
+
+  const handleUploadOpenChange = (open: boolean) => {
+    if (!open && uploading) return;
+
+    setUploadOpen(open);
+    if (open) resetUploadState();
+  };
+
+  const handleFileSelection = (file: File | undefined) => {
+    setUploadStatus('idle');
+    setUploadError('');
+    setSelectedFile(null);
+
+    if (!file) return;
+
+    const fileName = file.name.toLowerCase();
+    const acceptedType =
+      file.type === 'application/pdf' ||
+      file.type ===
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.type.startsWith('image/') ||
+      fileName.endsWith('.pdf') ||
+      fileName.endsWith('.docx');
+
+    if (!acceptedType) {
+      setUploadStatus('error');
+      setUploadError(
+        locale === 'ar'
+          ? 'يرجى اختيار ملف PDF أو Word أو صورة.'
+          : 'Choose a PDF, Word document, or image.',
+      );
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadStatus('error');
+      setUploadError(
+        locale === 'ar'
+          ? 'يجب ألا يتجاوز حجم الملف 50 ميجابايت.'
+          : 'The file must be 50MB or smaller.',
+      );
+      return;
+    }
+
+    setSelectedFile(file);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
     try {
-      await api.delete(`/files/${id}`);
-      loadData(pagination.page);
+      await api.delete(`/files/${deleteTarget.id}`);
+      setDeleteTarget(null);
+      toast.success(
+        locale === 'ar' ? 'تم حذف الملف بنجاح.' : 'File deleted successfully.',
+      );
+      await loadData(pagination.page);
     } catch (err) {
-      alert('Delete failed');
+      toast.error(
+        locale === 'ar'
+          ? 'تعذر حذف الملف. حاول مرة أخرى.'
+          : 'Could not delete the file. Try again.',
+      );
+    } finally {
+      setDeleting(false);
     }
   };
 
   return (
-    <div className="flex flex-col gap-6 relative">
+    <Dialog
+      open={uploadOpen}
+      onOpenChange={handleUploadOpenChange}
+      disablePointerDismissal={uploading}
+    >
+      <div className="flex flex-col gap-6 relative">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white flex items-center gap-2">
           <FolderOpen className="w-6 h-6 text-indigo-400" />
           <span>{t('files.title')}</span>
         </h2>
-        <Button
-          onClick={() => {
-            setUploadOpen(true);
-            setUploadStatus('idle');
-            setSelectedFile(null);
-            setUploadProgress(0);
-            setUploadMessage('');
-            setUploadError('');
-          }}
-          className="gap-2 font-bold"
-        >
+        <DialogTrigger render={<Button className="gap-2 font-bold" />}>
           <Upload className="w-4.5 h-4.5" />
           <span>{t('dashboard.uploadNewFile')}</span>
-        </Button>
+        </DialogTrigger>
       </div>
 
       {/* Filters Bar */}
@@ -244,13 +332,11 @@ export default function FilesPage() {
         <div className="flex flex-col items-center justify-center py-20 gap-4 border border-dashed border-slate-800 rounded-xl bg-slate-950/10">
           <FileText className="w-16 h-16 text-slate-600 animate-pulse" aria-hidden="true" />
           <p className="text-slate-400 text-center">{t('files.emptyState')}</p>
-          <Button
-            variant="outline"
-            onClick={() => setUploadOpen(true)}
-            className="mt-2"
+          <DialogTrigger
+            render={<Button variant="outline" className="mt-2" />}
           >
             {t('dashboard.uploadNewFile')}
-          </Button>
+          </DialogTrigger>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -280,7 +366,7 @@ export default function FilesPage() {
 
                 <button
                   type="button"
-                  onClick={() => handleDelete(file.id)}
+                  onClick={() => setDeleteTarget(file)}
                   className="relative pointer-events-auto p-1.5 rounded hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
                   aria-label={`Delete ${file.originalName}`}
                 >
@@ -315,118 +401,211 @@ export default function FilesPage() {
         </div>
       )}
 
-      {/* Upload Modal (HTML portal) */}
-      {uploadOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md glass border border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden p-6 flex flex-col gap-5">
-            <div className="flex items-center justify-between">
-              <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                <Upload className="w-5 h-5 text-indigo-400" />
-                <span>{t('dashboard.uploadNewFile')}</span>
-              </h4>
-              <button
-                onClick={() => setUploadOpen(false)}
-                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
-                aria-label="Close upload modal"
+      </div>
+
+      <DialogContent
+        initialFocus={fileInputRef}
+        showCloseButton={!uploading}
+        className="max-w-md glass border border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden p-6 gap-5"
+      >
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
+            <Upload className="w-5 h-5 text-indigo-400" aria-hidden="true" />
+            <span>{t('dashboard.uploadNewFile')}</span>
+          </DialogTitle>
+          <DialogDescription>
+            {t('files.uploadRequirements')}.{' '}
+            {locale === 'ar'
+              ? 'يمكنك اختيار مادة دراسية قبل بدء الرفع.'
+              : 'You can optionally choose a subject before uploading.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {uploading ? (
+          <div
+            className="py-8 flex flex-col items-center justify-center gap-4 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <Spinner className="w-10 h-10 text-indigo-400" />
+            <div className="w-full flex flex-col gap-2">
+              <div className="flex justify-between text-xs text-slate-400 font-semibold px-1">
+                <span>{uploadMessage}</span>
+                <span aria-hidden="true">{uploadProgress}%</span>
+              </div>
+              <div
+                className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800"
+                role="progressbar"
+                aria-label={
+                  locale === 'ar' ? 'تقدم رفع الملف' : 'File upload progress'
+                }
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={uploadProgress}
+                aria-valuetext={`${uploadProgress}%`}
               >
-                <X className="w-5 h-5" aria-hidden="true" />
-              </button>
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-300 ease-out"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              {locale === 'ar'
+                ? 'أبقِ هذه النافذة مفتوحة حتى يكتمل الرفع.'
+                : 'Keep this dialog open until the upload finishes.'}
+            </p>
+          </div>
+        ) : uploadStatus === 'success' ? (
+          <div
+            className="py-8 flex flex-col items-center justify-center gap-3 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <CheckCircle
+              className="w-16 h-16 text-emerald-500"
+              aria-hidden="true"
+            />
+            <h5 className="text-base font-bold text-white">
+              {locale === 'ar' ? 'تم رفع الملف بنجاح!' : 'File uploaded successfully!'}
+            </h5>
+            <p className="text-xs text-slate-400 font-medium">
+              {locale === 'ar'
+                ? 'بدأ التحليل بالذكاء الاصطناعي في الخلفية وسيظهر الملف حال اكتماله.'
+                : 'AI analysis started in the background; file will appear once completed.'}
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleUploadSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="upload-subject"
+                className="text-sm font-medium text-slate-300"
+              >
+                {t('files.subject')}
+              </label>
+              <select
+                id="upload-subject"
+                value={uploadSubjectId}
+                onChange={(e) => setUploadSubjectId(e.target.value)}
+                className="px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500 transition-colors"
+              >
+                <option value="">
+                  {locale === 'ar' ? 'بلا مادة' : 'No Subject'}
+                </option>
+                {subjectsList.map((subject) => (
+                  <option key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {uploading ? (
-              <div className="py-8 flex flex-col items-center justify-center gap-4 text-center">
-                <Spinner className="w-10 h-10 text-indigo-400" />
-                <div className="w-full flex flex-col gap-2">
-                  <div className="flex justify-between text-xs text-slate-400 font-semibold px-1">
-                    <span>{uploadMessage}</span>
-                    <span>{uploadProgress}%</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                    <div
-                      className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-300 ease-out"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
+            <label
+              htmlFor="upload-file"
+              className="border-2 border-dashed border-slate-850 hover:border-indigo-500 bg-slate-950/30 rounded-xl py-8 flex flex-col items-center justify-center gap-3 text-center cursor-pointer hover:bg-slate-950/50 transition-all group focus-within:border-indigo-500"
+            >
+              <input
+                id="upload-file"
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => handleFileSelection(e.target.files?.[0])}
+                className="sr-only"
+                accept=".pdf,.docx,image/*"
+                aria-describedby={`upload-file-requirements${
+                  uploadError ? ' upload-file-error' : ''
+                }`}
+                aria-invalid={uploadStatus === 'error'}
+              />
+              <div className="bg-indigo-500/10 p-3 rounded-lg text-indigo-400 group-hover:scale-105 transition-transform duration-200">
+                <Upload className="w-6 h-6" aria-hidden="true" />
+              </div>
+              <span className="flex flex-col gap-1">
+                <span className="text-sm text-slate-200 font-semibold truncate max-w-[280px]">
+                  {selectedFile ? selectedFile.name : t('files.uploadZone')}
+                </span>
+                <span
+                  id="upload-file-requirements"
+                  className="text-xs text-slate-500"
+                >
+                  {t('files.uploadRequirements')}
+                </span>
+              </span>
+            </label>
+
+            {uploadStatus === 'error' && (
+              <div
+                id="upload-file-error"
+                role="alert"
+                className="py-4 px-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm flex items-center gap-2.5"
+              >
+                <AlertTriangle
+                  className="w-6 h-6 shrink-0"
+                  aria-hidden="true"
+                />
+                <div className="flex flex-col gap-0.5">
+                  <p className="font-bold">
+                    {locale === 'ar' ? 'فشل رفع الملف' : 'Upload failed'}
+                  </p>
+                  <p className="text-xs">{uploadError}</p>
                 </div>
               </div>
-            ) : uploadStatus === 'success' ? (
-              <div className="py-8 flex flex-col items-center justify-center gap-3 text-center">
-                <CheckCircle className="w-16 h-16 text-emerald-500" />
-                <h5 className="text-base font-bold text-white">
-                  {locale === 'ar' ? 'تم رفع الملف بنجاح!' : 'File uploaded successfully!'}
-                </h5>
-                <p className="text-xs text-slate-400 font-medium">
-                  {locale === 'ar'
-                    ? 'بدأ التحليل بالذكاء الاصطناعي في الخلفية وسيظهر الملف حال اكتماله.'
-                    : 'AI analysis started in the background; file will appear once completed.'}
-                </p>
-              </div>
-            ) : (
-              <>
-                {uploadStatus === 'error' && (
-                  <div className="py-4 p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm flex items-center gap-2.5">
-                    <AlertTriangle className="w-6 h-6 shrink-0" />
-                    <div className="flex flex-col gap-0.5">
-                      <p className="font-bold">{locale === 'ar' ? 'فشل رفع الملف' : 'Upload failed'}</p>
-                      <p className="text-xs">{uploadError}</p>
-                    </div>
-                  </div>
-                )}
-
-                <form onSubmit={handleUploadSubmit} className="flex flex-col gap-4">
-                  {/* Subject Selector */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-slate-300">{t('files.subject')}</label>
-                    <select
-                      value={uploadSubjectId}
-                      onChange={(e) => setUploadSubjectId(e.target.value)}
-                      className="px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500 transition-colors"
-                    >
-                      <option value="">{locale === 'ar' ? 'بلا مادة' : 'No Subject'}</option>
-                      {subjectsList.map((subject) => (
-                        <option key={subject.id} value={subject.id}>
-                          {subject.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* File Dropzone */}
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-slate-850 hover:border-indigo-500 bg-slate-950/30 rounded-xl py-8 flex flex-col items-center justify-center gap-3 text-center cursor-pointer hover:bg-slate-950/50 transition-all group"
-                  >
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          setSelectedFile(e.target.files[0]);
-                        }
-                      }}
-                      className="hidden"
-                      accept=".pdf,.docx,image/*"
-                    />
-                    <div className="bg-indigo-500/10 p-3 rounded-lg text-indigo-400 group-hover:scale-105 transition-transform duration-200">
-                      <Upload className="w-6 h-6" />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <p className="text-sm text-slate-200 font-semibold truncate max-w-[280px]">
-                        {selectedFile ? selectedFile.name : t('files.uploadZone')}
-                      </p>
-                      <p className="text-xs text-slate-500">{t('files.uploadRequirements')}</p>
-                    </div>
-                  </div>
-
-                  <Button type="submit" disabled={!selectedFile} className="w-full font-bold py-2.5 mt-2">
-                    <span>{locale === 'ar' ? 'بدء الرفع والتحليل' : 'Start Upload & Analysis'}</span>
-                  </Button>
-                </form>
-              </>
             )}
-          </div>
-        </div>
-      )}
-    </div>
+
+            <DialogFooter className="mt-2">
+              <DialogClose
+                render={<Button type="button" variant="outline" />}
+              >
+                {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+              </DialogClose>
+              <Button
+                type="submit"
+                disabled={!selectedFile}
+                className="font-bold py-2.5"
+              >
+                <span>
+                  {locale === 'ar'
+                    ? 'بدء الرفع والتحليل'
+                    : 'Start Upload & Analysis'}
+                </span>
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent initialFocus={deleteCancelRef}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {locale === 'ar' ? 'حذف الملف؟' : 'Delete this file?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {locale === 'ar'
+                ? `سيتم حذف ${deleteTarget?.originalName ?? 'هذا الملف'} نهائياً. لا يمكن التراجع عن هذا الإجراء.`
+                : `${deleteTarget?.originalName ?? 'This file'} will be permanently deleted. This action cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel ref={deleteCancelRef} disabled={deleting}>
+              {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              type="button"
+              variant="destructive"
+              loading={deleting}
+              onClick={handleDelete}
+            >
+              {locale === 'ar' ? 'حذف الملف' : 'Delete file'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
   );
 }

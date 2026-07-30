@@ -190,4 +190,30 @@ describe('legacy interactive source semantics', () => {
   it('does not render sidebar actions through anchor navigation items', () => {
     expect(semanticFindings().actionSidebarLinks).toEqual([]);
   });
+
+  it('keeps the core files flow free of native prompts and custom modal overlays', () => {
+    const filesPage = fs.readFileSync(
+      path.join(sourceRoot, 'app/(dashboard)/files/page.tsx'),
+      'utf8',
+    );
+
+    expect(filesPage).not.toMatch(/\b(?:window\.)?(?:alert|confirm)\s*\(/);
+    expect(filesPage).not.toContain('Upload Modal (HTML portal)');
+    expect(filesPage).toContain('<DialogTitle');
+    expect(filesPage).toContain('<DialogDescription');
+    expect(filesPage).toContain('<AlertDialogTitle');
+    expect(filesPage).toContain('<AlertDialogDescription');
+  });
+
+  it('centers shared dialog popups consistently in LTR and RTL layouts', () => {
+    for (const component of ['dialog.tsx', 'alert-dialog.tsx']) {
+      const source = fs.readFileSync(
+        path.join(sourceRoot, `components/ui/${component}`),
+        'utf8',
+      );
+
+      expect(source).toContain('top-1/2 left-1/2');
+      expect(source).not.toContain('top-1/2 start-1/2');
+    }
+  });
 });

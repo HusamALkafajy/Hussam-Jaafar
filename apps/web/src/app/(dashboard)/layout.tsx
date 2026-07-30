@@ -56,6 +56,7 @@ import {
 } from '../../components/ui/top-nav';
 import { SearchField } from '../../components/ui/search-field';
 import { GlobalCommandPalette } from '../../components/global-command-palette';
+import { Toaster } from '../../components/ui/sonner';
 
 export default function DashboardLayout({
   children,
@@ -98,6 +99,7 @@ export default function DashboardLayout({
   return (
     <PageLayout variant="dashboard" dir={dir}>
       <GlobalCommandPalette />
+      <Toaster richColors position={dir === 'rtl' ? 'bottom-left' : 'bottom-right'} />
       <GamificationCelebration />
       <PageLayoutSidebar className="justify-between">
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
