@@ -78,7 +78,7 @@ const PricingComponent: React.FC = () => {
               </li>
             </ul>
           </div>
-          <Button render={<Link href="/register" />} variant="secondary" className="w-full mt-8">
+          <Button nativeButton={false} render={<Link href="/register" />} variant="secondary" className="w-full mt-8">
             {t('landing.startFree')}
           </Button>
         </Card>
@@ -152,7 +152,7 @@ const PricingComponent: React.FC = () => {
               </li>
             </ul>
           </div>
-          <Button render={<a href="mailto:info@studyai.com" />} variant="secondary" className="w-full mt-8">
+          <Button nativeButton={false} render={<a href="mailto:info@studyai.com" />} variant="secondary" className="w-full mt-8">
             تواصل معنا
           </Button>
         </Card>

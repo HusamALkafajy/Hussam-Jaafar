@@ -25,10 +25,10 @@ const HeroSectionComponent: React.FC = () => {
           {t('landing.heroSubtitle')}
         </p>
         <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 mt-2">
-          <Button render={<Link href="/register" />} size="lg" className="px-8 font-bold">
+          <Button nativeButton={false} render={<Link href="/register" />} size="lg" className="px-8 font-bold">
             {t('landing.startFree')}
           </Button>
-          <Button render={<Link href="#features" />} size="lg" variant="secondary" className="px-6">
+          <Button nativeButton={false} render={<Link href="#features" />} size="lg" variant="secondary" className="px-6">
             {t('landing.viewDemo')}
           </Button>
         </div>
