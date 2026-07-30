@@ -29,7 +29,10 @@ export class EnvironmentSource implements IConfigurationSource {
       },
       ai: {
         provider: process.env.AI_PROVIDER || 'openai',
-        apiKey: process.env.AI_API_KEY,
+        apiKey:
+          process.env.AI_API_KEY ||
+          process.env.OPENROUTER_API_KEY ||
+          process.env.GEMINI_API_KEY,
         model: process.env.AI_MODEL || 'gpt-4o',
       },
     };

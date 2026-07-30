@@ -69,4 +69,4 @@ USER api
 EXPOSE 4000
 
 # Start NestJS production build launcher
-CMD ["node", "apps/api/dist/src/main.js"]
+CMD ["node", "apps/api/dist/main.js"]

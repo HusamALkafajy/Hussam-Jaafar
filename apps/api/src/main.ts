@@ -11,12 +11,18 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { TelemetryInterceptor } from './modules/telemetry/telemetry.interceptor';
 import { requestContextMiddleware } from './common/request-context';
 import { StructuredLogger } from './common/logging/structured-logger';
+import { reportBootstrapFailure } from './common/bootstrap/bootstrap-failure';
 
-async function bootstrap() {
-  // Bootstrap runs before ConfigService is available to dependency injection.
-  // eslint-disable-next-line no-restricted-syntax
-  const appLogger = new StructuredLogger(process.env.NODE_ENV === 'production');
-  const app = await NestFactory.create(AppModule, { rawBody: true, logger: appLogger });
+// Bootstrap runs before ConfigService is available to dependency injection.
+// eslint-disable-next-line no-restricted-syntax
+const appLogger = new StructuredLogger(process.env.NODE_ENV === 'production');
+
+export async function bootstrap() {
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true,
+    logger: appLogger,
+    abortOnError: false,
+  });
   const configService = app.get(ConfigService);
 
   // Stripe webhook needs raw body for signature verification — must be before other body parsers
@@ -98,4 +104,13 @@ async function bootstrap() {
   appLogger.log(`StudyAI NestJS API Gateway successfully running on port: ${port}`);
   appLogger.log(`CORS allowed origins configured for: ${frontendUrl}`);
 }
-bootstrap();
+
+export function startApi(): void {
+  void bootstrap().catch((error: unknown) => {
+    reportBootstrapFailure(error, appLogger);
+  });
+}
+
+if (require.main === module) {
+  startApi();
+}

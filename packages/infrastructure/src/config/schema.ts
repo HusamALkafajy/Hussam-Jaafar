@@ -28,7 +28,7 @@ export interface SecurityConfig extends IConfigurationSection {
 
 export interface AIProviderConfig extends IConfigurationSection {
   provider: 'openai' | 'anthropic' | 'gemini';
-  apiKey: string;
+  apiKey?: string;
   model: string;
 }
 
@@ -69,7 +69,6 @@ export class ConfigurationSchemaValidator {
 
     // AI
     if (!config.ai?.provider) throw new Error('Missing ai.provider');
-    if (!config.ai?.apiKey) throw new Error('Missing ai.apiKey');
     if (!config.ai?.model) throw new Error('Missing ai.model');
   }
 }

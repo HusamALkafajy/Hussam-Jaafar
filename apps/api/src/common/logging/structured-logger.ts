@@ -3,12 +3,18 @@ import { requestContext } from '../request-context';
 
 const REDACTED = '[REDACTED]';
 const SENSITIVE_KEY = /(password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key)/i;
+const DATABASE_OR_CACHE_URL =
+  /\b(?:postgres(?:ql)?|redis(?:s)?|mysql|mariadb|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi;
+const CREDENTIAL_URL =
+  /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:[^@/\s]+@[^\s"'<>]+/gi;
 
 type LogLevel = 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal';
 
 export function redactLogValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === 'string') {
     return value
+      .replace(DATABASE_OR_CACHE_URL, REDACTED)
+      .replace(CREDENTIAL_URL, REDACTED)
       .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED}`)
       .replace(
         /((?:password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key)\s*[:=]\s*)(Bearer\s+[^\s,;]+|"[^"]*"|'[^']*'|[^\s,;]+)/gi,
@@ -18,6 +24,17 @@ export function redactLogValue(value: unknown, seen = new WeakSet<object>()): un
   if (value === null || typeof value !== 'object') return value;
   if (seen.has(value)) return '[Circular]';
   seen.add(value);
+
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: redactLogValue(value.message, seen),
+      ...(value.stack ? { stack: redactLogValue(value.stack, seen) } : {}),
+      ...('cause' in value && value.cause !== undefined
+        ? { cause: redactLogValue(value.cause, seen) }
+        : {}),
+    };
+  }
 
   if (Array.isArray(value)) {
     return value.map((entry) => redactLogValue(entry, seen));

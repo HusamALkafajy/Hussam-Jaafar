@@ -51,4 +51,33 @@ describe('StructuredLogger', () => {
       redactLogValue(`authorization=Bearer ${redactionSentinel} password=${redactionSentinel}`),
     ).toBe('authorization=[REDACTED] password=[REDACTED]');
   });
+
+  it('preserves error diagnostics while redacting credential-bearing URLs', () => {
+    const redactionSentinel = `credential-${Date.now()}-${Math.random()}`;
+    const credentialUrl = ['postgresql:', '//user:', redactionSentinel, '@localhost/studyai'].join(
+      '',
+    );
+    const error = new Error(`Database connection failed for ${credentialUrl}`);
+
+    const sanitized = redactLogValue(error) as {
+      name: string;
+      message: string;
+      stack: string;
+    };
+
+    expect(sanitized.name).toBe('Error');
+    expect(sanitized.message).toContain('Database connection failed');
+    expect(sanitized.stack).toContain('structured-logger.spec.ts');
+    expect(JSON.stringify(sanitized)).not.toContain(redactionSentinel);
+    expect(sanitized.message).toBe('Database connection failed for [REDACTED]');
+    expect(JSON.stringify(sanitized)).not.toContain('postgresql:');
+  });
+
+  it('redacts credential-free database and cache URLs completely', () => {
+    const value = ['database=', 'postgresql:', '//localhost/studyai ', 'cache=', 'redis:', '//localhost:6379'].join(
+      '',
+    );
+
+    expect(redactLogValue(value)).toBe('database=[REDACTED] cache=[REDACTED]');
+  });
 });
