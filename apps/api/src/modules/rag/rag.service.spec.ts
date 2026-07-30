@@ -118,5 +118,12 @@ describe('RagService', () => {
       expect(chunks[0].content).toBe('test');
       expect(aiService.getEmbedding).toHaveBeenCalledWith('query');
     });
+
+    it('does not query pgvector after an embedding provider failure', async () => {
+      aiService.getEmbedding.mockRejectedValueOnce(new Error('Embedding provider request failed'));
+
+      await expect(service.searchChunks('mock-version-123', 'query')).resolves.toEqual([]);
+      expect(db.select).not.toHaveBeenCalled();
+    });
   });
 });

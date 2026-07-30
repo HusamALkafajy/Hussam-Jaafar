@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { requestContext } from '../../common/request-context';
@@ -50,6 +50,12 @@ export class AiService {
   private apiKey: string | null = null;
   private baseUrl = 'https://openrouter.ai/api/v1';
   private defaultModel = 'google/gemini-2.5-flash';
+  private embeddingApiKey: string | null = null;
+  private embeddingBaseUrl = 'https://openrouter.ai/api/v1';
+  private embeddingModel = 'openai/text-embedding-3-small';
+  private embeddingMockMode = false;
+
+  private static readonly EMBEDDING_DIMENSIONS = 1536;
 
   /**
    * Hard cap on output tokens sent with every OpenRouter request.
@@ -76,6 +82,10 @@ export class AiService {
     // e.g. 'https://openrouter.ai/api/v1'  — callOpenRouter appends only '/chat/completions'
     this.baseUrl      = this.configService.get<string>('ai.baseUrl') || 'https://openrouter.ai/api/v1';
     this.defaultModel = this.configService.get<string>('ai.model')   || 'google/gemini-2.5-flash';
+    this.embeddingApiKey = this.configService.get<string>('ai.embeddingApiKey') || null;
+    this.embeddingBaseUrl = this.configService.get<string>('ai.embeddingBaseUrl') || 'https://openrouter.ai/api/v1';
+    this.embeddingModel = this.configService.get<string>('ai.embeddingModel') || 'openai/text-embedding-3-small';
+    this.embeddingMockMode = this.configService.get<boolean>('ai.embeddingMockMode') === true;
 
     const useGeminiSdk = this.configService.get<boolean>('ai.useGeminiSdk');
     const geminiApiKey = this.configService.get<string>('ai.geminiApiKey');
@@ -265,44 +275,76 @@ export class AiService {
   }
 
   async getEmbedding(text: string): Promise<number[]> {
-    if (this.isMockMode()) {
-      // Return a pseudo-random 1536 dimensions vector
-      const vec = new Array(1536).fill(0).map(() => Math.random() - 0.5);
-      // L2 normalize
-      const len = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0)) || 1;
-      return vec.map((v) => v / len);
+    if (this.embeddingMockMode) {
+      return this.createDeterministicEmbedding(text);
     }
 
+    if (!this.embeddingApiKey) {
+      this.logger.error('Embedding provider is not configured');
+      throw new ServiceUnavailableException('Embedding provider is not configured');
+    }
+
+    let providerStatus: number | undefined;
     try {
-      const url = `${this.baseUrl}/v1/embeddings`;
+      const url = this.buildEmbeddingUrl();
       const res = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${this.embeddingApiKey}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://studyai.com',
+          'X-Title': 'StudyAI',
         },
         body: JSON.stringify({
-          model: 'text-embedding-3-small',
+          model: this.embeddingModel,
           input: text,
+          dimensions: AiService.EMBEDDING_DIMENSIONS,
         }),
       });
+      providerStatus = res.status;
 
       if (!res.ok) {
-        throw new Error(`Embedding API failed: ${res.statusText}`);
+        throw new Error('Embedding provider returned an unsuccessful response');
       }
 
       const data = await res.json();
-      return data?.data?.[0]?.embedding || new Array(1536).fill(0);
-    } catch (err) {
-      this.logger.warn('Failed to call embedding API, using deterministic pseudo-embedding:', err);
-      // Generate a deterministic pseudo-embedding based on character codes
-      const vec = new Array(1536).fill(0);
-      for (let i = 0; i < text.length; i++) {
-        vec[i % 1536] += text.charCodeAt(i);
+      const embedding = data?.data?.[0]?.embedding;
+      if (
+        !Array.isArray(embedding) ||
+        embedding.length !== AiService.EMBEDDING_DIMENSIONS ||
+        !embedding.every((value: unknown) => typeof value === 'number' && Number.isFinite(value))
+      ) {
+        throw new Error('Embedding provider returned an invalid vector');
       }
-      const len = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0)) || 1;
-      return vec.map((v) => v / len);
+
+      return embedding;
+    } catch (error) {
+      this.logger.error('Embedding provider request failed', {
+        status: providerStatus,
+        errorType: error instanceof Error ? error.name : 'UnknownError',
+      });
+      throw new ServiceUnavailableException('Embedding provider request failed');
     }
+  }
+
+  private buildEmbeddingUrl(): string {
+    const url = new URL(this.embeddingBaseUrl.trim());
+    const basePath = url.pathname.replace(/\/+$/, '');
+    const hasVersionedOpenAiPath = /\/v\d+(?:beta\d*)?(?:\/openai)?$/i.test(basePath);
+
+    url.pathname = `${basePath}${hasVersionedOpenAiPath ? '' : '/v1'}/embeddings`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  }
+
+  private createDeterministicEmbedding(text: string): number[] {
+    const vector = new Array(AiService.EMBEDDING_DIMENSIONS).fill(0);
+    for (let index = 0; index < text.length; index++) {
+      vector[index % AiService.EMBEDDING_DIMENSIONS] += text.charCodeAt(index);
+    }
+    const length = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+    return vector.map((value) => value / length);
   }
 
   async extractText(filePath: string, mimeType: string): Promise<string> {
