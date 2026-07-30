@@ -38,6 +38,7 @@ import {
 } from '../../components/ui/page-layout';
 import {
   SidebarNav,
+  SidebarNavButton,
   SidebarNavGroup,
   SidebarNavItem,
 } from '../../components/ui/sidebar-nav';
@@ -141,12 +142,12 @@ export default function DashboardLayout({
         {/* Sidebar Footer */}
         <div className="p-4 border-t flex flex-col gap-2 shrink-0">
           <SidebarNav>
-            <SidebarNavItem onClick={toggleLanguage} icon={<Globe />}>
+            <SidebarNavButton onClick={toggleLanguage} icon={<Globe />}>
               <span className="w-full text-start inline-block">
                 {locale === 'ar' ? 'English' : 'العربية'}
               </span>
-            </SidebarNavItem>
-            <SidebarNavItem
+            </SidebarNavButton>
+            <SidebarNavButton
               onClick={logout}
               icon={<LogOut />}
               className="text-destructive hover:bg-destructive/10 hover:text-destructive w-full text-start"
@@ -154,7 +155,7 @@ export default function DashboardLayout({
               <span className="w-full text-start inline-block">
                 {t('common.logout')}
               </span>
-            </SidebarNavItem>
+            </SidebarNavButton>
           </SidebarNav>
         </div>
       </PageLayoutSidebar>

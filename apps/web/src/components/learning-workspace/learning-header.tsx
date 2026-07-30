@@ -7,11 +7,14 @@ export function LearningHeader({ documentId }: { documentId: string }) {
   return (
     <header className="flex h-14 items-center justify-between px-4 border-b bg-background shrink-0">
       <div className="flex items-center gap-4">
-        <Link href={`/read/${documentId}`}>
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-        </Link>
+        <Button
+          nativeButton={false}
+          render={<Link href={`/read/${documentId}`} />}
+          variant="ghost"
+          size="icon"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </Button>
         <h1 className="font-semibold text-sm">Learning Workspace</h1>
       </div>
       <div className="flex items-center gap-2">

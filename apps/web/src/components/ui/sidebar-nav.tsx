@@ -1,6 +1,8 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+
+const sidebarNavItemClasses =
+  "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
 
 const SidebarNav = React.forwardRef<HTMLElement, React.HTMLAttributes<HTMLElement>>(
   ({ className, ...props }, ref) => (
@@ -32,7 +34,7 @@ const SidebarNavItem = React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttri
     <a
       ref={ref}
       className={cn(
-        "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        sidebarNavItemClasses,
         active ? "bg-muted text-foreground" : "text-muted-foreground",
         className
       )}
@@ -46,4 +48,32 @@ const SidebarNavItem = React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttri
 )
 SidebarNavItem.displayName = "SidebarNavItem"
 
-export { SidebarNav, SidebarNavGroup, SidebarNavLabel, SidebarNavItem }
+const SidebarNavButton = React.forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
+>(
+  ({ className, icon, children, type = "button", ...props }, ref) => (
+    <button
+      ref={ref}
+      type={type}
+      className={cn(
+        sidebarNavItemClasses,
+        "w-full text-muted-foreground",
+        className
+      )}
+      {...props}
+    >
+      {icon && <span className="flex size-4 items-center justify-center">{icon}</span>}
+      <span className="flex-1 truncate">{children}</span>
+    </button>
+  )
+)
+SidebarNavButton.displayName = "SidebarNavButton"
+
+export {
+  SidebarNav,
+  SidebarNavButton,
+  SidebarNavGroup,
+  SidebarNavLabel,
+  SidebarNavItem,
+}

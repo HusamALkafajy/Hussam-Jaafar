@@ -62,11 +62,13 @@ export default function ExamsListPage() {
           <p className="text-sm text-slate-400 max-w-sm">
             {locale === 'ar' ? 'اذهب لصفحة ملفاتي، وافتح أي مستند لإنشاء اختبار ذكي مخصص له.' : 'Navigate to your files and open any document to create a custom AI quiz.'}
           </p>
-          <Link href="/files">
-            <Button className="mt-2 font-semibold">
-              <span>{locale === 'ar' ? 'تصفح ملفاتي' : 'Browse My Files'}</span>
-            </Button>
-          </Link>
+          <Button
+            nativeButton={false}
+            render={<Link href="/files" />}
+            className="mt-2 font-semibold"
+          >
+            <span>{locale === 'ar' ? 'تصفح ملفاتي' : 'Browse My Files'}</span>
+          </Button>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -117,14 +119,18 @@ export default function ExamsListPage() {
                   </span>
                 )}
 
-                <Link href={`/exams/${ex.id}`}>
-                  <Button size="sm" variant={ex.status === 'completed' ? 'secondary' : 'primary'} className="font-bold flex items-center gap-1">
-                    <span>
-                      {ex.status === 'completed' ? (locale === 'ar' ? 'عرض النتائج' : 'View Results') : (locale === 'ar' ? 'بدء الحل' : 'Start Exam')}
-                    </span>
-                    <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
-                  </Button>
-                </Link>
+                <Button
+                  nativeButton={false}
+                  render={<Link href={`/exams/${ex.id}`} />}
+                  size="sm"
+                  variant={ex.status === 'completed' ? 'secondary' : 'primary'}
+                  className="font-bold flex items-center gap-1"
+                >
+                  <span>
+                    {ex.status === 'completed' ? (locale === 'ar' ? 'عرض النتائج' : 'View Results') : (locale === 'ar' ? 'بدء الحل' : 'Start Exam')}
+                  </span>
+                  <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
+                </Button>
               </div>
             </Card>
           ))}

@@ -66,12 +66,15 @@ export default function AdminLayout({
                 : 'Access denied. You must be an administrator to view this page.'}
             </p>
           </div>
-          <Link href="/files" className="w-full">
-            <Button variant="primary" className="w-full gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              <span>{t('admin.backToDashboard')}</span>
-            </Button>
-          </Link>
+          <Button
+            nativeButton={false}
+            render={<Link href="/files" />}
+            variant="primary"
+            className="w-full gap-2"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>{t('admin.backToDashboard')}</span>
+          </Button>
         </div>
       </div>
     );

@@ -161,9 +161,7 @@ export default function FilesPage() {
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this file?')) return;
     try {
       await api.delete(`/files/${id}`);
@@ -257,54 +255,62 @@ export default function FilesPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {filesList.map((file) => (
-            <Link key={file.id} href={`/files/${file.id}`} className="group block">
-              <Card className="p-5 flex flex-col justify-between h-48 bg-slate-900/40 border-slate-800/45 relative">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:scale-105 transition-transform duration-200">
-                      <FileText className="w-6 h-6 animate-pulse-glow" />
-                    </div>
-                    <div className="flex flex-col min-w-0 gap-0.5">
-                      <span className="text-sm font-bold text-slate-200 group-hover:text-white truncate block">
-                        {file.originalName}
-                      </span>
-                      <span className="text-xs text-slate-500">{formatBytes(file.fileSize)}</span>
-                    </div>
-                  </div>
+            <Card
+              key={file.id}
+              className="group p-5 flex flex-col justify-between h-48 bg-slate-900/40 border-slate-800/45 relative"
+            >
+              <Link
+                href={`/files/${file.id}`}
+                className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                aria-label={`${locale === 'ar' ? 'فتح' : 'Open'} ${file.originalName}`}
+              />
 
-                  <button
-                    onClick={(e) => handleDelete(file.id, e)}
-                    className="p-1.5 rounded hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
-                    aria-label={`Delete ${file.originalName}`}
-                  >
-                    <Trash2 className="w-4.5 h-4.5" aria-hidden="true" />
-                  </button>
+              <div className="relative pointer-events-none flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:scale-105 transition-transform duration-200">
+                    <FileText className="w-6 h-6 animate-pulse-glow" />
+                  </div>
+                  <div className="flex flex-col min-w-0 gap-0.5">
+                    <span className="text-sm font-bold text-slate-200 group-hover:text-white truncate block">
+                      {file.originalName}
+                    </span>
+                    <span className="text-xs text-slate-500">{formatBytes(file.fileSize)}</span>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-slate-800/30 pt-4 mt-4 text-xs">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-slate-500">{t('files.date')}</span>
-                    <span className="text-slate-300 font-semibold">{formatDate(file.createdAt, locale)}</span>
-                  </div>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(file.id)}
+                  className="relative pointer-events-auto p-1.5 rounded hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
+                  aria-label={`Delete ${file.originalName}`}
+                >
+                  <Trash2 className="w-4.5 h-4.5" aria-hidden="true" />
+                </button>
+              </div>
 
-                  <Badge
-                    variant={
-                      file.processingStatus === 'completed'
-                        ? 'success'
-                        : file.processingStatus === 'failed'
-                        ? 'danger'
-                        : 'warning'
-                    }
-                  >
-                    {file.processingStatus === 'completed'
-                      ? t('files.statusCompleted')
+              <div className="relative pointer-events-none flex items-center justify-between border-t border-slate-800/30 pt-4 mt-4 text-xs">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-slate-500">{t('files.date')}</span>
+                  <span className="text-slate-300 font-semibold">{formatDate(file.createdAt, locale)}</span>
+                </div>
+
+                <Badge
+                  variant={
+                    file.processingStatus === 'completed'
+                      ? 'success'
                       : file.processingStatus === 'failed'
-                      ? t('files.statusFailed')
-                      : t('files.statusProcessing')}
-                  </Badge>
-                </div>
-              </Card>
-            </Link>
+                      ? 'danger'
+                      : 'warning'
+                  }
+                >
+                  {file.processingStatus === 'completed'
+                    ? t('files.statusCompleted')
+                    : file.processingStatus === 'failed'
+                    ? t('files.statusFailed')
+                    : t('files.statusProcessing')}
+                </Badge>
+              </div>
+            </Card>
           ))}
         </div>
       )}

@@ -196,9 +196,9 @@ function ExamSession({ examId }: { examId: string }) {
     return (
       <div className="text-center py-12 flex flex-col items-center gap-3">
         <p className="text-slate-400">Exam not found or access denied.</p>
-        <Link href="/exams">
-          <Button>Back to Exams</Button>
-        </Link>
+        <Button nativeButton={false} render={<Link href="/exams" />}>
+          Back to Exams
+        </Button>
       </div>
     );
   }

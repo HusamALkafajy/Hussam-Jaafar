@@ -27,11 +27,14 @@ export function UploadQueue({ variant = 'full', onSelectJob }: UploadQueueProps)
       {variant === 'compact' && (
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-bold">Recent Processing Jobs</h3>
-          <Link href="/upload">
-            <Button variant="link" className="text-primary p-0 h-auto">
-              View All Queue
-            </Button>
-          </Link>
+          <Button
+            nativeButton={false}
+            render={<Link href="/upload" />}
+            variant="link"
+            className="text-primary p-0 h-auto"
+          >
+            View All Queue
+          </Button>
         </div>
       )}
 

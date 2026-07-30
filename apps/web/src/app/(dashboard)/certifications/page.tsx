@@ -77,11 +77,14 @@ export default function CertificationsPage() {
                 : 'You will receive an official verifiable certification upon successfully completing all learning path stage projects.'}
             </p>
           </div>
-          <Link href="/learning-paths" className="mt-2">
-            <Button variant="primary" className="font-bold cursor-pointer">
-              <span>{locale === 'ar' ? 'استكشف مسارات التعلم' : 'Explore Learning Paths'}</span>
-            </Button>
-          </Link>
+          <Button
+            nativeButton={false}
+            render={<Link href="/learning-paths" />}
+            variant="primary"
+            className="mt-2 font-bold cursor-pointer"
+          >
+            <span>{locale === 'ar' ? 'استكشف مسارات التعلم' : 'Explore Learning Paths'}</span>
+          </Button>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -118,12 +121,15 @@ export default function CertificationsPage() {
               </div>
 
               <div className="flex items-center gap-3 border-t border-slate-800/30 pt-4">
-                <Link href={`/verify/${cert.certificateHash}`} target="_blank" className="flex-1">
-                  <Button variant="secondary" className="w-full text-xs font-bold border-slate-800 text-slate-400 hover:text-white cursor-pointer py-2">
-                    <ExternalLink className="w-3.5 h-3.5 mr-1.5 rtl:ml-1.5" />
-                    <span>{locale === 'ar' ? 'عرض الشهادة' : 'View Credential'}</span>
-                  </Button>
-                </Link>
+                <Button
+                  nativeButton={false}
+                  render={<Link href={`/verify/${cert.certificateHash}`} target="_blank" />}
+                  variant="secondary"
+                  className="flex-1 w-full text-xs font-bold border-slate-800 text-slate-400 hover:text-white cursor-pointer py-2"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 mr-1.5 rtl:ml-1.5" />
+                  <span>{locale === 'ar' ? 'عرض الشهادة' : 'View Credential'}</span>
+                </Button>
                 <Button
                   onClick={() => handleCopyLink(cert.certificateHash, cert.id)}
                   variant="secondary"

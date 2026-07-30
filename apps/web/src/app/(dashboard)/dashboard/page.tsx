@@ -109,11 +109,14 @@ export default function DashboardPage() {
             <Section>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold">Recent Subjects</h3>
-                <Link href="/subjects">
-                  <Button variant="link" className="text-primary p-0">
-                    View All <ArrowRight className="ms-1 w-4 h-4 rtl:-scale-x-100" />
-                  </Button>
-                </Link>
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/subjects" />}
+                  variant="link"
+                  className="text-primary p-0"
+                >
+                  View All <ArrowRight className="ms-1 w-4 h-4 rtl:-scale-x-100" />
+                </Button>
               </div>
               <Grid cols={1} gap={4}>
                 {data.recentSubjects.map(subject => (
@@ -140,12 +143,15 @@ export default function DashboardPage() {
                 <CardTitle className="text-lg">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                <Link href="/upload">
-                  <Button className="w-full justify-start" size="lg">
-                    <Upload className="me-2 w-4 h-4" />
-                    Upload New File
-                  </Button>
-                </Link>
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/upload" />}
+                  className="w-full justify-start"
+                  size="lg"
+                >
+                  <Upload className="me-2 w-4 h-4" />
+                  Upload New File
+                </Button>
                 <Button variant="outline" className="w-full justify-start" size="lg">
                   <Bot className="me-2 w-4 h-4" />
                   Chat with AI Tutor

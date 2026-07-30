@@ -141,12 +141,15 @@ function FileHeader({
             </Button>
           )}
           {file.processingStatus === 'completed' && (
-            <Link href={`/tutor/${file.id}`}>
-              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-600/20">
-                <Brain className="w-4 h-4 mr-1.5" />
-                {locale === 'ar' ? 'المعلم الذكي' : 'AI Tutor'}
-              </Button>
-            </Link>
+            <Button
+              nativeButton={false}
+              render={<Link href={`/tutor/${file.id}`} />}
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-600/20"
+            >
+              <Brain className="w-4 h-4 mr-1.5" />
+              {locale === 'ar' ? 'المعلم الذكي' : 'AI Tutor'}
+            </Button>
           )}
         </div>
       </div>
@@ -555,12 +558,10 @@ export default function FileDetailPage({ params }: PageProps) {
           <h3 className="text-base font-bold text-white mb-1">File not found</h3>
           <p className="text-sm text-slate-400">This file may have been deleted or you don't have access.</p>
         </div>
-        <Link href="/files">
-          <Button>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Files
-          </Button>
-        </Link>
+        <Button nativeButton={false} render={<Link href="/files" />}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Files
+        </Button>
       </div>
     );
   }
@@ -863,13 +864,16 @@ export default function FileDetailPage({ params }: PageProps) {
                             {locale === 'ar' ? 'في التقدم' : 'In Progress'}
                           </span>
                         )}
-                        <Link href={`/exams/${ex.id}`}>
-                          <Button size="sm" variant={ex.status === 'completed' ? 'secondary' : 'primary'}>
-                            {ex.status === 'completed'
-                              ? (locale === 'ar' ? 'عرض النتائج' : 'View Results')
-                              : (locale === 'ar' ? 'حل الاختبار' : 'Take Exam')}
-                          </Button>
-                        </Link>
+                        <Button
+                          nativeButton={false}
+                          render={<Link href={`/exams/${ex.id}`} />}
+                          size="sm"
+                          variant={ex.status === 'completed' ? 'secondary' : 'primary'}
+                        >
+                          {ex.status === 'completed'
+                            ? (locale === 'ar' ? 'عرض النتائج' : 'View Results')
+                            : (locale === 'ar' ? 'حل الاختبار' : 'Take Exam')}
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -964,11 +968,14 @@ export default function FileDetailPage({ params }: PageProps) {
                         <span className="text-xs text-slate-500">
                           {set.reviewCount} {locale === 'ar' ? 'مراجعة' : 'reviews'}
                         </span>
-                        <Link href={`/flashcards/${set.id}`}>
-                          <Button size="sm" variant="primary">
-                            {locale === 'ar' ? 'بدء المراجعة' : 'Start Review'}
-                          </Button>
-                        </Link>
+                        <Button
+                          nativeButton={false}
+                          render={<Link href={`/flashcards/${set.id}`} />}
+                          size="sm"
+                          variant="primary"
+                        >
+                          {locale === 'ar' ? 'بدء المراجعة' : 'Start Review'}
+                        </Button>
                       </div>
                     </div>
                   ))}

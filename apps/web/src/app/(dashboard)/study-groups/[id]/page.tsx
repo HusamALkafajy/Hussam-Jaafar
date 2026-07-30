@@ -377,10 +377,12 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
       {/* ── Top bar ── */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-800/40 mb-0">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href="/study-groups">
-            <button className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
-              <ArrowLeft className="w-4 h-4" />
-            </button>
+          <Link
+            href="/study-groups"
+            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition"
+            aria-label={locale === 'ar' ? 'العودة للمجموعات' : 'Back to Groups'}
+          >
+            <ArrowLeft className="w-4 h-4" />
           </Link>
           <div className="min-w-0">
             <h2 className="font-bold text-white text-base leading-tight truncate">{group.name}</h2>
@@ -490,11 +492,12 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
                     <span className="text-[10px] text-slate-500">{formatFileSize(file.fileSize)}</span>
                     <div className="flex gap-1.5">
                       {/* Chat with this shared file */}
-                      <Link href={`/chat?fileId=${file.fileId}`} className="flex-1">
-                        <button className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-violet-600/20 border border-violet-500/30 hover:bg-violet-600/30 text-violet-300 text-[10px] font-semibold transition">
-                          <MessageCircle className="w-3 h-3" />
-                          {locale === 'ar' ? 'محادثة' : 'Chat'}
-                        </button>
+                      <Link
+                        href={`/chat?fileId=${file.fileId}`}
+                        className="flex-1 w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-violet-600/20 border border-violet-500/30 hover:bg-violet-600/30 text-violet-300 text-[10px] font-semibold transition"
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                        {locale === 'ar' ? 'محادثة' : 'Chat'}
                       </Link>
 
                       {/* Unshare — only for owner/admin or the uploader */}

@@ -60,9 +60,9 @@ export default function FlashcardReviewPage({ params }: PageProps) {
     return (
       <div className="text-center py-12 flex flex-col items-center gap-3">
         <p className="text-slate-400">No cards in this set.</p>
-        <Link href="/flashcards">
-          <Button>Back to Sets</Button>
-        </Link>
+        <Button nativeButton={false} render={<Link href="/flashcards" />}>
+          Back to Sets
+        </Button>
       </div>
     );
   }
@@ -178,11 +178,14 @@ export default function FlashcardReviewPage({ params }: PageProps) {
               <RefreshCw className="w-4 h-4" />
               <span>{locale === 'ar' ? 'دراسة مجدداً' : 'Study Again'}</span>
             </Button>
-            <Link href={`/files/${set.fileId}`}>
-              <Button variant="primary" className="font-bold">
-                <span>{locale === 'ar' ? 'العودة للمستند' : 'Back to Document'}</span>
-              </Button>
-            </Link>
+            <Button
+              nativeButton={false}
+              render={<Link href={`/files/${set.fileId}`} />}
+              variant="primary"
+              className="font-bold"
+            >
+              <span>{locale === 'ar' ? 'العودة للمستند' : 'Back to Document'}</span>
+            </Button>
           </div>
         </Card>
       ) : (

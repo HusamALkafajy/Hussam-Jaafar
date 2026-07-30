@@ -25,12 +25,16 @@ export function ReaderHeader() {
           <SidebarIcon className="size-5" />
         </Button>
         <div className="h-4 w-px bg-border mx-1" />
-        <Link href="/dashboard">
-          <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="size-4" />
-            <span className="hidden sm:inline">Exit Reader</span>
-          </Button>
-        </Link>
+        <Button
+          nativeButton={false}
+          render={<Link href="/dashboard" />}
+          variant="ghost"
+          size="sm"
+          className="gap-2 text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          <span className="hidden sm:inline">Exit Reader</span>
+        </Button>
       </div>
 
       {/* Center: Document Title & Current Heading */}

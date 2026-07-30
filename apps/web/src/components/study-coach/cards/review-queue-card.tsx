@@ -20,11 +20,14 @@ export const ReviewQueueCard: React.FC<CoachCardProps> = ({ insight }) => {
         <CardDescription>{insight.description}</CardDescription>
       </CardHeader>
       <CardContent>
-        <Link href={`/learn/review`}>
-          <Button variant="outline" className="w-full">
-            Start Reviews ({queue.length})
-          </Button>
-        </Link>
+        <Button
+          nativeButton={false}
+          render={<Link href="/learn/review" />}
+          variant="outline"
+          className="w-full"
+        >
+          Start Reviews ({queue.length})
+        </Button>
       </CardContent>
     </Card>
   );

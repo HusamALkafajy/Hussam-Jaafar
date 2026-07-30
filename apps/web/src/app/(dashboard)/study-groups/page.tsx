@@ -339,13 +339,16 @@ function GroupCard({
           <Clock className="w-3 h-3" />
           {new Date(group.updatedAt).toLocaleDateString(locale)}
         </span>
-        <Link href={`/study-groups/${group.id}`}>
-          <Button size="sm" className="font-bold flex items-center gap-1.5">
-            <MessageSquare className="w-3.5 h-3.5" />
-            {locale === 'ar' ? 'فتح' : 'Open'}
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Button>
-        </Link>
+        <Button
+          nativeButton={false}
+          render={<Link href={`/study-groups/${group.id}`} />}
+          size="sm"
+          className="font-bold flex items-center gap-1.5"
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          {locale === 'ar' ? 'فتح' : 'Open'}
+          <ChevronRight className="w-3.5 h-3.5" />
+        </Button>
       </div>
     </Card>
   );

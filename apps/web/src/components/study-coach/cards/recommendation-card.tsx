@@ -26,11 +26,14 @@ export const RecommendationCard: React.FC<CoachCardProps> = ({ insight }) => {
         </CardDescription>
       </CardHeader>
       <CardFooter>
-        <Link href={`/learn/${rec?.targetId}`} className="w-full">
-          <Button className="w-full gap-2" variant="default">
-            Start {rec?.targetType} <ArrowRight className="w-4 h-4" />
-          </Button>
-        </Link>
+        <Button
+          nativeButton={false}
+          render={<Link href={`/learn/${rec?.targetId}`} />}
+          className="w-full gap-2"
+          variant="default"
+        >
+          Start {rec?.targetType} <ArrowRight className="w-4 h-4" />
+        </Button>
       </CardFooter>
     </Card>
   );

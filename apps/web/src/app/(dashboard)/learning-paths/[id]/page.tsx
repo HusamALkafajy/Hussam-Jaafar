@@ -163,9 +163,9 @@ export default function LearningPathDetailPage({ params }: PageProps) {
     return (
       <div className="text-center py-12 flex flex-col items-center gap-3">
         <p className="text-slate-400">{locale === 'ar' ? 'مسار التعلم غير موجود' : 'Learning path not found.'}</p>
-        <Link href="/learning-paths">
-          <Button>{locale === 'ar' ? 'العودة للمسارات' : 'Back to Paths'}</Button>
-        </Link>
+        <Button nativeButton={false} render={<Link href="/learning-paths" />}>
+          {locale === 'ar' ? 'العودة للمسارات' : 'Back to Paths'}
+        </Button>
       </div>
     );
   }

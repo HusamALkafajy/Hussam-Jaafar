@@ -212,9 +212,9 @@ export default function ChatConversationPage({ params }: PageProps) {
         <p className="text-slate-400">
           {locale === 'ar' ? 'المحادثة غير موجودة.' : 'Conversation not found.'}
         </p>
-        <Link href="/chat">
-          <Button>{locale === 'ar' ? 'العودة للمحادثات' : 'Back to Chats'}</Button>
-        </Link>
+        <Button nativeButton={false} render={<Link href="/chat" />}>
+          {locale === 'ar' ? 'العودة للمحادثات' : 'Back to Chats'}
+        </Button>
       </div>
     );
   }

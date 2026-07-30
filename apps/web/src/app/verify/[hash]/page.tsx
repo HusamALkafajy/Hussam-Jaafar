@@ -68,10 +68,11 @@ export default function PublicCertificateVerificationPage({ params }: PageProps)
           <div className="w-full font-mono text-[9px] bg-slate-950 p-2 border border-slate-850 text-slate-500 rounded break-words select-all leading-relaxed">
             {hash}
           </div>
-          <Link href="/" className="mt-2 w-full">
-            <button className="w-full py-2 border border-slate-850 hover:bg-slate-800 text-xs font-bold rounded-lg cursor-pointer transition-colors text-slate-300">
-              {locale === 'ar' ? 'العودة للرئيسية' : 'Go to StudyAI'}
-            </button>
+          <Link
+            href="/"
+            className="mt-2 w-full py-2 border border-slate-850 hover:bg-slate-800 text-xs font-bold rounded-lg cursor-pointer transition-colors text-slate-300"
+          >
+            {locale === 'ar' ? 'العودة للرئيسية' : 'Go to StudyAI'}
           </Link>
         </Card>
       ) : (

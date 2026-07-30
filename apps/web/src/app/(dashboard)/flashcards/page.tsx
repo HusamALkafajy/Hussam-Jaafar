@@ -62,11 +62,13 @@ export default function FlashcardsListPage() {
           <p className="text-sm text-slate-400 max-w-sm">
             {locale === 'ar' ? 'اذهب لصفحة ملفاتي، وافتح أي مستند لإنشاء بطاقات مراجعة ذكية له.' : 'Navigate to your files and open any document to auto-generate a set of flashcards.'}
           </p>
-          <Link href="/files">
-            <Button className="mt-2 font-semibold">
-              <span>{locale === 'ar' ? 'تصفح ملفاتي' : 'Browse My Files'}</span>
-            </Button>
-          </Link>
+          <Button
+            nativeButton={false}
+            render={<Link href="/files" />}
+            className="mt-2 font-semibold"
+          >
+            <span>{locale === 'ar' ? 'تصفح ملفاتي' : 'Browse My Files'}</span>
+          </Button>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -112,11 +114,14 @@ export default function FlashcardsListPage() {
                   {locale === 'ar' ? `عدد المراجعات: ${set.reviewCount}` : `Reviews: ${set.reviewCount}`}
                 </span>
 
-                <Link href={`/flashcards/${set.id}`}>
-                  <Button size="sm" className="font-bold flex items-center gap-1">
-                    <span>{locale === 'ar' ? 'بدء المراجعة' : 'Start Review'}</span>
-                  </Button>
-                </Link>
+                <Button
+                  nativeButton={false}
+                  render={<Link href={`/flashcards/${set.id}`} />}
+                  size="sm"
+                  className="font-bold flex items-center gap-1"
+                >
+                  <span>{locale === 'ar' ? 'بدء المراجعة' : 'Start Review'}</span>
+                </Button>
               </div>
             </Card>
           ))}

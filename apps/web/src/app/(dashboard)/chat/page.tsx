@@ -218,12 +218,15 @@ export default function ChatSessionsPage() {
                 </div>
               </div>
 
-              <Link href={`/chat/${session.id}`}>
-                <Button size="sm" className="w-full font-bold flex items-center justify-center gap-1">
-                  <span>{locale === 'ar' ? 'فتح المحادثة' : 'Open Chat'}</span>
-                  <ChevronRight className="w-4 h-4 rtl-flip" />
-                </Button>
-              </Link>
+              <Button
+                nativeButton={false}
+                render={<Link href={`/chat/${session.id}`} />}
+                size="sm"
+                className="w-full font-bold flex items-center justify-center gap-1"
+              >
+                <span>{locale === 'ar' ? 'فتح المحادثة' : 'Open Chat'}</span>
+                <ChevronRight className="w-4 h-4 rtl-flip" />
+              </Button>
             </Card>
           ))}
         </div>
