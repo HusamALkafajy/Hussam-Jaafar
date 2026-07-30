@@ -19,8 +19,6 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     const authHeader = request.headers?.authorization;
     if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
       token = authHeader.substring(7);
-    } else if (request.cookies && request.cookies['access_token']) {
-      token = request.cookies['access_token'];
     }
 
     if (token) {

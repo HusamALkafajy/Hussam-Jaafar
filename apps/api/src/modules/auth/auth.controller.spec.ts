@@ -36,6 +36,7 @@ const mockAuthService = {
   login: jest.fn().mockResolvedValue(mockTokenPair),
   refresh: jest.fn().mockResolvedValue(mockTokenPair),
   logout: jest.fn().mockResolvedValue(undefined),
+  logoutWithRefreshToken: jest.fn().mockResolvedValue(undefined),
   setAuthCookies: jest.fn(),
   clearAuthCookies: jest.fn(),
 };
@@ -251,6 +252,29 @@ describe('AuthController — token transport contract', () => {
         expect.objectContaining({ httpOnly: false, sameSite: 'lax' }),
       );
       expect(cookies.find((c) => c.name === 'access_token')).toBeUndefined();
+    });
+  });
+
+  describe('POST /auth/logout', () => {
+    it('revokes the refresh-cookie session before clearing authentication cookies', async () => {
+      const res = makeMockResponse();
+      await controller.logout(
+        { cookies: { refresh_token: 'valid-cookie-refresh-token' } } as any,
+        res as any,
+      );
+
+      expect(mockAuthService.logoutWithRefreshToken).toHaveBeenCalledWith(
+        'valid-cookie-refresh-token',
+      );
+      expect(mockAuthService.clearAuthCookies).toHaveBeenCalledWith(res);
+    });
+
+    it('remains idempotent when no refresh cookie is present', async () => {
+      const res = makeMockResponse();
+      await controller.logout({ cookies: {} } as any, res as any);
+
+      expect(mockAuthService.logoutWithRefreshToken).not.toHaveBeenCalled();
+      expect(mockAuthService.clearAuthCookies).toHaveBeenCalledWith(res);
     });
   });
 });

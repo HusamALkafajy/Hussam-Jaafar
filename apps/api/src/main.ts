@@ -12,6 +12,7 @@ import { TelemetryInterceptor } from './modules/telemetry/telemetry.interceptor'
 import { requestContextMiddleware } from './common/request-context';
 import { StructuredLogger } from './common/logging/structured-logger';
 import { reportBootstrapFailure } from './common/bootstrap/bootstrap-failure';
+import { createCsrfProtectionMiddleware } from './common/middleware/csrf-protection.middleware';
 
 // Bootstrap runs before ConfigService is available to dependency injection.
 // eslint-disable-next-line no-restricted-syntax
@@ -36,25 +37,13 @@ export async function bootstrap() {
   app.use(helmet());
   app.use(cookieParser());
 
-  // Simple double-submit CSRF protection middleware for state-changing requests.
-  // Expects client to read `csrf_token` cookie and send it in `X-CSRF-Token` header.
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const method = req.method && req.method.toUpperCase();
-    const csrfRequired = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
-    if (!csrfRequired) return next();
-
-    // Only require CSRF for requests where the client already has an access token (authenticated)
-    const hasAccessCookie = !!(req.cookies && req.cookies['access_token']);
-    if (!hasAccessCookie) return next();
-
-    const headerToken = req.get('x-csrf-token');
-    const cookieToken = req.cookies && req.cookies['csrf_token'];
-
-    if (!headerToken || !cookieToken || headerToken !== cookieToken) {
-      return res.status(403).json({ success: false, message: 'Invalid CSRF token' });
-    }
-    return next();
-  });
+  app.use(
+    createCsrfProtectionMiddleware([
+      frontendUrl,
+      'http://localhost:3000',
+      'http://localhost:3001',
+    ]),
+  );
 
   // 2. CORS
   app.enableCors({

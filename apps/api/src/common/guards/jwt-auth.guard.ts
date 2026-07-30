@@ -17,7 +17,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   ): boolean | Promise<boolean> | Observable<boolean> {
     const request = context.switchToHttp().getRequest();
     const hasAuthHeader = !!request.headers['authorization'];
-    const hasAccessTokenCookie = !!(request.cookies && request.cookies['access_token']);
 
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -25,7 +24,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     ]);
     this.logger.debug('JWT authentication guard evaluated', {
       authHeaderPresent: hasAuthHeader,
-      accessTokenCookiePresent: hasAccessTokenCookie,
       publicRoute: isPublic,
     });
     if (isPublic) {

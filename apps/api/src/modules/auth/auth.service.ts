@@ -133,20 +133,7 @@ export class AuthService {
 
   async refresh(refreshToken: string) {
     try {
-      const payload = await this.jwtService.verifyAsync(refreshToken, {
-        secret: this.configService.get<string>('auth.jwtRefreshSecret'),
-      });
-
-      const user = await this.usersService.findById(payload.sub);
-      if (!user || !user.refreshTokenHash) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
-      if (!isMatch) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
+      const user = await this.getUserForRefreshToken(refreshToken);
       return this.login(user);
     } catch (e) {
       throw new UnauthorizedException('Invalid refresh token');
@@ -155,6 +142,19 @@ export class AuthService {
 
   async logout(userId: string) {
     await this.usersService.updateRefreshTokenHash(userId, null);
+  }
+
+  async logoutWithRefreshToken(refreshToken: string) {
+    try {
+      const user = await this.getUserForRefreshToken(refreshToken);
+      await this.logout(user.id);
+    } catch (error) {
+      if (!(error instanceof UnauthorizedException)) {
+        throw error;
+      }
+      // Logout remains idempotent: an expired or already-revoked cookie is
+      // cleared by the controller without disclosing token validity.
+    }
   }
 
   async verifyEmail(token: string) {
@@ -267,6 +267,29 @@ export class AuthService {
   clearAuthCookies(response: Response) {
     response.clearCookie('refresh_token', { path: '/' });
     response.clearCookie('csrf_token', { path: '/' });
+  }
+
+  private async getUserForRefreshToken(refreshToken: string): Promise<AuthUser> {
+    let payload: { sub: string };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.configService.get<string>('auth.jwtRefreshSecret'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.usersService.findById(payload.sub) as AuthUser | null;
+    if (!user || !user.refreshTokenHash) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+    if (!isMatch) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    return user;
   }
 
   private async sendVerificationEmail(email: string, name: string, token: string) {
