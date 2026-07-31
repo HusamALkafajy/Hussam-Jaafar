@@ -1,5 +1,6 @@
-# Production Dockerfile for NestJS API Backend
-# Multi-stage build leveraging Turborepo pruning for minimal image size.
+# Production Dockerfile for the NestJS API and its embedded worker runtime.
+# The final runner contains only the deployed API dependency tree. A separate
+# migrator target retains Drizzle Kit solely for the one-shot migration service.
 
 # Stage 1: Prune monorepo
 FROM node:22-alpine AS pruner
@@ -20,8 +21,11 @@ COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=pruner /app/out/pnpm-workspace.yaml ./pnpm-workspace.yaml
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Keep a BuildKit package cache so the production deployment step can reuse
+# downloaded packages and transient registry failures do not discard an
+# otherwise completed dependency download.
+RUN --mount=type=cache,id=studyai-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store
 
 # Stage 3: Build the application
 FROM node:22-alpine AS builder
@@ -37,29 +41,33 @@ COPY turbo.json turbo.json
 # Build NestJS API & dependencies (like database package)
 RUN pnpm --filter @studyai/infrastructure exec prisma generate
 RUN pnpm exec turbo build --filter=@studyai/api...
+RUN --mount=type=cache,id=studyai-pnpm-store,target=/pnpm/store \
+    pnpm --store-dir /pnpm/store --prefer-offline --filter @studyai/api --prod deploy /app/deploy
 
-# Stage 4: Production runner
-FROM node:22-alpine AS runner
-RUN apk add --no-cache openssl
+# Shared non-root runtime base.
+FROM node:22-alpine AS runtime-base
+RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=4000
+ENV APP_PORT=4000
 
 RUN addgroup --system --gid 1001 nestjs
 RUN adduser --system --uid 1001 api
 
-# Copy package lockfiles and workspace dependencies
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
-COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+# One-shot migration image. It intentionally includes Drizzle Kit but is never
+# used as the long-running API runtime.
+FROM runtime-base AS migrator
+COPY --from=builder --chown=api:nestjs /app/node_modules ./node_modules
+COPY --from=builder --chown=api:nestjs /app/packages/database ./packages/database
 
-# Copy node_modules tree (pre-installed in stage 2 and built in stage 3)
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
-COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
+USER api
+
+CMD ["node", "packages/database/scripts/run-drizzle-kit.cjs", "migrate"]
+
+# Long-running API image with the production-only deployed API tree.
+FROM runtime-base AS runner
+COPY --from=builder --chown=api:nestjs /app/deploy ./apps/api
 
 # Ensure upload directory exists and is owned by the app user
 RUN mkdir -p /app/apps/api/uploads && chown -R api:nestjs /app/apps/api/uploads
@@ -68,5 +76,6 @@ USER api
 
 EXPOSE 4000
 
-# Start NestJS production build launcher
+# Start the NestJS production build. The embedded WorkerRuntime starts during
+# application bootstrap and stays in this same process.
 CMD ["node", "apps/api/dist/main.js"]

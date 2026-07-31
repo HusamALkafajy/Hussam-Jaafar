@@ -45,7 +45,19 @@ export class InfrastructureBootstrap {
       })
 
       .register('RedisClient', {
-        factory: () => new Redis(process.env.REDIS_URL || 'redis://localhost:6379', { maxRetriesPerRequest: null })
+        factory: () => {
+          const options = { maxRetriesPerRequest: null };
+          if (process.env.REDIS_URL) {
+            return new Redis(process.env.REDIS_URL, options);
+          }
+
+          return new Redis({
+            ...options,
+            host: process.env.REDIS_HOST || 'localhost',
+            port: parseInt(process.env.REDIS_PORT || '6379', 10),
+            password: process.env.REDIS_PASSWORD || undefined,
+          });
+        },
       })
       .register('IDomainCacheService', {
         dependencies: ['RedisClient'],

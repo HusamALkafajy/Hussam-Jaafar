@@ -14,6 +14,7 @@ build/
 # Environment
 .env
 .env.local
+.env.staging
 .env.*.local
 # Local test environment files — contain real DB credentials, must never be committed
 apps/api/.env.test

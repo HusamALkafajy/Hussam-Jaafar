@@ -24,6 +24,10 @@ export async function bootstrap() {
     logger: appLogger,
     abortOnError: false,
   });
+  // Docker delivers SIGTERM during a controlled restart. Enable Nest's signal
+  // hooks so the existing infrastructure lifecycle can drain the worker and
+  // close Prisma, Redis, BullMQ, and Drizzle connections.
+  app.enableShutdownHooks();
   const configService = app.get(ConfigService);
 
   // Stripe webhook needs raw body for signature verification — must be before other body parsers

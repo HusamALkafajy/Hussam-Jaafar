@@ -1,0 +1,143 @@
+name: studyai-private-alpha
+
+# Private Alpha VPS baseline. The Next.js frontend is hosted separately on
+# Vercel, PostgreSQL is supplied by Supabase, and the worker remains embedded
+# in the API process because that is the current application runtime contract.
+services:
+  studyai-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - noeviction
+      - --save
+      - "60"
+      - "1000"
+    volumes:
+      - studyai-redis-data:/data
+    networks:
+      - studyai-private
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+        reservations:
+          memory: 64M
+
+  studyai-api:
+    image: studyai-api:private-alpha
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+      target: runner
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    env_file:
+      - .env.staging
+    environment:
+      NODE_ENV: production
+      APP_PORT: "4000"
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      REDIS_HOST: studyai-redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      STORAGE_PATH: /app/apps/api/uploads
+    ports:
+      - "127.0.0.1:${API_PORT:?API_PORT must be set}:4000"
+    volumes:
+      # Local uploads are for disposable smoke validation only until the
+      # object-storage adapter is implemented. Do not use for user documents.
+      - studyai-upload-validation:/app/apps/api/uploads
+    depends_on:
+      studyai-redis:
+        condition: service_healthy
+    networks:
+      - studyai-private
+      - studyai-egress
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "0.75"
+        reservations:
+          memory: 256M
+
+  studyai-migrate:
+    image: studyai-migrate:private-alpha
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+      target: migrator
+    profiles: ["migration"]
+    restart: "no"
+    init: true
+    env_file:
+      - .env.staging
+    environment:
+      # The migration service deliberately receives no DATABASE_URL, so its
+      # Drizzle wrapper cannot fall back to the pooled Prisma runtime URL.
+      DRIZZLE_DATABASE_URL: ${DRIZZLE_DATABASE_URL:?DRIZZLE_DATABASE_URL must be set}
+    networks:
+      - studyai-egress
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  # Redis has no route to the internet. The API joins this network to reach
+  # Redis, then uses the separate egress network for Supabase and providers.
+  studyai-private:
+    internal: true
+  studyai-egress:
+    driver: bridge
+
+volumes:
+  studyai-redis-data:
+  studyai-upload-validation:
