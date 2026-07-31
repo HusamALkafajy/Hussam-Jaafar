@@ -44,6 +44,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '../../../components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
+
+const ALL_SUBJECTS_VALUE = '__all-subjects__';
+const ALL_FILE_TYPES_VALUE = '__all-file-types__';
+const NO_SUBJECT_VALUE = '__no-subject__';
 
 export default function FilesPage() {
   const router = useRouter();
@@ -297,30 +308,81 @@ export default function FilesPage() {
         </div>
 
         {/* Subject Filter */}
-        <select
-          value={subjectId}
-          onChange={(e) => setSubjectId(e.target.value)}
-          className="px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500 transition-colors"
-        >
-          <option value="">{t('files.allSubjects')}</option>
-          {subjectsList.map((subject) => (
-            <option key={subject.id} value={subject.id}>
-              {subject.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span
+            id="files-subject-filter-label"
+            className="text-xs font-bold text-slate-400"
+          >
+            {locale === 'ar' ? 'تصفية حسب المادة' : 'Subject filter'}
+          </span>
+          <Select
+            value={subjectId || ALL_SUBJECTS_VALUE}
+            onValueChange={(value) =>
+              setSubjectId(value === ALL_SUBJECTS_VALUE || value === null ? '' : value)
+            }
+          >
+            <SelectTrigger
+              aria-labelledby="files-subject-filter-label"
+              className="h-10 w-full min-w-0 bg-slate-900/60 px-3.5 py-2.5 text-slate-300"
+            >
+              <SelectValue>
+                {subjectId
+                  ? subjectsList.find((subject) => subject.id === subjectId)?.name ??
+                    t('files.allSubjects')
+                  : t('files.allSubjects')}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+              <SelectItem value={ALL_SUBJECTS_VALUE}>
+                {t('files.allSubjects')}
+              </SelectItem>
+              {subjectsList.map((subject) => (
+                <SelectItem key={subject.id} value={subject.id}>
+                  {subject.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* File Type Filter */}
-        <select
-          value={fileType}
-          onChange={(e) => setFileType(e.target.value)}
-          className="px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500 transition-colors"
-        >
-          <option value="">{t('files.allTypes')}</option>
-          <option value="pdf">PDF</option>
-          <option value="docx">Word</option>
-          <option value="image">Image</option>
-        </select>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span
+            id="files-type-filter-label"
+            className="text-xs font-bold text-slate-400"
+          >
+            {locale === 'ar' ? 'تصفية حسب نوع الملف' : 'File type filter'}
+          </span>
+          <Select
+            value={fileType || ALL_FILE_TYPES_VALUE}
+            onValueChange={(value) =>
+              setFileType(value === ALL_FILE_TYPES_VALUE || value === null ? '' : value)
+            }
+          >
+            <SelectTrigger
+              aria-labelledby="files-type-filter-label"
+              className="h-10 w-full min-w-0 bg-slate-900/60 px-3.5 py-2.5 text-slate-300"
+            >
+              <SelectValue>
+                {fileType === 'pdf'
+                  ? 'PDF'
+                  : fileType === 'docx'
+                    ? 'Word'
+                    : fileType === 'image'
+                      ? 'Image'
+                      : t('files.allTypes')}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+              <SelectItem value={ALL_FILE_TYPES_VALUE}>
+                {t('files.allTypes')}
+              </SelectItem>
+              <SelectItem value="pdf">PDF</SelectItem>
+              <SelectItem value="docx">Word</SelectItem>
+              <SelectItem value="image">Image</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Files List / Grid */}
@@ -479,26 +541,43 @@ export default function FilesPage() {
           <form onSubmit={handleUploadSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <label
+                id="upload-subject-label"
                 htmlFor="upload-subject"
                 className="text-sm font-medium text-slate-300"
               >
                 {t('files.subject')}
               </label>
-              <select
-                id="upload-subject"
-                value={uploadSubjectId}
-                onChange={(e) => setUploadSubjectId(e.target.value)}
-                className="px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500 transition-colors"
+              <Select
+                value={uploadSubjectId || NO_SUBJECT_VALUE}
+                onValueChange={(value) =>
+                  setUploadSubjectId(value === NO_SUBJECT_VALUE || value === null ? '' : value)
+                }
               >
-                <option value="">
-                  {locale === 'ar' ? 'بلا مادة' : 'No Subject'}
-                </option>
-                {subjectsList.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  id="upload-subject"
+                  aria-labelledby="upload-subject-label"
+                  className="h-10 w-full min-w-0 bg-slate-900/60 px-3.5 py-2.5 text-slate-300"
+                >
+                  <SelectValue>
+                    {uploadSubjectId
+                      ? subjectsList.find((subject) => subject.id === uploadSubjectId)?.name ??
+                        (locale === 'ar' ? 'بلا مادة' : 'No Subject')
+                      : locale === 'ar'
+                        ? 'بلا مادة'
+                        : 'No Subject'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+                  <SelectItem value={NO_SUBJECT_VALUE}>
+                    {locale === 'ar' ? 'بلا مادة' : 'No Subject'}
+                  </SelectItem>
+                  {subjectsList.map((subject) => (
+                    <SelectItem key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <label

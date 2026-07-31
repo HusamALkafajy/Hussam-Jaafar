@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   apiDelete: vi.fn(),
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  locale: 'en' as 'ar' | 'en',
   push: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
@@ -58,7 +59,7 @@ const translations: Record<string, string> = {
 
 vi.mock('../src/hooks/use-locale', () => ({
   useLocale: () => ({
-    locale: 'en',
+    locale: mocks.locale,
     t: (key: string) => translations[key] ?? key,
   }),
 }));
@@ -94,6 +95,7 @@ describe('files and legacy navigation semantics', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.locale = 'en';
     consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
@@ -112,7 +114,10 @@ describe('files and legacy navigation semantics', () => {
       }
 
       if (url === '/subjects') {
-        return Promise.resolve([]);
+        return Promise.resolve([
+          { id: 'subject-physics', name: 'Physics' },
+          { id: 'subject-math', name: 'Mathematics' },
+        ]);
       }
 
       return Promise.reject(new Error(`Unexpected GET ${url}`));
@@ -222,6 +227,9 @@ describe('files and legacy navigation semantics', () => {
     expect(fileInput.getAttribute('accept')).toBe('.pdf,.docx,image/*');
     expect(accessibleDescription(fileInput)).toBe('PDF, Word, or image');
     expect(screen.getByRole('button', { name: 'Close' })).not.toBeNull();
+    expect(
+      screen.getByRole('combobox', { name: 'Subject' }).textContent,
+    ).toContain('No Subject');
 
     const submit = screen.getByRole('button', {
       name: 'Start Upload & Analysis',
@@ -237,6 +245,73 @@ describe('files and legacy navigation semantics', () => {
       expect(screen.queryByRole('dialog')).toBeNull(),
     );
     expect(document.activeElement).toBe(uploadAction);
+  });
+
+  it('keeps the files filters labeled, keyboard operable, and independent', async () => {
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+
+    const subjectFilter = screen.getByRole('combobox', {
+      name: 'Subject filter',
+    });
+    const typeFilter = screen.getByRole('combobox', {
+      name: 'File type filter',
+    });
+
+    expect(subjectFilter.textContent).toContain('All subjects');
+    expect(typeFilter.textContent).toContain('All types');
+    expect(subjectFilter.getAttribute('aria-expanded')).toBe('false');
+
+    subjectFilter.focus();
+    await user.keyboard('{Enter}');
+    expect(subjectFilter.getAttribute('aria-expanded')).toBe('true');
+    expect(await screen.findByRole('listbox')).not.toBeNull();
+
+    await user.keyboard('{ArrowDown}{Enter}');
+    await waitFor(() => expect(subjectFilter.textContent).toContain('Physics'));
+    expect(subjectFilter.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(subjectFilter);
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        expect.stringMatching(/\/files\?.*subjectId=subject-physics/),
+      ),
+    );
+
+    await user.click(typeFilter);
+    await user.click(await screen.findByRole('option', { name: 'Word' }));
+    await waitFor(() => expect(typeFilter.textContent).toContain('Word'));
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /\/files\?.*subjectId=subject-physics.*fileType=docx/,
+        ),
+      ),
+    );
+
+    await user.click(subjectFilter);
+    await user.keyboard('{Escape}');
+    expect(subjectFilter.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(subjectFilter);
+    expect(typeFilter.textContent).toContain('Word');
+  });
+
+  it('renders the files filter popup with explicit Arabic RTL direction', async () => {
+    mocks.locale = 'ar';
+    document.documentElement.dir = 'rtl';
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+
+    const subjectFilter = screen.getByRole('combobox', {
+      name: 'تصفية حسب المادة',
+    });
+    await user.click(subjectFilter);
+
+    expect(await screen.findByRole('listbox')).not.toBeNull();
+    expect(
+      document.querySelector('[data-slot="select-content"]')?.getAttribute('dir'),
+    ).toBe('rtl');
   });
 
   it('keeps keyboard focus inside the upload dialog', async () => {

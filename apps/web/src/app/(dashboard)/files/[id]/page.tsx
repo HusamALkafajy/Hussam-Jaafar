@@ -11,6 +11,13 @@ import { Input } from '../../../../components/ui/input';
 import { Markdown } from '../../../../components/ui/markdown';
 import { ContentReader, ContentReaderSkeleton } from '../../../../components/ui/content-reader';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../../components/ui/select';
+import {
   FileText, Brain, ListRestart, HelpCircle, MessageSquare, Sparkles,
   ArrowLeft, Calendar, Layers, FileCheck, Send, BookOpen, AlertTriangle,
   RefreshCw, CheckCircle2, XCircle, Clock, Zap, Target, BarChart3,
@@ -229,6 +236,8 @@ function AiControlPanel({
   ctaLabel: string;
   processingStatus?: string;
 }) {
+  const selectLabelId = React.useId();
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-slate-900 to-indigo-950/20 p-6 shadow-lg">
       <div className="pointer-events-none absolute -right-10 -top-10 w-40 h-40 rounded-full bg-indigo-600/10 blur-2xl" />
@@ -240,7 +249,7 @@ function AiControlPanel({
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">{description}</p>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex w-full shrink-0 items-stretch gap-3 sm:w-auto sm:items-center">
           {processingStatus && ['pending', 'processing'].includes(processingStatus) ? (
             <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-4 py-2 rounded-xl text-xs text-indigo-300 font-semibold animate-pulse">
               <Spinner className="w-3.5 h-3.5 text-indigo-400" />
@@ -256,28 +265,36 @@ function AiControlPanel({
               </span>
             </div>
           ) : (
-            <>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{selectLabel}</label>
-                <select
-                  value={value}
-                  onChange={(e) => onChange(e.target.value)}
-                  disabled={disabled}
-                  className="px-3 py-2 bg-slate-950/80 border border-white/10 rounded-xl text-sm text-slate-300 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {options.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+            <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:items-end">
+              <div className="flex min-w-0 flex-1 flex-col gap-1 sm:min-w-36">
+                <span id={selectLabelId} className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  {selectLabel}
+                </span>
+                <Select value={value} onValueChange={(nextValue) => nextValue !== null && onChange(nextValue)} disabled={disabled}>
+                  <SelectTrigger
+                    aria-labelledby={selectLabelId}
+                    className="h-10 w-full min-w-0 rounded-xl border-white/10 bg-slate-950/80 px-3 py-2 text-slate-300 sm:min-w-36"
+                  >
+                    <SelectValue>
+                      {options.find((option) => option.value === value)?.label ?? value}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+                    {options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] opacity-0">action</label>
-                <Button onClick={onGenerate} loading={loading} disabled={disabled} className="font-bold px-5">
+              <div className="flex flex-col">
+                <Button onClick={onGenerate} loading={loading} disabled={disabled} className="h-10 w-full px-5 font-bold sm:w-auto">
                   <Sparkles className="w-3.5 h-3.5 mr-1.5" />
                   {ctaLabel}
                 </Button>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

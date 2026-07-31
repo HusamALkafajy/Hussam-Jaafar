@@ -216,4 +216,31 @@ describe('legacy interactive source semantics', () => {
       expect(source).not.toContain('top-1/2 start-1/2');
     }
   });
+
+  it('uses the shared Select primitive for Private Alpha dashboard selectors', () => {
+    for (const component of [
+      'app/(dashboard)/files/page.tsx',
+      'app/(dashboard)/files/[id]/page.tsx',
+      'app/(dashboard)/learning-paths/page.tsx',
+    ]) {
+      const source = fs.readFileSync(path.join(sourceRoot, component), 'utf8');
+
+      expect(source).not.toContain('<select');
+      expect(source).not.toContain('<option');
+      expect(source).toContain('<Select');
+      expect(source).toContain('aria-labelledby');
+    }
+  });
+
+  it('keeps shared Select values and popups logical-direction and viewport safe', () => {
+    const source = fs.readFileSync(
+      path.join(sourceRoot, 'components/ui/select.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('text-start');
+    expect(source).toContain('align = "start"');
+    expect(source).toContain('max-w-(--available-width)');
+    expect(source).not.toContain('text-left');
+  });
 });
