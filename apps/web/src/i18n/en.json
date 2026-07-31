@@ -228,6 +228,19 @@
     "notFoundDescription": "This file may have been deleted or you may not have access.",
     "backToFiles": "Back to Files",
     "fileTypeImage": "Image"
+    ,"statusOcrRequired": "OCR required"
+    ,"tabOriginal": "Original Document"
+    ,"tabExtractedText": "Extracted Text"
+    ,"ocrRequiredTitle": "Text extraction requires OCR"
+    ,"ocrRequiredDescription": "This PDF has no usable text layer. You can still view the original document, but learning features will remain unavailable until OCR support is added."
+    ,"pdfLoading": "Loading original document…"
+    ,"pdfLoadFailed": "The original PDF could not be loaded. Please try again."
+    ,"pdfPreviousPage": "Previous page"
+    ,"pdfNextPage": "Next page"
+    ,"pdfZoomIn": "Zoom in"
+    ,"pdfZoomOut": "Zoom out"
+    ,"pdfFitWidth": "Fit width"
+    ,"pdfPage": "Page"
   },
   "uploadQueue": {
     "recentJobs": "Recent Processing Jobs",

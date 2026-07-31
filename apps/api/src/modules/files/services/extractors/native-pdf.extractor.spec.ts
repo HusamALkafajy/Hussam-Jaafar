@@ -10,7 +10,6 @@ import {
   MalformedDocumentError,
   ExtractionResourceLimitError,
 } from '../../../../modules/files/contracts/document-extractor';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
 
 describe('NativePdfExtractor', () => {
   let extractor: NativePdfExtractor;
@@ -72,8 +71,8 @@ describe('NativePdfExtractor', () => {
   });
 
   it('should throw EmptyDocumentError for a 0-page PDF', async () => {
-    jest.resetModules();
-    jest.doMock('pdfjs-dist/legacy/build/pdf.js', () => ({
+
+    const mockPdfjsLib = {
       getDocument: jest.fn().mockReturnValue({
         promise: Promise.resolve({
           numPages: 0,
@@ -81,10 +80,8 @@ describe('NativePdfExtractor', () => {
           destroy: jest.fn(),
         }),
       }),
-    }));
-
-    const { NativePdfExtractor } = await import('./native-pdf.extractor');
-    const testExtractor = new NativePdfExtractor();
+    };
+    const testExtractor = new NativePdfExtractor(mockPdfjsLib);
 
     const fs = require('fs');
     jest.spyOn(fs.promises, 'readFile').mockResolvedValue(Buffer.from('dummy'));
@@ -92,7 +89,6 @@ describe('NativePdfExtractor', () => {
     await expect(testExtractor.extract({ fileId: 'test-file-3', filePath: 'dummy.pdf', mimeType: 'application/pdf' }))
       .rejects.toThrow('The PDF document contains 0 pages.');
 
-    jest.unmock('pdfjs-dist/legacy/build/pdf.js');
     jest.restoreAllMocks();
   });
 
@@ -118,15 +114,12 @@ describe('NativePdfExtractor', () => {
   });
 
   it('should throw EncryptedDocumentError for password-protected PDF (mocked)', async () => {
-    jest.resetModules();
-    jest.doMock('pdfjs-dist/legacy/build/pdf.js', () => ({
+    const mockPdfjsLib = {
       getDocument: jest.fn().mockReturnValue({
         promise: Promise.reject({ name: 'PasswordException', message: 'No password given' }),
       }),
-    }));
-
-    const { NativePdfExtractor } = await import('./native-pdf.extractor');
-    const testExtractor = new NativePdfExtractor();
+    };
+    const testExtractor = new NativePdfExtractor(mockPdfjsLib);
 
     const fs = require('fs');
     jest.spyOn(fs.promises, 'readFile').mockResolvedValue(Buffer.from('dummy'));
@@ -134,13 +127,11 @@ describe('NativePdfExtractor', () => {
     await expect(testExtractor.extract({ fileId: 'test-file-enc', filePath: 'dummy.pdf', mimeType: 'application/pdf' }))
       .rejects.toThrow('The PDF is encrypted and requires a password.');
 
-    jest.unmock('pdfjs-dist/legacy/build/pdf.js');
     jest.restoreAllMocks();
   });
 
   it('should throw MissingTextLayerError (OCR REQUIRED) for an image-only PDF with 0 text items (mocked)', async () => {
-    jest.resetModules();
-    jest.doMock('pdfjs-dist/legacy/build/pdf.js', () => ({
+    const mockPdfjsLib = {
       OPS: { paintXObject: 85 },
       getDocument: jest.fn().mockReturnValue({
         promise: Promise.resolve({
@@ -151,18 +142,14 @@ describe('NativePdfExtractor', () => {
           }),
         }),
       }),
-    }));
+    };
 
-    const { NativePdfExtractor } = await import('./native-pdf.extractor');
-    const testExtractor = new NativePdfExtractor();
+    const testExtractor = new NativePdfExtractor(mockPdfjsLib);
     const fs = require('fs');
     jest.spyOn(fs.promises, 'readFile').mockResolvedValue(Buffer.from('dummy'));
 
     await expect(testExtractor.extract({ fileId: 'test-file-img', filePath: 'dummy.pdf', mimeType: 'application/pdf' }))
       .rejects.toThrow('No text items found, but visual content detected. Document requires OCR.');
-
-    jest.unmock('pdfjs-dist/legacy/build/pdf.js');
-    jest.restoreAllMocks();
   });
 
   it('should throw MalformedDocumentError when PDF file does not exist', async () => {

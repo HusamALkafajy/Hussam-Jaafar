@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { db, eq, and, sql } from '@studyai/database';
 import { fileProcessingAttempts, files, subjects, documentChunks } from '@studyai/database';
 import { RagService } from '../rag/rag.service';
@@ -14,6 +14,7 @@ import { PipelineRunner } from './services/pipeline/pipeline-runner';
 import { PipelineContext } from './services/pipeline/pipeline-stage.interface';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter, Histogram } from 'prom-client';
+import { IStorageProvider } from '@studyai/infrastructure';
 
 @Injectable()
 export class FilesProcessor {
@@ -33,6 +34,7 @@ export class FilesProcessor {
     private readonly embeddingDuration: Histogram<string>,
     @InjectMetric('studyai_worker_transaction_duration_seconds')
     private readonly dbTxDuration: Histogram<string>,
+    @Inject('IStorageProvider') private readonly storageProvider?: IStorageProvider,
   ) {}
 
   async handle(job: any): Promise<void> {
@@ -114,7 +116,10 @@ export class FilesProcessor {
       return;
     }
 
-    const filePath = join(process.cwd(), 'apps', 'api', 'uploads', fileRecord.storageKey);
+    // Legacy non-PDF extractors still consume a local path. The local storage
+    // adapter maps it beneath the configured documents bucket; PDFs use the
+    // storage stream above and never depend on this path.
+    const filePath = join(process.cwd(), 'apps', 'api', 'uploads', 'documents', fileRecord.storageKey);
 
     // 3. Generic Pipeline Boundary with Execution Hard Bound (5 minutes)
     const abortController = new AbortController();
@@ -138,7 +143,7 @@ export class FilesProcessor {
       }
     };
 
-    const initialInput = {
+    const initialInput: Record<string, unknown> = {
       fileId,
       filePath,
       mimeType: fileRecord.mimeType || 'application/octet-stream',
@@ -147,6 +152,17 @@ export class FilesProcessor {
 
     let finalState;
     try {
+      // Original PDF bytes are read through the storage boundary. This keeps
+      // the native extractor independent of a temporary filesystem path and
+      // makes persistent-volume storage replaceable by an object-storage
+      // adapter.
+      if (fileRecord.mimeType === 'application/pdf') {
+        if (!this.storageProvider) throw new Error('Document storage provider is unavailable.');
+        const stream = await this.storageProvider.download('documents', fileRecord.storageKey);
+        const chunks: Buffer[] = [];
+        for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+        initialInput.fileData = Buffer.concat(chunks);
+      }
       finalState = await this.pipelineRunner.execute(initialInput, pipelineContext);
     } catch (error: any) {
       this.logger.error('FilesProcessor pipeline failed', error);
@@ -172,11 +188,13 @@ export class FilesProcessor {
         fileId,
         extractedText: canonicalText,
         structuralBlocks: blocks as any,
-        generatedChunks: chunks?.map((c: any) => ({
-          text: c.text,
-          chunkIndex: c.chunkIndex,
-          metadata: c.metadata,
-        })) || [] // Semantic chunks mapped to persistence
+        generatedChunks: chunks?.map((c: any, index: number) => ({
+          fileId,
+          content: c.content ?? c.text ?? c.plainText ?? '',
+          chunkIndex: c.chunkIndex ?? c.chunkOrder ?? index,
+          pageNumber: c.pageNumber ?? c.metadata?.pageNumber ?? c.chunkContent?.[0]?.metadata?.sourcePage,
+          ...(c.embedding ? { embedding: c.embedding } : {}),
+        })) || [] // Semantic chunks mapped to the persisted RAG contract
       });
 
       if (fileRecord.subjectId) {
@@ -222,7 +240,10 @@ export class FilesProcessor {
             errorCode: classification.errorCode,
           },
           undefined,
-          classification.userMessage
+          classification.userMessage,
+          classification.errorCode === 'MISSING_TEXT_LAYER'
+            ? { extractionStatus: 'ocr_required' }
+            : { extractionStatus: 'failed' },
         );
       } catch (err: any) {
         if (err instanceof LostProcessingOwnershipError) {

@@ -13,17 +13,36 @@ import { ExtractedDocument } from '../../contracts/extracted-document';
 import { ExtractedDocumentFactory } from './extracted-document.factory';
 import { Logger } from '@nestjs/common';
 
-// Suppress standard font warnings for Node.js usage.
-// pdfjs-dist's legacy build is safest for CommonJS Node environments.
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
+// We MUST use eval("import") because pdfjs-dist 6.2.108 ONLY provides ESM builds (.mjs)
+// and lacks a CJS export (pdf.js). We also attach createUint8Array to bypass Jest's VM
+// cross-context instanceof checks which cause InvalidPDFException.
+async function loadPdfJsServerRuntime(): Promise<any> {
+  return eval(`
+    import('pdfjs-dist/legacy/build/pdf.mjs').then(pdfjs => {
+      return {
+        ...pdfjs,
+        createUint8Array: (buf) => new Uint8Array(buf)
+      };
+    })
+  `);
+}
 
 export class NativePdfExtractor implements DocumentExtractor {
   private readonly logger = new Logger(NativePdfExtractor.name);
+  private pdfjsLib?: any;
+
+  constructor(
+    pdfjsLib?: any,
+  ) {
+    this.pdfjsLib = pdfjsLib;
+  }
 
   async extract(context: DocumentExtractionContext): Promise<ExtractedDocument> {
     if (!context.filePath) {
       throw new MalformedDocumentError('PDF extraction requires a valid file path.');
     }
+
+    const pdfjsLib = this.pdfjsLib || await loadPdfJsServerRuntime();
 
     let rawData: Buffer;
     try {
@@ -32,11 +51,11 @@ export class NativePdfExtractor implements DocumentExtractor {
       throw new MalformedDocumentError(`Failed to read PDF file: ${error.message}`);
     }
 
-    let doc: pdfjsLib.PDFDocumentProxy;
+    let doc: any;
     try {
       // Use standard Node.js entry point, parsing from byte array
       const loadingTask = pdfjsLib.getDocument({
-        data: new Uint8Array(rawData),
+        data: pdfjsLib.createUint8Array ? pdfjsLib.createUint8Array(rawData) : new Uint8Array(rawData),
         useSystemFonts: true,
       });
 
@@ -93,7 +112,7 @@ export class NativePdfExtractor implements DocumentExtractor {
     let hasVisualContent = false;
 
     for (let i = 1; i <= numPages; i++) {
-      let page: pdfjsLib.PDFPageProxy;
+      let page: any;
       try {
         page = await doc.getPage(i);
       } catch (error: any) {

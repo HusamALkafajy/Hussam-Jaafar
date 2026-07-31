@@ -18,6 +18,9 @@ export class LegacyFallbackAdapter implements DocumentExtractor {
   constructor(private readonly aiService: AiService) {}
 
   async extract(context: DocumentExtractionContext): Promise<ExtractedDocument> {
+    if (!context.filePath) {
+      throw new MissingTextLayerError('Legacy extraction requires a local source path.');
+    }
     let extractedText = '';
     let targetFilePath = context.filePath;
     let isTempFile = false;

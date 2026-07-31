@@ -2,7 +2,12 @@ import { ExtractedDocument } from './extracted-document';
 
 export interface DocumentExtractionContext {
   fileId: string;
-  filePath: string;
+  /**
+   * A local path is retained only for legacy non-PDF extractors. New PDF
+   * extraction consumes the bytes from the storage provider directly.
+   */
+  filePath?: string;
+  data?: Buffer;
   mimeType: string;
   fileType?: string; // Optional discriminator e.g. 'pdf', 'docx'
   signal?: AbortSignal;

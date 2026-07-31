@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FilesProcessor } from './files.processor';
+import { PipelineRunner } from './services/pipeline/pipeline-runner';
 import { ExtractorRegistry } from './services/extractor.registry';
 import { RagService } from '../rag/rag.service';
 import { db } from '@studyai/database';
@@ -65,6 +66,7 @@ describe('FilesProcessor', () => {
   let ragService: jest.Mocked<RagService>;
   let stateRepository: jest.Mocked<FileProcessingStateRepository>;
   let documentPersistenceService: any;
+  let pipelineRunner: any;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -76,6 +78,14 @@ describe('FilesProcessor', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FilesProcessor,
+        {
+          provide: PipelineRunner,
+          useValue: { execute: jest.fn().mockResolvedValue({ extractedDocument: { fullText: '', blocks: [] }, chunks: [] }) },
+        },
+        {
+          provide: 'IStorageProvider',
+          useValue: { upload: jest.fn(), download: jest.fn().mockResolvedValue([Buffer.from('dummy')]), delete: jest.fn() },
+        },
         {
           provide: ExtractorRegistry,
           useValue: {
@@ -145,6 +155,7 @@ describe('FilesProcessor', () => {
     ragService = module.get(RagService);
     stateRepository = module.get(FileProcessingStateRepository);
     documentPersistenceService = module.get(require('./services/document-persistence.service').DocumentPersistenceService);
+    pipelineRunner = module.get(PipelineRunner);
   });
 
   it('should discard missing attempt (malformed payload)', async () => {
@@ -179,13 +190,12 @@ describe('FilesProcessor', () => {
   it('should complete and update file and attempt atomically', async () => {
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
-    expect(extractorRegistry.getExtractor).toHaveBeenCalled();
-    expect(mockExtractor.extract).toHaveBeenCalled();
+    expect(pipelineRunner.execute).toHaveBeenCalled();
     expect(documentPersistenceService.publish).toHaveBeenCalled();
   });
 
   it('should handle failure atomically', async () => {
-    mockExtractor.extract.mockRejectedValueOnce(new Error('failed'));
+    pipelineRunner.execute.mockRejectedValueOnce(new Error('failed'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled(); // Failure handler uses transaction
@@ -193,7 +203,7 @@ describe('FilesProcessor', () => {
   });
   it('should handle failure atomically with RetryableInfrastructureError', async () => {
     const { RetryableInfrastructureError } = require('./utils/domain.exceptions');
-    mockExtractor.extract.mockRejectedValueOnce(new RetryableInfrastructureError('DB down'));
+    pipelineRunner.execute.mockRejectedValueOnce(new RetryableInfrastructureError('DB down'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     
@@ -204,7 +214,7 @@ describe('FilesProcessor', () => {
 
   it('should handle failure atomically with NonRetryableValidationError', async () => {
     const { NonRetryableValidationError } = require('./utils/domain.exceptions');
-    mockExtractor.extract.mockRejectedValueOnce(new NonRetryableValidationError('Bad input'));
+    pipelineRunner.execute.mockRejectedValueOnce(new NonRetryableValidationError('Bad input'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
@@ -212,7 +222,7 @@ describe('FilesProcessor', () => {
 
   it('should handle EmptyDocumentError as non-retryable and exclude from publication', async () => {
     const { EmptyDocumentError } = require('./contracts/document-extractor');
-    mockExtractor.extract.mockRejectedValueOnce(new EmptyDocumentError('Text input is null or undefined.'));
+    pipelineRunner.execute.mockRejectedValueOnce(new EmptyDocumentError('Text input is null or undefined.'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
@@ -220,7 +230,7 @@ describe('FilesProcessor', () => {
   });
 
   it('should handle native TypeError as NonRetryable', async () => {
-    mockExtractor.extract.mockRejectedValueOnce(new TypeError('Cannot read properties of undefined'));
+    pipelineRunner.execute.mockRejectedValueOnce(new TypeError('Cannot read properties of undefined'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();
@@ -229,7 +239,7 @@ describe('FilesProcessor', () => {
   it('should propagate AggregateError root causes to classifier', async () => {
     const { RetryableRateLimitError } = require('./utils/domain.exceptions');
     const aggregate = new AggregateError([new RetryableRateLimitError('Too many requests')]);
-    mockExtractor.extract.mockRejectedValueOnce(aggregate);
+    pipelineRunner.execute.mockRejectedValueOnce(aggregate);
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(db.update).toHaveBeenCalled();
@@ -242,7 +252,7 @@ describe('FilesProcessor', () => {
     const wrapper = new Error('Wrapper');
     (wrapper as any).cause = rootError;
     
-    mockExtractor.extract.mockRejectedValueOnce(wrapper);
+    pipelineRunner.execute.mockRejectedValueOnce(wrapper);
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(stateRepository.transitionToTerminal).toHaveBeenCalled();

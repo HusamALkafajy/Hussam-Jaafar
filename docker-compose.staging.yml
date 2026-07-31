@@ -65,8 +65,9 @@ services:
     ports:
       - "127.0.0.1:${API_PORT:?API_PORT must be set}:4000"
     volumes:
-      # Local uploads are for disposable smoke validation only until the
-      # object-storage adapter is implemented. Do not use for user documents.
+      # The API stores opaque original-document objects in this persistent local
+      # volume. Supabase Storage remains a future adapter behind the same
+      # storage-provider contract.
       - studyai-upload-validation:/app/apps/api/uploads
     depends_on:
       studyai-redis:

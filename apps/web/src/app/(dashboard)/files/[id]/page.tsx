@@ -10,6 +10,7 @@ import { Spinner } from '../../../../components/ui/spinner';
 import { Input } from '../../../../components/ui/input';
 import { Markdown } from '../../../../components/ui/markdown';
 import { ContentReader, ContentReaderSkeleton } from '../../../../components/ui/content-reader';
+import { OriginalPdfReader } from '../../../../components/reader/original-pdf-reader';
 import {
   Select,
   SelectContent,
@@ -34,7 +35,8 @@ interface PageProps {
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'content', key: 'files.tabContent', icon: FileText },
+  { id: 'original', key: 'files.tabOriginal', icon: BookOpen },
+  { id: 'extracted', key: 'files.tabExtractedText', icon: FileText },
   { id: 'summary', key: 'files.tabSummary', icon: Sparkles },
   { id: 'explain', key: 'files.tabExplain', icon: Brain },
   { id: 'quiz', key: 'files.tabExam', icon: ListRestart },
@@ -91,6 +93,7 @@ function FileHeader({
     failed: { label: t('files.statusFailed'), icon: XCircle, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     processing: { label: t('files.statusProcessing'), icon: RefreshCw, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
     pending: { label: t('files.statusPending'), icon: Clock, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
+    ocr_required: { label: t('files.statusOcrRequired'), icon: AlertTriangle, color: 'text-amber-300 bg-amber-500/10 border-amber-500/20' },
   } as const;
 
   const status = statusMap[(file.processingStatus as keyof typeof statusMap)] ?? statusMap.pending;
@@ -210,6 +213,17 @@ function FailedState({ onReprocess, reprocessing }: { onReprocess: () => void; r
         <RefreshCw className="w-4 h-4 mr-2" />
         {t('workspace.retryAnalysis')}
       </Button>
+    </div>
+  );
+}
+
+function OcrRequiredState() {
+  const { t } = useLocale();
+  return (
+    <div className="py-14 flex flex-col items-center gap-4 max-w-md mx-auto text-center" role="status">
+      <AlertTriangle className="w-10 h-10 text-amber-400" aria-hidden="true" />
+      <h3 className="text-base font-bold text-white">{t('files.ocrRequiredTitle')}</h3>
+      <p className="text-sm text-slate-400 leading-relaxed">{t('files.ocrRequiredDescription')}</p>
     </div>
   );
 }
@@ -394,7 +408,7 @@ export default function FileDetailPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [reprocessing, setReprocessing] = useState(false);
   const [file, setFile] = useState<any | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>('content');
+  const [activeTab, setActiveTab] = useState<TabId>('original');
 
   // Summary
   const [summaryLevel, setSummaryLevel] = useState<'short' | 'medium' | 'comprehensive'>('medium');
@@ -594,10 +608,32 @@ export default function FileDetailPage({ params }: PageProps) {
       <div className="mt-1">
 
         {/* ── Content tab ─────────────────────────────────────────────────── */}
-        {activeTab === 'content' && (
+        {activeTab === 'original' && (
+          file.fileType === 'pdf' ? (
+            <OriginalPdfReader
+              fileId={fileId}
+              label={t('files.tabOriginal')}
+              labels={{
+                loading: t('files.pdfLoading'),
+                failed: t('files.pdfLoadFailed'),
+                retry: t('workspace.retry'),
+                previous: t('files.pdfPreviousPage'),
+                next: t('files.pdfNextPage'),
+                zoomIn: t('files.pdfZoomIn'),
+                zoomOut: t('files.pdfZoomOut'),
+                fitWidth: t('files.pdfFitWidth'),
+                page: t('files.pdfPage'),
+              }}
+            />
+          ) : <ProcessingState />
+        )}
+
+        {activeTab === 'extracted' && (
           <>
             {file.processingStatus === 'completed' && file.extractedText ? (
               <ContentReader content={file.extractedText} showProgress showToc />
+            ) : file.processingStatus === 'ocr_required' ? (
+              <OcrRequiredState />
             ) : file.processingStatus === 'failed' ? (
               <FailedState onReprocess={handleReprocess} reprocessing={reprocessing} />
             ) : (

@@ -47,6 +47,21 @@ export const setAccessToken = (token: string | undefined): void => {
   _accessToken = token;
 };
 
+/**
+ * Use for authenticated binary responses such as original documents. Callers
+ * receive a Response rather than JSON, while credentials and the in-memory
+ * bearer token stay off URLs and out of component state.
+ */
+export const authenticatedFetch = async (endpoint: string, init: RequestInit = {}): Promise<Response> => {
+  const headers = new Headers(init.headers || {});
+  if (_accessToken) headers.set('Authorization', `Bearer ${_accessToken}`);
+  return fetch(`${BASE_URL}/api${endpoint}`, {
+    ...init,
+    headers,
+    credentials: 'include',
+  });
+};
+
 // ─── Auth-Expired Pub/Sub ─────────────────────────────────────────────────────
 // Allows AuthProvider to subscribe to token expiry events raised inside api-client.
 

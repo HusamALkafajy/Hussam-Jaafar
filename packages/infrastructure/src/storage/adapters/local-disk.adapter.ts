@@ -5,10 +5,30 @@ import * as path from 'path';
 import { mkdir, stat, unlink } from 'fs/promises';
 
 export class LocalDiskStorageProvider implements IStorageProvider {
-  constructor(private readonly basePath: string) {}
+  private readonly resolvedBasePath: string;
+
+  constructor(private readonly basePath: string) {
+    this.resolvedBasePath = path.resolve(basePath);
+  }
 
   private getFilePath(bucket: string, key: string): string {
-    return path.join(this.basePath, bucket, key);
+    if (!bucket || !key || path.isAbsolute(bucket) || path.isAbsolute(key)) {
+      throw new Error('Invalid object storage key.');
+    }
+
+    const bucketRoot = path.resolve(this.resolvedBasePath, bucket);
+    const relBucket = path.relative(this.resolvedBasePath, bucketRoot);
+    if (!relBucket || relBucket === '..' || relBucket.startsWith(`..${path.sep}`) || path.isAbsolute(relBucket)) {
+      throw new Error('Invalid bucket name.');
+    }
+
+    const resolvedPath = path.resolve(bucketRoot, key);
+    const relCandidate = path.relative(bucketRoot, resolvedPath);
+    if (!relCandidate || relCandidate === '..' || relCandidate.startsWith(`..${path.sep}`) || path.isAbsolute(relCandidate)) {
+      throw new Error('Object storage key escapes the configured bucket directory.');
+    }
+
+    return resolvedPath;
   }
 
   async upload(bucket: string, key: string, stream: Readable, options?: { contentType?: string, contentLength?: number }): Promise<void> {

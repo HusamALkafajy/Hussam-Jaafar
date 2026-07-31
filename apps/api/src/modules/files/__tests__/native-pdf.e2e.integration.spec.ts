@@ -19,10 +19,7 @@ describe('Native PDF End-to-End Extraction Integration', () => {
   const globalUserId = randomUUID();
 
   beforeAll(async () => {
-    tmpDir = path.join(process.cwd(), 'apps', 'api', 'uploads', 'pdf-e2e-tests');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'studyai-pdf-e2e-'));
 
     // We MUST NOT MOCK ExtractorRegistry or NativePdfExtractor or pdfjs-dist.
     // We only mock RagService embedding generation because we don't want to hit real OpenAI APIs.
@@ -52,15 +49,36 @@ describe('Native PDF End-to-End Extraction Integration', () => {
     const documentPersistenceService = new DocumentPersistenceService(ragService as any);
     const stateRepository = new FileProcessingStateRepository();
 
+    const nativePdfExtractor = new NativePdfExtractor();
     const pipelineRunner = {
       stages: [],
       registerStages: jest.fn(),
-      execute: jest.fn().mockResolvedValue({
-        chunks: [{ text: 'extracted dummy text', metadata: { pageNumber: 1 } }],
-        metadata: { title: 'dummy' },
-        rawText: 'extracted dummy text'
-      })
+      execute: jest.fn().mockImplementation(async (input: any, context: any) => {
+        const extractedDocument = await nativePdfExtractor.extract({
+          fileId: input.fileId,
+          data: input.fileData,
+          mimeType: input.mimeType,
+          fileType: input.fileType,
+          signal: context.signal,
+        });
+
+        return {
+          ...input,
+          extractedDocument,
+          chunks: [{
+            text: extractedDocument.fullText,
+            chunkIndex: 0,
+            metadata: { pageNumber: 1 },
+          }],
+        };
+      }),
     } as any;
+
+    const storageProvider = {
+      download: jest.fn(async (_bucket: string, key: string) =>
+        fs.createReadStream(path.join(tmpDir, path.basename(key))),
+      ),
+    };
 
     processor = new FilesProcessor(
       pipelineRunner,
@@ -70,7 +88,8 @@ describe('Native PDF End-to-End Extraction Integration', () => {
       { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any,
       { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any,
       { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any,
-      { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any
+      { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any,
+      storageProvider as any,
     );
 
     await db.insert(users).values({
@@ -105,7 +124,7 @@ describe('Native PDF End-to-End Extraction Integration', () => {
       id: fileId,
       userId: globalUserId,
       originalName: path.basename(filePath),
-      storageKey: path.join('pdf-e2e-tests', path.basename(filePath)), // Match physical path inside uploads dir
+      storageKey: path.posix.join('pdf-e2e-tests', path.basename(filePath)),
       storageUrl: 'http://localhost/test.pdf',
       fileType: 'pdf',
       mimeType: 'application/pdf',

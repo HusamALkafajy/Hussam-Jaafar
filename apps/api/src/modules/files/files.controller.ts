@@ -10,6 +10,8 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  Headers,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FilesService } from './files.service';
@@ -19,6 +21,7 @@ import { FileQueryDto } from './dto/file-query.dto';
 import { UploadFileDto } from './dto/upload-file.dto';
 import { CreateSubjectDto, UpdateSubjectDto, AssignSubjectDto } from '@studyai/types';
 import { FileMagicValidationPipe } from '../../common/pipes/file-magic-validation.pipe';
+import { Response } from 'express';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -73,7 +76,33 @@ export class FilesController {
 
   @Get('files/:id')
   async getFile(@CurrentUser('sub') userId: string, @Param('id') id: string) {
-    return this.filesService.findById(id, userId);
+    return this.filesService.getPublicFileById(id, userId);
+  }
+
+  @Get('files/:id/original')
+  async streamOriginalFile(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Headers('range') rangeHeader: string | undefined,
+    @Res() response: Response,
+  ) {
+    const original = await this.filesService.openOriginalFile(id, userId, rangeHeader);
+    const { stream, fileName, mimeType, size, range } = original;
+    const length = range ? range.end - range.start + 1 : size;
+
+    response.status(range ? 206 : 200);
+    response.setHeader('Content-Type', mimeType);
+    response.setHeader('Content-Length', String(length));
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (range) response.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+
+    stream.on('error', () => {
+      if (!response.headersSent) response.status(404);
+      response.end();
+    });
+    stream.pipe(response);
   }
 
   @Delete('files/:id')

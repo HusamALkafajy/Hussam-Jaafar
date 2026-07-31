@@ -349,12 +349,17 @@ export class AiService {
 
   async extractText(filePath: string, mimeType: string): Promise<string> {
     if (this.isMockMode()) {
-      this.logger.log(`[Mock Mode] Extracting text from file: ${filePath}`);
-      return (
-        `This is mock extracted text content from the file: ${filePath}. ` +
-        'In a real production deployment, this would contain the actual parsed ' +
-        'contents of the uploaded document extracted via the Gemini API.'
-      );
+      const isTestEnvironment = this.configService.get<string>('app.nodeEnv') === 'test';
+      const mockExtractionAllowed = this.configService.get<boolean>('ai.allowMockDocumentExtraction') === true;
+      if (!isTestEnvironment || !mockExtractionAllowed) {
+        throw new ServiceUnavailableException(
+          'Document extraction requires a configured provider for this file type.',
+        );
+      }
+
+      // This branch exists solely for isolated automated tests. It must never
+      // become a persisted user-document result.
+      return 'TEST_ONLY_DOCUMENT_EXTRACTION';
     }
 
     // ── Path A: Native Gemini SDK (GEMINI_API_KEY set, no OPENROUTER_API_KEY) ──

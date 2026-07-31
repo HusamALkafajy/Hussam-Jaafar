@@ -228,6 +228,19 @@
     "notFoundDescription": "ربما حُذف هذا الملف أو لا تملك صلاحية الوصول إليه.",
     "backToFiles": "العودة إلى ملفاتي",
     "fileTypeImage": "صورة"
+    ,"statusOcrRequired": "يتطلب التعرّف الضوئي على الحروف"
+    ,"tabOriginal": "المستند الأصلي"
+    ,"tabExtractedText": "النص المستخرج"
+    ,"ocrRequiredTitle": "يتطلب استخراج النص التعرّف الضوئي على الحروف"
+    ,"ocrRequiredDescription": "لا يحتوي ملف PDF هذا على طبقة نص قابلة للاستخدام. ما زال بإمكانك عرض المستند الأصلي، لكن ميزات التعلّم ستبقى غير متاحة إلى أن يتوفر دعم OCR."
+    ,"pdfLoading": "جارٍ تحميل المستند الأصلي…"
+    ,"pdfLoadFailed": "تعذر تحميل ملف PDF الأصلي. حاول مرة أخرى."
+    ,"pdfPreviousPage": "الصفحة السابقة"
+    ,"pdfNextPage": "الصفحة التالية"
+    ,"pdfZoomIn": "تكبير"
+    ,"pdfZoomOut": "تصغير"
+    ,"pdfFitWidth": "ملاءمة العرض"
+    ,"pdfPage": "الصفحة"
   },
   "uploadQueue": {
     "recentJobs": "مهام المعالجة الأخيرة",

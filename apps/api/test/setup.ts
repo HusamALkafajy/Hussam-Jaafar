@@ -3,15 +3,22 @@ import { resolve } from 'path';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 
-// Load test environment variables manually
+// Load test environment variables manually if they exist
 const envPath = resolve(__dirname, '../.env.test');
-const envFile = fs.readFileSync(envPath, 'utf8');
-envFile.split('\n').forEach(line => {
-  const match = line.trim().match(/^([^=]+)="?(.*?)"?$/);
-  if (match) {
-    process.env[match[1]] = match[2];
-  }
-});
+if (fs.existsSync(envPath)) {
+  const envFile = fs.readFileSync(envPath, 'utf8');
+  envFile.split('\n').forEach(line => {
+    const match = line.trim().match(/^([^=]+)="?(.*?)"?$/);
+    if (match) {
+      process.env[match[1]] = match[2];
+    }
+  });
+}
+
+// Fallback for tests if not provided
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = 'postgres://studyai_test:studyai_test_password@localhost:5434/studyai_test';
+}
 
 export default async () => {
   console.log('\n--- TEST BOOTSTRAP START ---');

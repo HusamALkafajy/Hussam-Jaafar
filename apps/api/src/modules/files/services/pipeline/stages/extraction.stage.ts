@@ -15,11 +15,12 @@ export class ExtractionStage implements PipelineStage<any, any> {
   }
 
   async execute(input: any, context: PipelineContext): Promise<any> {
-    const { fileId, filePath, mimeType, fileType } = input;
+    const { fileId, filePath, fileData, mimeType, fileType } = input;
     
     const extractionContext: DocumentExtractionContext = {
       fileId,
       filePath,
+      data: fileData,
       mimeType,
       fileType,
       signal: context.signal,

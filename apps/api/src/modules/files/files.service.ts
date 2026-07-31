@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Inject, HttpException, HttpStatus } from '@nestjs/common';
 import { CANONICAL_UPLOAD_FORMATS } from '../../common/constants/file-formats.constant';
 import { db } from '@studyai/database';
 import { files, subscriptions, users, subjects, fileProcessingAttempts, documentVersions } from '@studyai/database';
@@ -18,11 +18,15 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as mammoth from 'mammoth';
 import { ConfigService } from '@nestjs/config';
+import { IStorageProvider } from '@studyai/infrastructure';
+import { Readable } from 'stream';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class FilesService {
   private readonly logger = new Logger(FilesService.name);
   private uploadDir = path.resolve(process.cwd(), 'apps/api/uploads');
+  private readonly storageBucket = 'documents';
 
   constructor(
     private readonly aiService: AiService,
@@ -31,11 +35,14 @@ export class FilesService {
     private readonly dispatcherService: FileProcessingDispatcherService,
     private readonly configService: ConfigService,
     private readonly documentReadService: DocumentReadService,
+    @Inject('IStorageProvider') private readonly storageProvider: IStorageProvider,
   ) {
     this.ensureUploadDir();
     const openrouterKey = this.configService.get<string>('ai.openrouterApiKey');
     const geminiKey = this.configService.get<string>('ai.geminiApiKey');
-    if (!openrouterKey && !geminiKey) {
+    const isTestEnvironment = this.configService.get<string>('app.nodeEnv') === 'test';
+    const mockExtractionAllowed = this.configService.get<boolean>('ai.allowMockDocumentExtraction') === true;
+    if (!openrouterKey && !geminiKey && isTestEnvironment && mockExtractionAllowed) {
       this.logger.warn(
         '[FilesService] Neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set. ' +
         'Document processing will run in MOCK MODE — extracted text will be fake placeholder content. ' +
@@ -145,31 +152,38 @@ export class FilesService {
       }
     }
 
-    // 2. Generate unique storage key and paths
-    const ext = path.extname(expressFile.originalname);
-    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    const storageKey = filename;
-    const storagePath = path.join(this.uploadDir, filename);
-
-    // 3. Save file locally
-    await fs.writeFile(storagePath, expressFile.buffer);
-    const storageUrl = `/uploads/${filename}`; // In production, this would be an S3/GCS URL
+    // 2. Persist the original through the configured storage boundary. The key
+    // is stable and opaque; it is neither a public URL nor a filesystem path.
+    const storageKey = this.createStorageKey(userId, expressFile.originalname);
+    await this.storageProvider.upload(
+      this.storageBucket,
+      storageKey,
+      Readable.from(expressFile.buffer),
+      { contentType: mime, contentLength: expressFile.size },
+    );
+    const storageUrl = 'private://document';
 
     // 4. Create database record as PENDING
-    const result = await db
-      .insert(files)
-      .values({
-        userId,
-        subjectId: subjectId || null,
-        originalName: expressFile.originalname,
-        storageKey,
-        storageUrl,
-        fileType,
-        mimeType: mime,
-        fileSize: expressFile.size,
-        processingStatus: ProcessingStatus.PENDING,
-      })
-      .returning();
+    let result;
+    try {
+      result = await db
+        .insert(files)
+        .values({
+          userId,
+          subjectId: subjectId || null,
+          originalName: expressFile.originalname,
+          storageKey,
+          storageUrl,
+          fileType,
+          mimeType: mime,
+          fileSize: expressFile.size,
+          processingStatus: ProcessingStatus.PENDING,
+        })
+        .returning();
+    } catch (error) {
+      await this.storageProvider.delete(this.storageBucket, storageKey).catch(() => undefined);
+      throw error;
+    }
 
     const fileRecord = result[0];
 
@@ -201,7 +215,7 @@ export class FilesService {
       });
     } else {
       // (fire-and-forget with explicit error handling)
-      this.processFileBackground(fileRecord.id, storagePath, fileType, mime)
+      this.processFileBackground(fileRecord.id, path.join(this.uploadDir, this.storageBucket, storageKey), fileType, mime)
         .catch((err) => {
           this.logger.error(
             `[FilesService] Unhandled top-level error in processFileBackground for file ${fileRecord.id}. ` +
@@ -224,7 +238,7 @@ export class FilesService {
       .updateChallengeProgress(userId, 'upload', 1)
       .catch((err) => this.logger.warn('Challenge progress update failed:', err));
 
-    return fileRecord;
+    return this.toPublicFile(fileRecord);
   }
 
   /**
@@ -394,7 +408,7 @@ export class FilesService {
     const total = countResult[0]?.count || 0;
 
     return {
-      data,
+      data: data.map((file) => this.toPublicFile(file)),
       pagination: {
         page,
         limit,
@@ -415,6 +429,29 @@ export class FilesService {
       throw new NotFoundException('File not found');
     }
     return result[0];
+  }
+
+  async getPublicFileById(id: string, userId: string) {
+    return this.toPublicFile(await this.findById(id, userId));
+  }
+
+  async openOriginalFile(id: string, userId: string, rangeHeader?: string) {
+    const file = await this.findById(id, userId);
+    if (!(await this.storageProvider.exists(this.storageBucket, file.storageKey))) {
+      throw new NotFoundException('Original file is no longer available.');
+    }
+
+    const size = await this.storageProvider.getSize(this.storageBucket, file.storageKey);
+    const range = this.parseByteRange(rangeHeader, size);
+    const stream = await this.storageProvider.download(this.storageBucket, file.storageKey, range);
+
+    return {
+      stream,
+      fileName: this.safeInlineFilename(file.originalName),
+      mimeType: file.mimeType,
+      size,
+      range,
+    };
   }
 
   async search(userId: string, q: string) {
@@ -442,12 +479,12 @@ export class FilesService {
   async deleteFile(id: string, userId: string) {
     const file = await this.findById(id, userId);
 
-    // 1. Delete local file
-    const storagePath = path.join(this.uploadDir, file.storageKey);
+    // 1. Delete through the storage boundary. A missing object is equivalent
+    // to an already-deleted object, so DB cleanup remains safe to retry.
     try {
-      await fs.unlink(storagePath);
+      await this.storageProvider.delete(this.storageBucket, file.storageKey);
     } catch (e) {
-      this.logger.warn(`Failed to delete storage file ${storagePath}`, e);
+      this.logger.warn(`Failed to delete storage object for file ${id}`, e);
     }
 
     // 2. Delete database record
@@ -501,23 +538,23 @@ export class FilesService {
 
   async generateSummary(fileId: string, userId: string, level: string, language = 'en') {
     const file = await this.findById(fileId, userId);
-    if (file.processingStatus !== ProcessingStatus.COMPLETED || !file.extractedText) {
+    if (!this.hasUsableExtractedText(file)) {
       throw new BadRequestException('File is not processed yet');
     }
-    return this.aiService.generateSummary(file.extractedText, level, language);
+    return this.aiService.generateSummary(file.extractedText!, level, language);
   }
 
   async generateExplanation(fileId: string, userId: string, level: string, language = 'en') {
     const file = await this.findById(fileId, userId);
-    if (file.processingStatus !== ProcessingStatus.COMPLETED || !file.extractedText) {
+    if (!this.hasUsableExtractedText(file)) {
       throw new BadRequestException('File is not processed yet');
     }
-    return this.aiService.generateExplanation(file.extractedText, level, language, fileId, userId);
+    return this.aiService.generateExplanation(file.extractedText!, level, language, fileId, userId);
   }
 
   async chatWithDocument(fileId: string, userId: string, question: string) {
     const file = await this.findById(fileId, userId);
-    if (file.processingStatus !== ProcessingStatus.COMPLETED || !file.extractedText) {
+    if (!this.hasUsableExtractedText(file)) {
       throw new BadRequestException('File is not processed yet');
     }
 
@@ -555,7 +592,7 @@ export class FilesService {
       .join('\n\n');
 
     const chatResult = await this.aiService.chatWithDocument(
-      contextText || file.extractedText || '',
+      contextText || file.extractedText!,
       question,
       [],
     );
@@ -693,25 +730,38 @@ export class FilesService {
       }
     }
 
-    const filename = path.basename(filePath);
-    const storageKey = filename;
-    const storageUrl = `/uploads/${filename}`;
+    const storageKey = this.createStorageKey(userId, originalname);
+    const storageUrl = 'private://document';
+    const fileBuffer = await fs.readFile(filePath);
+    await this.storageProvider.upload(
+      this.storageBucket,
+      storageKey,
+      Readable.from(fileBuffer),
+      { contentType: mime, contentLength: size },
+    );
+    await fs.unlink(filePath).catch(() => undefined);
 
     // Create database record as PENDING
-    const result = await db
-      .insert(files)
-      .values({
-        userId,
-        subjectId: subjectId || null,
-        originalName: originalname,
-        storageKey,
-        storageUrl,
-        fileType,
-        mimeType: mime,
-        fileSize: size,
-        processingStatus: ProcessingStatus.PENDING,
-      })
-      .returning();
+    let result;
+    try {
+      result = await db
+        .insert(files)
+        .values({
+          userId,
+          subjectId: subjectId || null,
+          originalName: originalname,
+          storageKey,
+          storageUrl,
+          fileType,
+          mimeType: mime,
+          fileSize: size,
+          processingStatus: ProcessingStatus.PENDING,
+        })
+        .returning();
+    } catch (error) {
+      await this.storageProvider.delete(this.storageBucket, storageKey).catch(() => undefined);
+      throw error;
+    }
 
     const fileRecord = result[0];
 
@@ -744,7 +794,7 @@ export class FilesService {
       });
     } else {
       // Trigger background processing (fire-and-forget with explicit error handling)
-      this.processFileBackground(fileRecord.id, filePath, fileType, mime)
+      this.processFileBackground(fileRecord.id, path.join(this.uploadDir, this.storageBucket, storageKey), fileType, mime)
         .catch((err) => {
           this.logger.error(
             `[FilesService] Unhandled top-level error in processFileBackground (chunked) for file ${fileRecord.id}. ` +
@@ -762,7 +812,7 @@ export class FilesService {
         });
     }
 
-    return fileRecord;
+    return this.toPublicFile(fileRecord);
   }
 
   async reprocessFile(id: string, userId: string) {
@@ -778,7 +828,7 @@ export class FilesService {
       })
       .where(eq(files.id, id));
 
-    const storagePath = path.join(this.uploadDir, file.storageKey);
+    const storagePath = path.join(this.uploadDir, this.storageBucket, file.storageKey);
 
     if (USE_BULLMQ_PROCESSING) {
       const attemptResult = await db
@@ -802,6 +852,69 @@ export class FilesService {
     }
 
     return { success: true, message: 'Reprocessing started' };
+  }
+
+  private createStorageKey(userId: string, originalName: string): string {
+    const extension = path.extname(originalName).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    return `${userId}/${randomUUID()}${extension}`;
+  }
+
+  private hasUsableExtractedText(file: typeof files.$inferSelect): boolean {
+    return file.processingStatus === ProcessingStatus.COMPLETED
+      && !!file.extractedText?.trim()
+      && !this.isSyntheticExtraction(file.extractedText);
+  }
+
+  private isSyntheticExtraction(text: string | null | undefined): boolean {
+    return /mock extracted text|real production deployment|TEST_ONLY_DOCUMENT_EXTRACTION/i.test(text || '');
+  }
+
+  private toPublicFile(file: typeof files.$inferSelect) {
+    const { storageKey, storageUrl, processingError, extractedText, metadata, ...publicFile } = file;
+    const extractionStatus = metadata && typeof metadata === 'object'
+      ? (metadata as Record<string, unknown>).extractionStatus
+      : undefined;
+    const synthetic = this.isSyntheticExtraction(extractedText);
+
+    return {
+      ...publicFile,
+      extractedText: synthetic ? null : extractedText,
+      processingStatus: extractionStatus === 'ocr_required'
+        ? ProcessingStatus.OCR_REQUIRED
+        : synthetic ? ProcessingStatus.FAILED : file.processingStatus,
+      extractionStatus,
+      processingError: extractionStatus === 'ocr_required'
+        ? 'OCR_REQUIRED'
+        : file.processingStatus === ProcessingStatus.FAILED || synthetic
+          ? 'PROCESSING_FAILED'
+          : null,
+    };
+  }
+
+  private parseByteRange(header: string | undefined, size: number): { start: number; end: number } | undefined {
+    if (!header) return undefined;
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim());
+    if (!match || size <= 0) {
+      throw new HttpException('Invalid byte range.', HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+    }
+
+    const [, rawStart, rawEnd] = match;
+    const suffixLength = rawStart === '' ? Number(rawEnd) : undefined;
+    const start = suffixLength !== undefined
+      ? Math.max(size - suffixLength, 0)
+      : Number(rawStart);
+    const end = rawStart === ''
+      ? size - 1
+      : rawEnd === '' ? size - 1 : Number(rawEnd);
+
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= size) {
+      throw new HttpException('Requested range is not satisfiable.', HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+    }
+    return { start, end: Math.min(end, size - 1) };
+  }
+
+  private safeInlineFilename(originalName: string): string {
+    return originalName.replace(/[\r\n"\\]/g, '_').slice(0, 180) || 'document.pdf';
   }
 
   private async isSuperAdmin(userId: string): Promise<boolean> {

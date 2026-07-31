@@ -47,6 +47,7 @@ export default registerAs('ai', () => {
     embeddingBaseUrl: OPENROUTER_BASE,
     embeddingModel: EMBEDDING_MODEL,
     embeddingMockMode: process.env.NODE_ENV === 'test',
+    allowMockDocumentExtraction: process.env.ALLOW_MOCK_DOCUMENT_EXTRACTION === 'true',
     useGeminiSdk,
   };
 });

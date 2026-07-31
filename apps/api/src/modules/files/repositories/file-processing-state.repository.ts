@@ -22,7 +22,8 @@ export class FileProcessingStateRepository {
     finalStatus: TerminalAttemptStatus,
     additionalAttemptData: Partial<typeof fileProcessingAttempts.$inferInsert> = {},
     extractedText?: string,
-    userMessage?: string
+    userMessage?: string,
+    fileMetadata?: Record<string, unknown>,
   ): Promise<void> {
     
     let targetFileStatus: 'completed' | 'failed' | null = null;
@@ -67,7 +68,8 @@ export class FileProcessingStateRepository {
             processingStatus: targetFileStatus,
             ...(targetFileStatus === 'completed' && extractedText ? { extractedText } : {}),
             ...(targetFileStatus === 'completed' ? { processedAt: new Date() } : {}),
-            ...(targetFileStatus === 'failed' && userMessage ? { processingError: userMessage } : {})
+            ...(targetFileStatus === 'failed' && userMessage ? { processingError: userMessage } : {}),
+            ...(fileMetadata ? { metadata: fileMetadata } : {})
           })
           .where(eq(files.id, token.fileId));
       }
