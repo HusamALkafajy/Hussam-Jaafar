@@ -27,12 +27,12 @@ const COLOR_MAP: Record<ActivityEvent['type'], string> = {
 };
 
 export function ActivityFeed({ items }: ActivityFeedProps) {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
 
   if (!items || items.length === 0) {
     return (
       <div className="py-6 text-center text-sm text-muted-foreground">
-        No recent activity.
+        {t('dashboard.noRecentActivity')}
       </div>
     );
   }

@@ -6,10 +6,12 @@ import { FilePicker } from '../ui/file-picker';
 import { useFTUE } from '../../hooks/use-ftue';
 import { Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
 import { Button } from '../ui/button';
+import { useLocale } from '../../hooks/use-locale';
 
 export function FTUEDashboardEmpty() {
   const router = useRouter();
   const { markAsSeen } = useFTUE();
+  const { t } = useLocale();
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -33,13 +35,11 @@ export function FTUEDashboardEmpty() {
       </div>
 
       <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-4 text-foreground">
-        Ace your next exam.
+        {t('dashboard.emptyHero')}
       </h1>
       
       <p className="text-lg md:text-xl text-muted-foreground mb-12 max-w-2xl">
-        Drop a syllabus, lecture slide, or textbook here. 
-        <br className="hidden md:block" />
-        StudyAI will read it, summarize it, and get you ready.
+        {t('dashboard.emptyDescription')}
       </p>
 
       <div className="w-full max-w-2xl mx-auto mb-8 relative group">
@@ -48,8 +48,8 @@ export function FTUEDashboardEmpty() {
           <FilePicker 
             className="py-16 px-6 bg-muted/20 hover:bg-muted/40 transition-all border-primary/20 shadow-sm"
             onChange={handleUpload}
-            heading={<span className="text-xl md:text-2xl font-bold">Browse Files</span>}
-            subheading={<span className="text-base text-muted-foreground">Or drag and drop PDFs, PPTX, DOCX</span>}
+            heading={<span className="text-xl md:text-2xl font-bold">{t('dashboard.browseFiles')}</span>}
+            subheading={<span className="text-base text-muted-foreground">{t('dashboard.dropFormats')}</span>}
             icon={<div className="p-4 bg-primary/10 rounded-full mb-4 text-primary"><Sparkles className="w-8 h-8" /></div>}
           />
         </div>
@@ -58,13 +58,13 @@ export function FTUEDashboardEmpty() {
       <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mt-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>Your documents are private and never shared.</span>
+          <span>{t('dashboard.privacyNotice')}</span>
         </div>
         
         <div className="hidden sm:block w-1 h-1 bg-border rounded-full"></div>
 
         <Button variant="link" className="text-sm px-0 text-muted-foreground hover:text-primary" onClick={handleSampleDocument}>
-          Don't have a file? <strong className="ml-1 rtl:mr-1">Try a Sample Document</strong> <ArrowRight className="w-4 h-4 ml-1 rtl:mr-1 rtl:-scale-x-100" />
+          {t('dashboard.samplePrompt')} <strong className="ml-1 rtl:mr-1">{t('dashboard.sampleAction')}</strong> <ArrowRight className="w-4 h-4 ml-1 rtl:mr-1 rtl:-scale-x-100" />
         </Button>
       </div>
       

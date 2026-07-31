@@ -16,7 +16,7 @@ const HeroSectionComponent: React.FC = () => {
       <div className="flex-1 flex flex-col gap-6 text-center lg:text-start z-10">
         <Badge variant="primary" className="self-center lg:self-start gap-1">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>مدعوم بأحدث تقنيات الذكاء الاصطناعي</span>
+          <span>{t('landing.heroBadge')}</span>
         </Badge>
         <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight leading-tight">
           <span className="block">{t('landing.heroTitle')}</span>
@@ -64,15 +64,15 @@ const HeroSectionComponent: React.FC = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">physics_revision.pdf</p>
-              <p className="text-xs text-slate-400">Successfully processed • 12 pages</p>
+              <p className="text-xs text-slate-400">{t('landing.demoProcessed', { pages: 12 })}</p>
             </div>
-            <Badge variant="success">Completed</Badge>
+            <Badge variant="success">{t('landing.demoCompleted')}</Badge>
           </div>
 
           <div className="glass p-4 rounded-xl border border-slate-750/30 flex flex-col gap-2 translate-x-4 animate-bounce [animation-duration:8s] delay-1000 shadow-lg">
             <div className="flex items-center gap-2 text-xs font-semibold text-indigo-400">
               <Brain className="w-4 h-4" />
-              <span>AI Tutor Explains:</span>
+              <span>{t('landing.demoTutorExplains')}</span>
             </div>
             <p className="text-sm text-slate-200 leading-relaxed font-serif">
               &quot;Newton&#39;s Second Law states that force is directly proportional to acceleration...&quot;
@@ -82,9 +82,9 @@ const HeroSectionComponent: React.FC = () => {
           <div className="glass p-4 rounded-xl border border-slate-700/30 flex items-center justify-between -translate-x-4 animate-bounce [animation-duration:7s] delay-500 shadow-lg">
             <div className="flex items-center gap-2">
               <Award className="w-5 h-5 text-amber-400" />
-              <span className="text-sm font-bold text-white">Interactive Quiz Generated</span>
+              <span className="text-sm font-bold text-white">{t('landing.demoQuizGenerated')}</span>
             </div>
-            <Badge variant="primary">15 Questions</Badge>
+            <Badge variant="primary">{t('landing.demoQuestions', { count: 15 })}</Badge>
           </div>
         </div>
       </div>

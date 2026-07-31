@@ -43,10 +43,10 @@ export default function FlashcardsListPage() {
         <div className="flex flex-col gap-1.5">
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             <HelpCircle className="w-7 h-7 text-indigo-400 animate-pulse" />
-            <span>{locale === 'ar' ? 'بطاقات المراجعة التفاعلية' : 'Interactive Flashcards'}</span>
+            <span>{t('flashcards.title')}</span>
           </h2>
           <p className="text-sm text-slate-400">
-            {locale === 'ar' ? 'تصفح وراجع بطاقات الذاكرة الذكية الخاصة بك باستخدام التكرار المتباعد لتثبيت المفاهيم.' : 'Review and flip your smart memory cards using spaced repetition to master key terminology.'}
+            {t('flashcards.description')}
           </p>
         </div>
       </div>
@@ -57,17 +57,17 @@ export default function FlashcardsListPage() {
             <HelpCircle className="w-10 h-10" />
           </div>
           <h4 className="text-lg font-bold text-white">
-            {locale === 'ar' ? 'لا توجد بطاقات بعد' : 'No Flashcards Generated Yet'}
+            {t('flashcards.emptyTitle')}
           </h4>
           <p className="text-sm text-slate-400 max-w-sm">
-            {locale === 'ar' ? 'اذهب لصفحة ملفاتي، وافتح أي مستند لإنشاء بطاقات مراجعة ذكية له.' : 'Navigate to your files and open any document to auto-generate a set of flashcards.'}
+            {t('flashcards.emptyDescription')}
           </p>
           <Button
             nativeButton={false}
             render={<Link href="/files" />}
             className="mt-2 font-semibold"
           >
-            <span>{locale === 'ar' ? 'تصفح ملفاتي' : 'Browse My Files'}</span>
+            <span>{t('flashcards.browseFiles')}</span>
           </Button>
         </Card>
       ) : (
@@ -80,7 +80,7 @@ export default function FlashcardsListPage() {
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] bg-slate-850 text-slate-300 border border-slate-800 px-2.5 py-0.5 rounded-full font-semibold">
-                    {locale === 'ar' ? `${set.totalCards} بطاقات` : `${set.totalCards} Cards`}
+                    {t('flashcards.cards', { count: set.totalCards })}
                   </span>
                   <span className="text-xs text-slate-400 flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5" />
@@ -96,7 +96,7 @@ export default function FlashcardsListPage() {
                   <div className="flex justify-between text-xs text-slate-400 font-semibold">
                     <span className="flex items-center gap-1">
                       <Award className="w-4 h-4 text-emerald-450" />
-                      {locale === 'ar' ? 'الكلمات المتقنة:' : 'Mastered words:'}
+                      {t('flashcards.masteredWords')}
                     </span>
                     <span>{set.masteredCount} / {set.totalCards}</span>
                   </div>
@@ -111,7 +111,7 @@ export default function FlashcardsListPage() {
 
               <div className="flex items-center justify-between border-t border-slate-800/30 pt-4">
                 <span className="text-xs text-slate-400">
-                  {locale === 'ar' ? `عدد المراجعات: ${set.reviewCount}` : `Reviews: ${set.reviewCount}`}
+                  {t('flashcards.reviews', { count: set.reviewCount })}
                 </span>
 
                 <Button
@@ -120,7 +120,7 @@ export default function FlashcardsListPage() {
                   size="sm"
                   className="font-bold flex items-center gap-1"
                 >
-                  <span>{locale === 'ar' ? 'بدء المراجعة' : 'Start Review'}</span>
+                  <span>{t('flashcards.startReview')}</span>
                 </Button>
               </div>
             </Card>

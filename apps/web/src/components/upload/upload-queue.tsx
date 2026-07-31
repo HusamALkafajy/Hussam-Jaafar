@@ -15,7 +15,18 @@ interface UploadQueueProps {
 }
 
 export function UploadQueue({ variant = 'full', onSelectJob }: UploadQueueProps) {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
+
+  const stageLabels: Record<ProcessingJob['currentStage'], string> = {
+    UPLOADING: t('uploadQueue.stageUploading'),
+    QUEUED: t('uploadQueue.stageQueued'),
+    EXTRACTING: t('uploadQueue.stageExtracting'),
+    BUILDING_AST: t('uploadQueue.stageBuildingAst'),
+    VALIDATING: t('uploadQueue.stageValidating'),
+    INDEXING: t('uploadQueue.stageIndexing'),
+    FINALIZING: t('uploadQueue.stageFinalizing'),
+    COMPLETED: t('uploadQueue.stageCompleted'),
+  };
 
   // For compact view, we just show top 5 active/recent
   const displayJobs = variant === 'compact' 
@@ -26,14 +37,14 @@ export function UploadQueue({ variant = 'full', onSelectJob }: UploadQueueProps)
     <Stack gap={4}>
       {variant === 'compact' && (
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-bold">Recent Processing Jobs</h3>
+          <h3 className="text-lg font-bold">{t('uploadQueue.recentJobs')}</h3>
           <Button
             nativeButton={false}
             render={<Link href="/upload" />}
             variant="link"
             className="text-primary p-0 h-auto"
           >
-            View All Queue
+            {t('uploadQueue.viewAll')}
           </Button>
         </div>
       )}
@@ -41,14 +52,14 @@ export function UploadQueue({ variant = 'full', onSelectJob }: UploadQueueProps)
       {variant === 'full' && (
         <div className="flex items-center justify-between bg-muted/20 p-4 rounded-lg border mb-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">Queue Filters:</span>
-            <Badge variant="secondary">All ({MOCK_JOBS.length})</Badge>
-            <Badge variant="outline">Processing</Badge>
-            <Badge variant="outline">Completed</Badge>
-            <Badge variant="outline">Failed</Badge>
+            <span className="text-sm font-semibold">{t('uploadQueue.filters')}</span>
+            <Badge variant="secondary">{t('uploadQueue.all', { count: MOCK_JOBS.length })}</Badge>
+            <Badge variant="outline">{t('uploadQueue.processing')}</Badge>
+            <Badge variant="outline">{t('uploadQueue.completed')}</Badge>
+            <Badge variant="outline">{t('uploadQueue.failed')}</Badge>
           </div>
           <div className="text-sm text-muted-foreground">
-            Sort by: <span className="font-medium text-foreground cursor-pointer">Date Added</span>
+            {t('uploadQueue.sortBy')} <span className="font-medium text-foreground cursor-pointer">{t('uploadQueue.dateAdded')}</span>
           </div>
         </div>
       )}
@@ -86,7 +97,7 @@ export function UploadQueue({ variant = 'full', onSelectJob }: UploadQueueProps)
                      <>
                        <span>•</span>
                        <span className="text-indigo-500 font-medium">
-                         {job.currentStage.replace('_', ' ')}
+                         {stageLabels[job.currentStage]}
                        </span>
                      </>
                   )}
@@ -105,7 +116,7 @@ export function UploadQueue({ variant = 'full', onSelectJob }: UploadQueueProps)
               {variant === 'full' && (
                 <div className="hidden md:flex shrink-0">
                   <Badge variant={isCompleted ? 'default' : isFailed ? 'destructive' : 'secondary'} className="uppercase">
-                    {job.status}
+                    {t(`uploadQueue.${job.status}`)}
                   </Badge>
                 </div>
               )}
@@ -120,9 +131,9 @@ export function UploadQueue({ variant = 'full', onSelectJob }: UploadQueueProps)
             <div className="p-3 bg-muted text-muted-foreground rounded-full mb-3">
               <FileText className="size-6" />
             </div>
-            <h3 className="font-semibold mb-1">Queue is empty</h3>
+            <h3 className="font-semibold mb-1">{t('uploadQueue.emptyTitle')}</h3>
             <p className="text-sm text-muted-foreground max-w-sm">
-              Your processing queue is currently empty. Upload documents to see them here.
+              {t('uploadQueue.emptyDescription')}
             </p>
           </div>
         )}

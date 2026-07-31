@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useLocale } from '../hooks/use-locale';
 import {
   CommandDialog,
   CommandInput,
@@ -9,13 +10,13 @@ import {
   CommandEmpty,
   CommandGroup,
   CommandItem,
-  CommandSeparator,
 } from './ui/command';
-import { FileText, FolderOpen, Search, GraduationCap, Clock, Flame, Calculator, Globe, Home } from 'lucide-react';
+import { GraduationCap, Home } from 'lucide-react';
 
 export function GlobalCommandPalette() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+  const { t } = useLocale();
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -34,18 +35,23 @@ export function GlobalCommandPalette() {
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Type a command or search..." />
+    <CommandDialog
+      open={open}
+      onOpenChange={setOpen}
+      title={t('dashboard.commandPalette')}
+      description={t('dashboard.commandPaletteDescription')}
+    >
+      <CommandInput placeholder={t('dashboard.commandSearch')} />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
-        <CommandGroup heading="Suggestions">
+        <CommandEmpty>{t('dashboard.commandNoResults')}</CommandEmpty>
+        <CommandGroup heading={t('dashboard.commandSuggestions')}>
           <CommandItem onSelect={() => runCommand(() => router.push('/files'))}>
             <Home className="mr-2 h-4 w-4 rtl:ml-2" />
-            <span>Go to Files</span>
+            <span>{t('dashboard.commandGoToFiles')}</span>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push('/exams'))}>
             <GraduationCap className="mr-2 h-4 w-4 rtl:ml-2" />
-            <span>Go to Exams</span>
+            <span>{t('dashboard.commandGoToExams')}</span>
           </CommandItem>
         </CommandGroup>
       </CommandList>

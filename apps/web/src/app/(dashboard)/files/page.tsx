@@ -163,13 +163,9 @@ export default function FilesPage() {
         }
 
         if (i === totalChunks - 1) {
-          setUploadMessage(t('files.mergingAndAnalyzing') || 'Merging and analyzing...');
+          setUploadMessage(t('files.mergingAndAnalyzing'));
         } else {
-          setUploadMessage(
-            (t('files.uploadingChunk') || 'Uploading chunk {chunk} of {total}...')
-              .replace('{chunk}', (i + 1).toString())
-              .replace('{total}', totalChunks.toString())
-          );
+          setUploadMessage(t('files.uploadingChunk', { chunk: i + 1, total: totalChunks }));
         }
 
         const response = await api.post<any>('/files/upload/chunk', chunkFormData);
@@ -190,9 +186,9 @@ export default function FilesPage() {
       setUploadStatus('error');
       
       if (err.name === 'QuotaError' || err.errorCode === 'QUOTA_EXCEEDED') {
-        setUploadError(err.message || 'Beta Limit Reached: You have exceeded your storage quota.');
+        setUploadError(t('files.quotaExceeded'));
       } else {
-        setUploadError(err.message || 'Upload failed. Please check your connection and try again.');
+        setUploadError(t('files.uploadNetworkFailure'));
       }
     } finally {
       setUploading(false);
@@ -232,21 +228,13 @@ export default function FilesPage() {
 
     if (!acceptedType) {
       setUploadStatus('error');
-      setUploadError(
-        locale === 'ar'
-          ? 'يرجى اختيار ملف PDF أو Word أو صورة.'
-          : 'Choose a PDF, Word document, or image.',
-      );
+      setUploadError(t('files.invalidType'));
       return;
     }
 
     if (file.size > MAX_FILE_SIZE) {
       setUploadStatus('error');
-      setUploadError(
-        locale === 'ar'
-          ? 'يجب ألا يتجاوز حجم الملف 50 ميجابايت.'
-          : 'The file must be 50MB or smaller.',
-      );
+      setUploadError(t('files.maxSize'));
       return;
     }
 
@@ -260,16 +248,10 @@ export default function FilesPage() {
     try {
       await api.delete(`/files/${deleteTarget.id}`);
       setDeleteTarget(null);
-      toast.success(
-        locale === 'ar' ? 'تم حذف الملف بنجاح.' : 'File deleted successfully.',
-      );
+      toast.success(t('files.deleteSuccess'));
       await loadData(pagination.page);
     } catch (err) {
-      toast.error(
-        locale === 'ar'
-          ? 'تعذر حذف الملف. حاول مرة أخرى.'
-          : 'Could not delete the file. Try again.',
-      );
+      toast.error(t('files.deleteFailure'));
     } finally {
       setDeleting(false);
     }
@@ -313,7 +295,7 @@ export default function FilesPage() {
             id="files-subject-filter-label"
             className="text-xs font-bold text-slate-400"
           >
-            {locale === 'ar' ? 'تصفية حسب المادة' : 'Subject filter'}
+            {t('files.subjectFilter')}
           </span>
           <Select
             value={subjectId || ALL_SUBJECTS_VALUE}
@@ -351,7 +333,7 @@ export default function FilesPage() {
             id="files-type-filter-label"
             className="text-xs font-bold text-slate-400"
           >
-            {locale === 'ar' ? 'تصفية حسب نوع الملف' : 'File type filter'}
+            {t('files.fileTypeFilter')}
           </span>
           <Select
             value={fileType || ALL_FILE_TYPES_VALUE}
@@ -379,7 +361,7 @@ export default function FilesPage() {
               </SelectItem>
               <SelectItem value="pdf">PDF</SelectItem>
               <SelectItem value="docx">Word</SelectItem>
-              <SelectItem value="image">Image</SelectItem>
+              <SelectItem value="image">{t('files.fileTypeImage')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -410,7 +392,7 @@ export default function FilesPage() {
               <Link
                 href={`/files/${file.id}`}
                 className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                aria-label={`${locale === 'ar' ? 'فتح' : 'Open'} ${file.originalName}`}
+                aria-label={t('files.openFile', { fileName: file.originalName })}
               />
 
               <div className="relative pointer-events-none flex items-start justify-between gap-4">
@@ -430,7 +412,7 @@ export default function FilesPage() {
                   type="button"
                   onClick={() => setDeleteTarget(file)}
                   className="relative pointer-events-auto p-1.5 rounded hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
-                  aria-label={`Delete ${file.originalName}`}
+                  aria-label={t('files.deleteFileNamed', { fileName: file.originalName })}
                 >
                   <Trash2 className="w-4.5 h-4.5" aria-hidden="true" />
                 </button>
@@ -455,6 +437,8 @@ export default function FilesPage() {
                     ? t('files.statusCompleted')
                     : file.processingStatus === 'failed'
                     ? t('files.statusFailed')
+                    : file.processingStatus === 'pending'
+                    ? t('files.statusPending')
                     : t('files.statusProcessing')}
                 </Badge>
               </div>
@@ -468,6 +452,7 @@ export default function FilesPage() {
       <DialogContent
         initialFocus={fileInputRef}
         showCloseButton={!uploading}
+        closeLabel={t('common.close')}
         className="max-w-md glass border border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden p-6 gap-5"
       >
         <DialogHeader>
@@ -477,9 +462,7 @@ export default function FilesPage() {
           </DialogTitle>
           <DialogDescription>
             {t('files.uploadRequirements')}.{' '}
-            {locale === 'ar'
-              ? 'يمكنك اختيار مادة دراسية قبل بدء الرفع.'
-              : 'You can optionally choose a subject before uploading.'}
+            {t('files.uploadDescription')}
           </DialogDescription>
         </DialogHeader>
 
@@ -498,9 +481,7 @@ export default function FilesPage() {
               <div
                 className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800"
                 role="progressbar"
-                aria-label={
-                  locale === 'ar' ? 'تقدم رفع الملف' : 'File upload progress'
-                }
+                aria-label={t('files.uploadProgress')}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={uploadProgress}
@@ -513,9 +494,7 @@ export default function FilesPage() {
               </div>
             </div>
             <p className="text-xs text-slate-500">
-              {locale === 'ar'
-                ? 'أبقِ هذه النافذة مفتوحة حتى يكتمل الرفع.'
-                : 'Keep this dialog open until the upload finishes.'}
+              {t('files.uploadKeepOpen')}
             </p>
           </div>
         ) : uploadStatus === 'success' ? (
@@ -529,12 +508,10 @@ export default function FilesPage() {
               aria-hidden="true"
             />
             <h5 className="text-base font-bold text-white">
-              {locale === 'ar' ? 'تم رفع الملف بنجاح!' : 'File uploaded successfully!'}
+              {t('files.uploadSuccess')}
             </h5>
             <p className="text-xs text-slate-400 font-medium">
-              {locale === 'ar'
-                ? 'بدأ التحليل بالذكاء الاصطناعي في الخلفية وسيظهر الملف حال اكتماله.'
-                : 'AI analysis started in the background; file will appear once completed.'}
+              {t('files.uploadSuccessDescription')}
             </p>
           </div>
         ) : (
@@ -561,15 +538,13 @@ export default function FilesPage() {
                   <SelectValue>
                     {uploadSubjectId
                       ? subjectsList.find((subject) => subject.id === uploadSubjectId)?.name ??
-                        (locale === 'ar' ? 'بلا مادة' : 'No Subject')
-                      : locale === 'ar'
-                        ? 'بلا مادة'
-                        : 'No Subject'}
+                        t('files.noSubject')
+                      : t('files.noSubject')}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent dir={locale === 'ar' ? 'rtl' : 'ltr'}>
                   <SelectItem value={NO_SUBJECT_VALUE}>
-                    {locale === 'ar' ? 'بلا مادة' : 'No Subject'}
+                    {t('files.noSubject')}
                   </SelectItem>
                   {subjectsList.map((subject) => (
                     <SelectItem key={subject.id} value={subject.id}>
@@ -624,7 +599,7 @@ export default function FilesPage() {
                 />
                 <div className="flex flex-col gap-0.5">
                   <p className="font-bold">
-                    {locale === 'ar' ? 'فشل رفع الملف' : 'Upload failed'}
+                    {t('files.uploadFailed')}
                   </p>
                   <p className="text-xs">{uploadError}</p>
                 </div>
@@ -635,7 +610,7 @@ export default function FilesPage() {
               <DialogClose
                 render={<Button type="button" variant="outline" />}
               >
-                {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                {t('common.cancel')}
               </DialogClose>
               <Button
                 type="submit"
@@ -643,9 +618,7 @@ export default function FilesPage() {
                 className="font-bold py-2.5"
               >
                 <span>
-                  {locale === 'ar'
-                    ? 'بدء الرفع والتحليل'
-                    : 'Start Upload & Analysis'}
+                  {t('files.startUpload')}
                 </span>
               </Button>
             </DialogFooter>
@@ -662,17 +635,17 @@ export default function FilesPage() {
         <AlertDialogContent initialFocus={deleteCancelRef}>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {locale === 'ar' ? 'حذف الملف؟' : 'Delete this file?'}
+              {t('files.deleteTitle')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {locale === 'ar'
-                ? `سيتم حذف ${deleteTarget?.originalName ?? 'هذا الملف'} نهائياً. لا يمكن التراجع عن هذا الإجراء.`
-                : `${deleteTarget?.originalName ?? 'This file'} will be permanently deleted. This action cannot be undone.`}
+              {t('files.deleteDescription', {
+                fileName: deleteTarget?.originalName ?? t('files.unnamedFile'),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel ref={deleteCancelRef} disabled={deleting}>
-              {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+              {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
               type="button"
@@ -680,7 +653,7 @@ export default function FilesPage() {
               loading={deleting}
               onClick={handleDelete}
             >
-              {locale === 'ar' ? 'حذف الملف' : 'Delete file'}
+              {t('files.deleteFile')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

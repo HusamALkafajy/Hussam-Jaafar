@@ -34,7 +34,7 @@ export default function RegisterPage() {
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('auth.passwordMismatch'));
       return;
     }
 
@@ -46,8 +46,8 @@ export default function RegisterPage() {
         firstName,
         lastName,
       });
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
+    } catch {
+      setError(t('auth.registrationFailed'));
     } finally {
       setLoading(false);
     }
@@ -63,12 +63,12 @@ export default function RegisterPage() {
               <Crown className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-xs font-bold text-indigo-300">أنت على بُعد خطوة واحدة من Pro ✨</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">أنشئ حسابك وسنحولك مباشرةً لإتمام الاشتراك عبر Stripe.</p>
+              <p className="text-xs font-bold text-indigo-300">{t('auth.proStepTitle')}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">{t('auth.proStepDescription')}</p>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">انضم إلينا مجاناً وابدأ التعلم الذكي</p>
+          <p className="text-sm text-slate-400">{t('auth.registerSubtitle')}</p>
         )}
       </div>
 
@@ -89,7 +89,7 @@ export default function RegisterPage() {
             id="firstName"
             type="text"
             label={t('auth.firstName')}
-            placeholder="John"
+            placeholder={t('auth.firstNamePlaceholder')}
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             icon={<User className="w-4 h-4" aria-hidden="true" />}
@@ -100,7 +100,7 @@ export default function RegisterPage() {
             id="lastName"
             type="text"
             label={t('auth.lastName')}
-            placeholder="Doe"
+            placeholder={t('auth.lastNamePlaceholder')}
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             icon={<User className="w-4 h-4" aria-hidden="true" />}

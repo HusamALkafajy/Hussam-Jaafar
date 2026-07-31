@@ -14,7 +14,7 @@ interface GamificationStatus {
 }
 
 export function GamificationWidget({ sidebarOpen }: { sidebarOpen: boolean }) {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const [status, setStatus] = useState<GamificationStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -75,10 +75,10 @@ export function GamificationWidget({ sidebarOpen }: { sidebarOpen: boolean }) {
         <div className="absolute left-16 top-1/2 -translate-y-1/2 scale-0 group-hover:scale-100 bg-slate-950 border border-slate-800 text-slate-100 text-xs px-3 py-2 rounded-lg shadow-xl transition-all duration-200 z-50 whitespace-nowrap flex flex-col gap-1.5 min-w-[120px]">
           <div className="flex items-center gap-1.5 font-bold text-indigo-300">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{locale === 'ar' ? `المستوى ${status.level}` : `Level ${status.level}`}</span>
+            <span>{t('achievements.level', { level: status.level })}</span>
           </div>
           <div className="text-[10px] text-slate-400">
-            {status.totalXp} XP total
+            {t('achievements.totalXpValue', { count: status.totalXp })}
           </div>
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
             <div 
@@ -105,19 +105,19 @@ export function GamificationWidget({ sidebarOpen }: { sidebarOpen: boolean }) {
           </div>
           <div className="flex flex-col">
             <span className="text-xs text-slate-400 leading-tight">
-              {locale === 'ar' ? 'المستوى الحالي' : 'Current Level'}
+              {t('achievements.currentLevel')}
             </span>
             <span className="text-sm font-bold text-white leading-tight">
-              {locale === 'ar' ? `المستوى ${status.level}` : `Level ${status.level}`}
+              {t('achievements.level', { level: status.level })}
             </span>
           </div>
         </div>
         <div className="text-right flex flex-col">
           <span className="text-[10px] text-slate-500">
-            {locale === 'ar' ? 'مجموع النقاط' : 'Total XP'}
+            {t('achievements.totalXp')}
           </span>
           <span className="text-xs font-black text-indigo-300">
-            {status.totalXp} XP
+            {t('achievements.xpValue', { count: status.totalXp })}
           </span>
         </div>
       </div>
@@ -132,7 +132,10 @@ export function GamificationWidget({ sidebarOpen }: { sidebarOpen: boolean }) {
         </div>
         <div className="flex justify-between items-center text-[10px] text-slate-400 px-0.5">
           <span>
-            {status.xpInCurrentLevel} / {status.xpNeededForNextLevel} XP
+            {t('achievements.xpProgress', {
+              current: status.xpInCurrentLevel,
+              needed: status.xpNeededForNextLevel,
+            })}
           </span>
           <span className="font-bold text-slate-300">
             {status.progressPercentage}%

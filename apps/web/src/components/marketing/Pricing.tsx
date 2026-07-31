@@ -37,8 +37,8 @@ const PricingComponent: React.FC = () => {
     try {
       const data = await api.post<{ checkoutUrl: string }>('/subscriptions/checkout', { plan: 'pro' });
       window.location.href = data.checkoutUrl;
-    } catch (err: any) {
-      setCheckoutError(err.message || 'Failed to create checkout session. Please try again.');
+    } catch {
+      setCheckoutError(t('landing.checkoutFailure'));
     } finally {
       setCheckoutLoading(false);
     }
@@ -49,7 +49,7 @@ const PricingComponent: React.FC = () => {
       <div className="text-center flex flex-col gap-3">
         <h2 className="text-3xl sm:text-4xl font-bold">{t('landing.pricingTitle')}</h2>
         <p className="text-slate-400 max-w-xl mx-auto">
-          اختر الباقة المناسبة لاحتياجاتك وابدأ في رفع مستوى دراستك اليوم.
+          {t('landing.pricingSubtitle')}
         </p>
       </div>
 
@@ -74,7 +74,7 @@ const PricingComponent: React.FC = () => {
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4.5 h-4.5 text-emerald-500 shrink-0" />
-                <span>مراجعة بطاقات فلاش محدودة</span>
+                <span>{t('landing.freeFlashcards')}</span>
               </li>
             </ul>
           </div>
@@ -106,11 +106,11 @@ const PricingComponent: React.FC = () => {
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4.5 h-4.5 text-indigo-400 shrink-0" />
-                <span>توليد وتلخيص فوري بالذكاء الاصطناعي</span>
+                <span>{t('landing.proInstantAi')}</span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4.5 h-4.5 text-indigo-400 shrink-0" />
-                <span>تعطيل إعلانات Google AdSense</span>
+                <span>{t('landing.adFree')}</span>
               </li>
             </ul>
           </div>
@@ -122,10 +122,10 @@ const PricingComponent: React.FC = () => {
             {checkoutLoading ? (
               <span className="flex items-center justify-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>جاري التحميل...</span>
+                <span>{t('landing.checkoutLoading')}</span>
               </span>
             ) : (
-              'اشترك الآن'
+              t('landing.subscribeNow')
             )}
           </Button>
         </Card>
@@ -140,7 +140,7 @@ const PricingComponent: React.FC = () => {
             <ul className="flex flex-col gap-3.5 text-sm text-slate-300">
               <li className="flex items-center gap-2.5">
                 <Check className="w-4.5 h-4.5 text-emerald-500 shrink-0" />
-                <span>حسابات مخصصة للمدارس والجامعات</span>
+                <span>{t('landing.institutionAccounts')}</span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4.5 h-4.5 text-emerald-500 shrink-0" />
@@ -148,12 +148,12 @@ const PricingComponent: React.FC = () => {
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4.5 h-4.5 text-emerald-500 shrink-0" />
-                <span>مساحات عمل مشتركة للطلاب</span>
+                <span>{t('landing.sharedWorkspaces')}</span>
               </li>
             </ul>
           </div>
           <Button nativeButton={false} render={<a href="mailto:info@studyai.com" />} variant="secondary" className="w-full mt-8">
-            تواصل معنا
+            {t('landing.contactUs')}
           </Button>
         </Card>
       </div>

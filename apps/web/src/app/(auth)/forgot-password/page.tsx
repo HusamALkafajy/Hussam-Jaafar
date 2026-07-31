@@ -18,14 +18,14 @@ export default function ForgotPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
-      setErrorMessage(t('common.required') || 'Email is required');
+      setErrorMessage(t('common.required'));
       setStatus('error');
       return;
     }
     
     // Basic email validation
     if (!/^\S+@\S+\.\S+$/.test(email)) {
-      setErrorMessage('Please enter a valid email address');
+      setErrorMessage(t('auth.invalidEmail'));
       setStatus('error');
       return;
     }
@@ -46,11 +46,11 @@ export default function ForgotPasswordPage() {
       
       // Async Safety Rule: Handle specific statuses
       if (err.name === 'AbortError' || err.code === 'ECONNABORTED') {
-        setErrorMessage('Request timed out. Please try again.');
+        setErrorMessage(t('auth.requestTimeout'));
       } else if (err.response?.status === 429) {
-        setErrorMessage('Too many requests. Please wait a moment and try again.');
+        setErrorMessage(t('auth.tooManyRequests'));
       } else {
-        setErrorMessage(err.response?.data?.message || err.message || 'Failed to request password reset');
+        setErrorMessage(t('auth.resetRequestFailed'));
       }
     }
   };
@@ -61,13 +61,13 @@ export default function ForgotPasswordPage() {
         <div className="flex justify-center mb-4">
           <CheckCircle2 className="w-12 h-12 text-emerald-500" />
         </div>
-        <h2 className="text-2xl font-bold text-white mb-2">Check your email</h2>
+        <h2 className="text-2xl font-bold text-white mb-2">{t('auth.checkEmail')}</h2>
         <p className="text-sm text-slate-400 mb-6">
-          We have sent a password reset link to <span className="font-semibold text-white">{email}</span>.
+          {t('auth.resetEmailSent', { email })}
         </p>
         <Link href="/login" className="flex items-center justify-center gap-2 text-indigo-400 hover:text-indigo-300 transition-colors text-sm">
           <ArrowLeft className="w-4 h-4" />
-          Back to Login
+          {t('auth.backToLogin')}
         </Link>
       </Card>
     );
@@ -76,8 +76,8 @@ export default function ForgotPasswordPage() {
   return (
     <Card className="p-8">
       <div className="flex flex-col gap-2 text-center mb-6">
-        <h2 className="text-2xl font-bold text-white">Reset Password</h2>
-        <p className="text-sm text-slate-400">Enter your email address and we will send you a link to reset your password.</p>
+        <h2 className="text-2xl font-bold text-white">{t('auth.resetPassword')}</h2>
+        <p className="text-sm text-slate-400">{t('auth.resetPasswordDescription')}</p>
       </div>
 
       {status === 'error' && (
@@ -91,7 +91,7 @@ export default function ForgotPasswordPage() {
         <Input
           id="email"
           type="email"
-          label={t('auth.email') || 'Email'}
+          label={t('auth.email')}
           placeholder="name@example.com"
           value={email}
           onChange={(e) => {
@@ -104,14 +104,14 @@ export default function ForgotPasswordPage() {
         />
 
         <Button type="submit" loading={status === 'loading'} disabled={status === 'loading'} className="w-full mt-2 font-bold py-2.5">
-          Send Reset Link
+          {t('auth.sendResetLink')}
         </Button>
       </form>
 
       <div className="mt-8 text-center text-sm">
         <Link href="/login" className="flex items-center justify-center gap-2 text-slate-400 hover:text-slate-300 transition-colors">
           <ArrowLeft className="w-4 h-4" />
-          Back to Login
+          {t('auth.backToLogin')}
         </Link>
       </div>
     </Card>

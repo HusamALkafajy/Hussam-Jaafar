@@ -34,12 +34,12 @@ interface PageProps {
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'content',    label: 'Content',    labelAr: 'المحتوى',   icon: FileText    },
-  { id: 'summary',   label: 'Summary',    labelAr: 'الملخص',    icon: Sparkles    },
-  { id: 'explain',   label: 'Explain',    labelAr: 'الشرح',     icon: Brain       },
-  { id: 'quiz',      label: 'Quiz',       labelAr: 'الاختبار',  icon: ListRestart },
-  { id: 'flashcards',label: 'Flashcards', labelAr: 'البطاقات',  icon: HelpCircle  },
-  { id: 'chat',      label: 'Chat',       labelAr: 'المحادثة',  icon: MessageSquare },
+  { id: 'content', key: 'files.tabContent', icon: FileText },
+  { id: 'summary', key: 'files.tabSummary', icon: Sparkles },
+  { id: 'explain', key: 'files.tabExplain', icon: Brain },
+  { id: 'quiz', key: 'files.tabExam', icon: ListRestart },
+  { id: 'flashcards', key: 'files.tabFlashcards', icon: HelpCircle },
+  { id: 'chat', key: 'files.tabChat', icon: MessageSquare },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -47,7 +47,8 @@ type TabId = typeof TABS[number]['id'];
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 /** Pill-style segmented tab navigator */
-function TabNav({ active, onChange, locale }: { active: TabId; onChange: (id: TabId) => void; locale: string }) {
+function TabNav({ active, onChange }: { active: TabId; onChange: (id: TabId) => void }) {
+  const { t } = useLocale();
   return (
     <div className="relative">
       {/* Scrollable row */}
@@ -66,7 +67,7 @@ function TabNav({ active, onChange, locale }: { active: TabId; onChange: (id: Ta
               )}
             >
               <Icon className="w-4 h-4 shrink-0" />
-              <span>{locale === 'ar' ? tab.labelAr : tab.label}</span>
+              <span>{t(tab.key)}</span>
             </Button>
           );
         })}
@@ -84,11 +85,12 @@ function FileHeader({
   onReprocess: () => void;
   reprocessing: boolean;
 }) {
+  const { t } = useLocale();
   const statusMap = {
-    completed: { label: locale === 'ar' ? 'مكتمل' : 'Completed',   icon: CheckCircle2, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-    failed:    { label: locale === 'ar' ? 'فشل'   : 'Failed',      icon: XCircle,      color: 'text-rose-400 bg-rose-500/10 border-rose-500/20'           },
-    processing:{ label: locale === 'ar' ? 'قيد التحليل' : 'Processing', icon: RefreshCw,  color: 'text-amber-400 bg-amber-500/10 border-amber-500/20'         },
-    pending:   { label: locale === 'ar' ? 'في الانتظار' : 'Pending',    icon: Clock,      color: 'text-sky-400 bg-sky-500/10 border-sky-500/20'               },
+    completed: { label: t('files.statusCompleted'), icon: CheckCircle2, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+    failed: { label: t('files.statusFailed'), icon: XCircle, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+    processing: { label: t('files.statusProcessing'), icon: RefreshCw, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+    pending: { label: t('files.statusPending'), icon: Clock, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
   } as const;
 
   const status = statusMap[(file.processingStatus as keyof typeof statusMap)] ?? statusMap.pending;
@@ -144,7 +146,7 @@ function FileHeader({
           {file.processingStatus === 'failed' && (
             <Button onClick={onReprocess} loading={reprocessing} size="sm" className="bg-rose-600/80 hover:bg-rose-600 text-white text-xs">
               <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-              {locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+              {t('workspace.retry')}
             </Button>
           )}
           {file.processingStatus === 'completed' && (
@@ -155,7 +157,7 @@ function FileHeader({
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-600/20"
             >
               <Brain className="w-4 h-4 mr-1.5" />
-              {locale === 'ar' ? 'المعلم الذكي' : 'AI Tutor'}
+              {t('workspace.aiTutor')}
             </Button>
           )}
         </div>
@@ -165,7 +167,8 @@ function FileHeader({
 }
 
 /** Processing state while waiting for backend */
-function ProcessingState({ locale }: { locale: string }) {
+function ProcessingState() {
+  const { t } = useLocale();
   return (
     <div className="py-16 flex flex-col items-center gap-6 text-center">
       <div className="relative">
@@ -176,12 +179,10 @@ function ProcessingState({ locale }: { locale: string }) {
       </div>
       <div>
         <h3 className="text-base font-bold text-white mb-2">
-          {locale === 'ar' ? 'جارٍ تحليل المستند...' : 'Analyzing your document...'}
+          {t('workspace.analyzingTitle')}
         </h3>
         <p className="text-sm text-slate-400 max-w-xs leading-relaxed">
-          {locale === 'ar'
-            ? 'الذكاء الاصطناعي يستخرج المحتوى. قد يستغرق هذا دقيقة.'
-            : 'Our AI is extracting content. This may take a minute.'}
+          {t('workspace.analyzingDescription')}
         </p>
       </div>
       <ContentReaderSkeleton />
@@ -190,7 +191,8 @@ function ProcessingState({ locale }: { locale: string }) {
 }
 
 /** Failed state */
-function FailedState({ file, locale, onReprocess, reprocessing }: { file: any; locale: string; onReprocess: () => void; reprocessing: boolean }) {
+function FailedState({ onReprocess, reprocessing }: { onReprocess: () => void; reprocessing: boolean }) {
+  const { t } = useLocale();
   return (
     <div className="py-14 flex flex-col items-center gap-6 max-w-md mx-auto text-center">
       <div className="w-20 h-20 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
@@ -198,22 +200,15 @@ function FailedState({ file, locale, onReprocess, reprocessing }: { file: any; l
       </div>
       <div>
         <h3 className="text-base font-bold text-white mb-2">
-          {locale === 'ar' ? 'فشل تحليل المستند' : 'Document Analysis Failed'}
+          {t('workspace.analysisFailedTitle')}
         </h3>
         <p className="text-sm text-slate-400 leading-relaxed">
-          {locale === 'ar'
-            ? 'حدث خطأ أثناء استخراج المحتوى. يرجى المحاولة مرة أخرى.'
-            : 'An error occurred while processing the document content. Please try again.'}
+          {t('workspace.analysisFailedDescription')}
         </p>
-        {file.processingError && (
-          <pre className="mt-4 p-4 rounded-xl bg-rose-950/30 border border-rose-900/30 text-[11px] text-rose-400 font-mono text-left rtl:text-right overflow-x-auto leading-normal whitespace-pre-wrap break-words">
-            {file.processingError}
-          </pre>
-        )}
       </div>
       <Button onClick={onReprocess} loading={reprocessing} className="bg-rose-600 hover:bg-rose-700 text-white font-bold">
         <RefreshCw className="w-4 h-4 mr-2" />
-        {locale === 'ar' ? 'إعادة محاولة التحليل' : 'Retry Analysis'}
+        {t('workspace.retryAnalysis')}
       </Button>
     </div>
   );
@@ -236,6 +231,7 @@ function AiControlPanel({
   ctaLabel: string;
   processingStatus?: string;
 }) {
+  const { t } = useLocale();
   const selectLabelId = React.useId();
 
   return (
@@ -254,14 +250,14 @@ function AiControlPanel({
             <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-4 py-2 rounded-xl text-xs text-indigo-300 font-semibold animate-pulse">
               <Spinner className="w-3.5 h-3.5 text-indigo-400" />
               <span>
-                {locale === 'ar' ? 'جاري معالجة المستند...' : 'Processing document...'}
+                {t('workspace.processingDocument')}
               </span>
             </div>
           ) : processingStatus === 'failed' ? (
             <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/20 px-4 py-2 rounded-xl text-xs text-rose-300 font-semibold">
               <XCircle className="w-3.5 h-3.5 text-rose-400" />
               <span>
-                {locale === 'ar' ? 'فشل معالجة المستند' : 'Document processing failed'}
+                {t('workspace.processingFailed')}
               </span>
             </div>
           ) : (
@@ -303,7 +299,8 @@ function AiControlPanel({
 }
 
 /** Generating placeholder */
-function GeneratingCard({ locale }: { locale: string }) {
+function GeneratingCard() {
+  const { t } = useLocale();
   return (
     <div className="flex items-center gap-4 p-5 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 animate-pulse">
       <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center shrink-0">
@@ -311,10 +308,10 @@ function GeneratingCard({ locale }: { locale: string }) {
       </div>
       <div>
         <p className="text-sm font-semibold text-white">
-          {locale === 'ar' ? 'جارٍ التوليد...' : 'Generating...'}
+          {t('workspace.generating')}
         </p>
         <p className="text-xs text-slate-400">
-          {locale === 'ar' ? 'قد يستغرق هذا لحظة.' : 'This may take a moment. Please keep this page open.'}
+          {t('workspace.generationWait')}
         </p>
       </div>
     </div>
@@ -322,13 +319,14 @@ function GeneratingCard({ locale }: { locale: string }) {
 }
 
 /** Key points list */
-function KeyPointsList({ points, locale }: { points: string[]; locale: string }) {
+function KeyPointsList({ points }: { points: string[] }) {
+  const { t } = useLocale();
   if (!points?.length) return null;
   return (
     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6">
       <div className="flex items-center gap-2 mb-4">
         <Star className="w-4 h-4 text-emerald-400" />
-        <h3 className="text-sm font-bold text-emerald-300">{locale === 'ar' ? 'النقاط المهمة' : 'Key Takeaways'}</h3>
+        <h3 className="text-sm font-bold text-emerald-300">{t('workspace.keyTakeaways')}</h3>
       </div>
       <ul className="flex flex-col gap-2.5">
         {points.map((p: string, i: number) => (
@@ -345,11 +343,12 @@ function KeyPointsList({ points, locale }: { points: string[]; locale: string })
 }
 
 /** Definitions grid */
-function DefinitionsGrid({ defs, locale }: { defs: any[]; locale: string }) {
+function DefinitionsGrid({ defs }: { defs: any[] }) {
+  const { t } = useLocale();
   if (!defs?.length) return null;
   return (
     <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-6">
-      <h3 className="text-sm font-bold text-white mb-4">{locale === 'ar' ? 'التعاريف' : 'Key Definitions'}</h3>
+      <h3 className="text-sm font-bold text-white mb-4">{t('workspace.definitions')}</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {defs.map((d: any, i: number) => (
           <div key={i} className="p-4 rounded-xl border border-indigo-500/15 bg-indigo-500/5">
@@ -363,11 +362,12 @@ function DefinitionsGrid({ defs, locale }: { defs: any[]; locale: string }) {
 }
 
 /** Formulas grid */
-function FormulasGrid({ laws, locale }: { laws: any[]; locale: string }) {
+function FormulasGrid({ laws }: { laws: any[] }) {
+  const { t } = useLocale();
   if (!laws?.length) return null;
   return (
     <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-6">
-      <h3 className="text-sm font-bold text-white mb-4">{locale === 'ar' ? 'القوانين والمعادلات' : 'Laws & Formulas'}</h3>
+      <h3 className="text-sm font-bold text-white mb-4">{t('workspace.formulas')}</h3>
       <div className="flex flex-col gap-3">
         {laws.map((l: any, i: number) => (
           <div key={i} className="p-4 rounded-xl border border-amber-500/15 bg-amber-500/5">
@@ -388,7 +388,7 @@ function FormulasGrid({ laws, locale }: { laws: any[]; locale: string }) {
 export default function FileDetailPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const fileId = resolvedParams.id;
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -445,8 +445,8 @@ export default function FileDetailPage({ params }: PageProps) {
     try {
       await api.post(`/files/${fileId}/reprocess`);
       await loadFile();
-    } catch (err: any) {
-      alert(locale === 'ar' ? 'فشلت إعادة المحاولة: ' + (err.message || err) : 'Failed to retry: ' + (err.message || err));
+    } catch {
+      alert(t('workspace.retryFailure'));
     } finally {
       setReprocessing(false);
     }
@@ -487,10 +487,7 @@ export default function FileDetailPage({ params }: PageProps) {
       setSummaryResult(result);
     } catch (err: any) {
       console.error('Summary generation failed:', err);
-      const friendlyMsg = locale === 'ar'
-        ? 'فشل توليد الملخص. يرجى التحقق من محتوى الملف أو المحاولة لاحقاً.'
-        : 'Failed to generate summary. Please check the file content or try again later.';
-      setSummaryError(err.message || friendlyMsg);
+      setSummaryError(t('workspace.summaryFailure'));
     } finally {
       setGeneratingSummary(false);
     }
@@ -504,10 +501,7 @@ export default function FileDetailPage({ params }: PageProps) {
       setExplainResult(result);
     } catch (err: any) {
       console.error('Explanation generation failed:', err);
-      const friendlyMsg = locale === 'ar'
-        ? 'فشل توليد الشرح. يرجى التحقق من محتوى الملف أو المحاولة لاحقاً.'
-        : 'Failed to generate explanation. Please check the file content or try again later.';
-      setExplainError(err.message || friendlyMsg);
+      setExplainError(t('workspace.explanationFailure'));
     } finally {
       setGeneratingExplain(false);
     }
@@ -530,7 +524,10 @@ export default function FileDetailPage({ params }: PageProps) {
       setChatHistory((prev) => [...prev, { role: 'assistant', content: result.content, references: result.references }]);
     } catch { 
       clearTimeout(timeoutId);
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: 'AI Tutor is currently busy. Please try again.' }]);
+      setChatHistory((prev) => [
+        ...prev,
+        { role: 'assistant', content: t('workspace.tutorBusy') },
+      ]);
     }
     finally { setChatLoading(false); }
   };
@@ -540,7 +537,7 @@ export default function FileDetailPage({ params }: PageProps) {
     try {
       const exam = await api.post<any>('/exams', { fileId, difficulty: examDifficulty, totalQuestions: examTotalQuestions, questionTypes: examQuestionTypes });
       router.push(`/exams/${exam.id}`);
-    } catch (e: any) { alert('Failed: ' + (e.message || e)); }
+    } catch { alert(t('workspace.examGenerationFailure')); }
     finally { setGeneratingExam(false); }
   };
 
@@ -549,7 +546,7 @@ export default function FileDetailPage({ params }: PageProps) {
     try {
       const set = await api.post<any>('/flashcard-sets', { fileId, title: flashcardSetTitle.trim() || undefined, count: flashcardsCount });
       router.push(`/flashcards/${set.id}`);
-    } catch (e: any) { alert('Failed: ' + (e.message || e)); }
+    } catch { alert(t('workspace.flashcardGenerationFailure')); }
     finally { setGeneratingFlashcards(false); }
   };
 
@@ -572,12 +569,12 @@ export default function FileDetailPage({ params }: PageProps) {
           <XCircle className="w-8 h-8 text-rose-400" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-white mb-1">File not found</h3>
-          <p className="text-sm text-slate-400">This file may have been deleted or you don't have access.</p>
+          <h3 className="text-base font-bold text-white mb-1">{t('files.notFoundTitle')}</h3>
+          <p className="text-sm text-slate-400">{t('files.notFoundDescription')}</p>
         </div>
         <Button nativeButton={false} render={<Link href="/files" />}>
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Files
+          {t('files.backToFiles')}
         </Button>
       </div>
     );
@@ -591,7 +588,7 @@ export default function FileDetailPage({ params }: PageProps) {
       <FileHeader file={file} locale={locale} onReprocess={handleReprocess} reprocessing={reprocessing} />
 
       {/* Tab navigator */}
-      <TabNav active={activeTab} onChange={setActiveTab} locale={locale} />
+      <TabNav active={activeTab} onChange={setActiveTab} />
 
       {/* Tab content */}
       <div className="mt-1">
@@ -602,9 +599,9 @@ export default function FileDetailPage({ params }: PageProps) {
             {file.processingStatus === 'completed' && file.extractedText ? (
               <ContentReader content={file.extractedText} showProgress showToc />
             ) : file.processingStatus === 'failed' ? (
-              <FailedState file={file} locale={locale} onReprocess={handleReprocess} reprocessing={reprocessing} />
+              <FailedState onReprocess={handleReprocess} reprocessing={reprocessing} />
             ) : (
-              <ProcessingState locale={locale} />
+              <ProcessingState />
             )}
           </>
         )}
@@ -613,13 +610,13 @@ export default function FileDetailPage({ params }: PageProps) {
         {activeTab === 'summary' && (
           <div className="flex flex-col gap-6">
             <AiControlPanel
-              title={locale === 'ar' ? 'توليد ملخص ذكي' : 'Generate AI Summary'}
-              description={locale === 'ar' ? 'اختر مستوى التفصيل الذي تفضله.' : 'Choose the detail level for your summary.'}
-              selectLabel={locale === 'ar' ? 'المستوى' : 'Level'}
+              title={t('workspace.generateSummary')}
+              description={t('workspace.summaryDescription')}
+              selectLabel={t('workspace.level')}
               options={[
-                { value: 'short',         label: locale === 'ar' ? 'ملخص قصير'  : 'Short'         },
-                { value: 'medium',        label: locale === 'ar' ? 'ملخص متوسط' : 'Medium'        },
-                { value: 'comprehensive', label: locale === 'ar' ? 'ملخص شامل'  : 'Comprehensive' },
+                { value: 'short', label: t('workspace.summaryShort') },
+                { value: 'medium', label: t('workspace.summaryMedium') },
+                { value: 'comprehensive', label: t('workspace.summaryComprehensive') },
               ]}
               value={summaryLevel}
               onChange={(v: any) => setSummaryLevel(v)}
@@ -627,7 +624,7 @@ export default function FileDetailPage({ params }: PageProps) {
               loading={generatingSummary}
               disabled={file.processingStatus !== 'completed'}
               locale={locale}
-              ctaLabel={locale === 'ar' ? 'تلخيص' : 'Summarize'}
+              ctaLabel={t('workspace.summarize')}
               processingStatus={file.processingStatus}
             />
 
@@ -635,27 +632,27 @@ export default function FileDetailPage({ params }: PageProps) {
               <div className="flex items-center gap-3 p-5 rounded-2xl border border-rose-500/20 bg-rose-500/5 text-rose-300">
                 <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
                 <div className="flex-1 text-sm leading-relaxed">
-                  <p className="font-bold mb-1">{locale === 'ar' ? 'حدث خطأ أثناء توليد الملخص' : 'Error generating summary'}</p>
+                  <p className="font-bold mb-1">{t('workspace.summaryError')}</p>
                   <p className="text-xs opacity-90">{summaryError}</p>
                 </div>
               </div>
             )}
 
-            {generatingSummary && !summaryResult && <GeneratingCard locale={locale} />}
+            {generatingSummary && !summaryResult && <GeneratingCard />}
 
             {summaryResult && (
               <div className="flex flex-col gap-6">
                 <div className="rounded-2xl border border-white/5 bg-slate-900/30 p-8">
                   <h3 className="text-base font-bold text-white mb-5 flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-indigo-400" />
-                    {locale === 'ar' ? 'الملخص' : 'Summary'}
+                    {t('workspace.summary')}
                   </h3>
                   <Markdown content={summaryResult.content} />
                 </div>
-                <KeyPointsList points={summaryResult.keyPoints} locale={locale} />
+                <KeyPointsList points={summaryResult.keyPoints} />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <DefinitionsGrid defs={summaryResult.definitions} locale={locale} />
-                  <FormulasGrid laws={summaryResult.lawsFormulas} locale={locale} />
+                  <DefinitionsGrid defs={summaryResult.definitions} />
+                  <FormulasGrid laws={summaryResult.lawsFormulas} />
                 </div>
               </div>
             )}
@@ -666,13 +663,13 @@ export default function FileDetailPage({ params }: PageProps) {
         {activeTab === 'explain' && (
           <div className="flex flex-col gap-6">
             <AiControlPanel
-              title={locale === 'ar' ? 'شرح تفاعلي بالذكاء الاصطناعي' : 'Interactive AI Explanation'}
-              description={locale === 'ar' ? 'اختر مستوى الشرح المناسب.' : 'Choose the explanation depth that matches your level.'}
-              selectLabel={locale === 'ar' ? 'المستوى' : 'Depth'}
+              title={t('workspace.generateExplanation')}
+              description={t('workspace.explanationDescription')}
+              selectLabel={t('workspace.depth')}
               options={[
-                { value: 'simple',       label: locale === 'ar' ? 'مبسط'     : 'Simple'       },
-                { value: 'intermediate', label: locale === 'ar' ? 'متوسط'    : 'Intermediate' },
-                { value: 'academic',     label: locale === 'ar' ? 'أكاديمي'  : 'Academic'     },
+                { value: 'simple', label: t('workspace.simple') },
+                { value: 'intermediate', label: t('workspace.intermediate') },
+                { value: 'academic', label: t('workspace.academic') },
               ]}
               value={explainLevel}
               onChange={(v: any) => setExplainLevel(v)}
@@ -680,7 +677,7 @@ export default function FileDetailPage({ params }: PageProps) {
               loading={generatingExplain}
               disabled={file.processingStatus !== 'completed'}
               locale={locale}
-              ctaLabel={locale === 'ar' ? 'اشرح لي' : 'Explain'}
+              ctaLabel={t('workspace.explain')}
               processingStatus={file.processingStatus}
             />
 
@@ -688,20 +685,20 @@ export default function FileDetailPage({ params }: PageProps) {
               <div className="flex items-center gap-3 p-5 rounded-2xl border border-rose-500/20 bg-rose-500/5 text-rose-300">
                 <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
                 <div className="flex-1 text-sm leading-relaxed">
-                  <p className="font-bold mb-1">{locale === 'ar' ? 'حدث خطأ أثناء توليد الشرح' : 'Error generating explanation'}</p>
+                  <p className="font-bold mb-1">{t('workspace.explanationError')}</p>
                   <p className="text-xs opacity-90">{explainError}</p>
                 </div>
               </div>
             )}
 
-            {generatingExplain && !explainResult && <GeneratingCard locale={locale} />}
+            {generatingExplain && !explainResult && <GeneratingCard />}
 
             {explainResult && (
               <div className="flex flex-col gap-6">
                 <div className="rounded-2xl border border-white/5 bg-slate-900/30 p-8">
                   <h3 className="text-base font-bold text-white mb-5 flex items-center gap-2">
                     <Brain className="w-4 h-4 text-purple-400" />
-                    {locale === 'ar' ? 'الشرح والتوضيح' : 'Explanation'}
+                    {t('workspace.explanation')}
                   </h3>
                   <Markdown content={explainResult.content} />
                 </div>
@@ -710,13 +707,13 @@ export default function FileDetailPage({ params }: PageProps) {
                 {explainResult.examples?.length > 0 && (
                   <div className="rounded-2xl border border-white/5 bg-slate-900/30 p-6">
                     <h3 className="text-sm font-bold text-white mb-4">
-                      {locale === 'ar' ? 'أمثلة توضيحية' : 'Illustrative Examples'}
+                      {t('workspace.examples')}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {explainResult.examples.map((ex: string, i: number) => (
                         <div key={i} className="p-4 rounded-xl border border-indigo-500/15 bg-indigo-500/5 text-sm text-indigo-200 leading-relaxed">
                           <span className="block text-[10px] font-bold text-indigo-400 mb-2 uppercase tracking-wider">
-                            {locale === 'ar' ? `مثال ${i + 1}` : `Example ${i + 1}`}
+                            {t('workspace.example', { number: i + 1 })}
                           </span>
                           {ex}
                         </div>
@@ -729,7 +726,7 @@ export default function FileDetailPage({ params }: PageProps) {
                 {explainResult.comprehensionQuestions?.length > 0 && (
                   <div className="rounded-2xl border border-white/5 bg-slate-900/30 p-6">
                     <h3 className="text-sm font-bold text-white mb-4">
-                      {locale === 'ar' ? 'أسئلة فهم وقياس مستوى' : 'Comprehension Questions'}
+                      {t('workspace.comprehensionQuestions')}
                     </h3>
                     <div className="flex flex-col gap-3">
                       {explainResult.comprehensionQuestions.map((q: any, i: number) => (
@@ -766,7 +763,7 @@ export default function FileDetailPage({ params }: PageProps) {
                 <div className="flex items-center gap-2 mb-5">
                   <Target className="w-4 h-4 text-indigo-400" />
                   <h4 className="text-sm font-bold text-white">
-                    {locale === 'ar' ? 'توليد اختبار ذكي' : 'Generate Smart Exam'}
+                    {t('workspace.generateExam')}
                   </h4>
                 </div>
 
@@ -774,7 +771,7 @@ export default function FileDetailPage({ params }: PageProps) {
                   {/* Difficulty */}
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      {locale === 'ar' ? 'مستوى الصعوبة' : 'Difficulty'}
+                      {t('workspace.difficulty')}
                     </label>
                     <div className="flex gap-2">
                       {(['easy', 'medium', 'hard'] as const).map((d) => (
@@ -789,7 +786,7 @@ export default function FileDetailPage({ params }: PageProps) {
                               : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
                           }`}
                         >
-                          {locale === 'ar' ? (d === 'easy' ? 'سهل' : d === 'medium' ? 'متوسط' : 'صعب') : d.charAt(0).toUpperCase() + d.slice(1)}
+                          {t(`workspace.${d}`)}
                         </button>
                       ))}
                     </div>
@@ -798,7 +795,7 @@ export default function FileDetailPage({ params }: PageProps) {
                   {/* Count */}
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      {locale === 'ar' ? 'عدد الأسئلة' : 'Questions'}
+                      {t('workspace.questionCount')}
                     </label>
                     <div className="flex items-center gap-2">
                       <button onClick={() => setExamTotalQuestions(Math.max(5, examTotalQuestions - 5))} className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 transition-colors text-lg font-bold cursor-pointer">−</button>
@@ -810,10 +807,13 @@ export default function FileDetailPage({ params }: PageProps) {
                   {/* Types */}
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      {locale === 'ar' ? 'أنواع الأسئلة' : 'Types'}
+                      {t('workspace.questionTypes')}
                     </label>
                     <div className="flex flex-col gap-2">
-                      {[{ id: 'mcq', label: locale === 'ar' ? 'اختيار من متعدد' : 'Multiple Choice' }, { id: 'true_false', label: locale === 'ar' ? 'صح أو خطأ' : 'True / False' }].map((type) => (
+                      {[
+                        { id: 'mcq', label: t('workspace.multipleChoice') },
+                        { id: 'true_false', label: t('workspace.trueFalse') },
+                      ].map((type) => (
                         <label key={type.id} className="flex items-center gap-2.5 text-sm text-slate-300 cursor-pointer select-none group">
                           <div
                             className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
@@ -840,7 +840,7 @@ export default function FileDetailPage({ params }: PageProps) {
                     className="font-bold px-6"
                   >
                     <Sparkles className="w-4 h-4 mr-2" />
-                    {locale === 'ar' ? 'توليد الاختبار' : 'Generate Exam'}
+                    {t('workspace.generateExamAction')}
                   </Button>
                 </div>
               </div>
@@ -850,7 +850,7 @@ export default function FileDetailPage({ params }: PageProps) {
             {previousExams.length > 0 && (
               <div>
                 <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
-                  {locale === 'ar' ? 'الاختبارات السابقة' : 'Previous Exams'}
+                  {t('workspace.previousExams')}
                 </h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {previousExams.map((ex) => (
@@ -865,7 +865,7 @@ export default function FileDetailPage({ params }: PageProps) {
                       </div>
                       <div>
                         <h6 className="text-sm font-bold text-white line-clamp-1 mb-1">{ex.title}</h6>
-                        <p className="text-xs text-slate-400">{ex.totalQuestions} {locale === 'ar' ? 'سؤال' : 'questions'}</p>
+                        <p className="text-xs text-slate-400">{t('workspace.questions', { count: ex.totalQuestions })}</p>
                       </div>
                       <div className="flex items-center justify-between border-t border-white/5 pt-4">
                         {ex.status === 'completed' ? (
@@ -878,7 +878,7 @@ export default function FileDetailPage({ params }: PageProps) {
                         ) : (
                           <span className="text-xs font-semibold text-amber-500 flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5" />
-                            {locale === 'ar' ? 'في التقدم' : 'In Progress'}
+                            {t('workspace.inProgress')}
                           </span>
                         )}
                         <Button
@@ -888,8 +888,8 @@ export default function FileDetailPage({ params }: PageProps) {
                           variant={ex.status === 'completed' ? 'secondary' : 'primary'}
                         >
                           {ex.status === 'completed'
-                            ? (locale === 'ar' ? 'عرض النتائج' : 'View Results')
-                            : (locale === 'ar' ? 'حل الاختبار' : 'Take Exam')}
+                            ? t('workspace.viewResults')
+                            : t('workspace.takeExam')}
                         </Button>
                       </div>
                     </div>
@@ -909,17 +909,17 @@ export default function FileDetailPage({ params }: PageProps) {
                 <div className="flex items-center gap-2 mb-5">
                   <Zap className="w-4 h-4 text-purple-400" />
                   <h4 className="text-sm font-bold text-white">
-                    {locale === 'ar' ? 'توليد بطاقات مراجعة ذكية' : 'Generate Smart Flashcards'}
+                    {t('workspace.generateFlashcards')}
                   </h4>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      {locale === 'ar' ? 'عنوان المجموعة (اختياري)' : 'Set Title (Optional)'}
+                      {t('workspace.setTitle')}
                     </label>
                     <Input
-                      placeholder={locale === 'ar' ? 'مثال: مفاهيم الفصل الأول' : 'e.g. Chapter 1 Concepts'}
+                      placeholder={t('workspace.setTitlePlaceholder')}
                       value={flashcardSetTitle}
                       onChange={(e) => setFlashcardSetTitle(e.target.value)}
                       className="bg-slate-950/60 border-white/10 focus:border-indigo-500"
@@ -927,7 +927,7 @@ export default function FileDetailPage({ params }: PageProps) {
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      {locale === 'ar' ? 'عدد البطاقات' : 'Number of Cards'}
+                      {t('workspace.cardCount')}
                     </label>
                     <div className="flex flex-wrap gap-2">
                       {[5, 10, 15, 20, 30].map((n) => (
@@ -950,7 +950,7 @@ export default function FileDetailPage({ params }: PageProps) {
                 <div className="flex justify-end border-t border-white/5 pt-5">
                   <Button onClick={handleGenerateFlashcards} loading={generatingFlashcards} className="font-bold px-6 bg-purple-600 hover:bg-purple-500">
                     <Sparkles className="w-4 h-4 mr-2" />
-                    {locale === 'ar' ? 'توليد البطاقات' : 'Generate Cards'}
+                    {t('workspace.generateCards')}
                   </Button>
                 </div>
               </div>
@@ -959,19 +959,19 @@ export default function FileDetailPage({ params }: PageProps) {
             {previousSets.length > 0 && (
               <div>
                 <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
-                  {locale === 'ar' ? 'مجموعات البطاقات السابقة' : 'Previous Flashcard Sets'}
+                  {t('workspace.previousSets')}
                 </h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {previousSets.map((set) => (
                     <div key={set.id} className="rounded-2xl border border-white/5 bg-slate-900/30 p-5 flex flex-col gap-4 hover:border-white/10 transition-all">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-500">{new Date(set.createdAt).toLocaleDateString(locale)}</span>
-                        <span className="text-xs font-bold text-purple-400">{set.totalCards} cards</span>
+                        <span className="text-xs font-bold text-purple-400">{t('workspace.cards', { count: set.totalCards })}</span>
                       </div>
                       <h6 className="text-sm font-bold text-white line-clamp-1">{set.title}</h6>
                       <div>
                         <div className="flex justify-between text-xs text-slate-400 mb-1.5">
-                          <span>{locale === 'ar' ? 'مستوى الإتقان' : 'Mastery'}</span>
+                          <span>{t('workspace.mastery')}</span>
                           <span className="font-semibold text-emerald-400">{set.masteredCount}/{set.totalCards}</span>
                         </div>
                         <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -983,7 +983,7 @@ export default function FileDetailPage({ params }: PageProps) {
                       </div>
                       <div className="flex items-center justify-between border-t border-white/5 pt-3">
                         <span className="text-xs text-slate-500">
-                          {set.reviewCount} {locale === 'ar' ? 'مراجعة' : 'reviews'}
+                          {t('workspace.reviews', { count: set.reviewCount })}
                         </span>
                         <Button
                           nativeButton={false}
@@ -991,7 +991,7 @@ export default function FileDetailPage({ params }: PageProps) {
                           size="sm"
                           variant="primary"
                         >
-                          {locale === 'ar' ? 'بدء المراجعة' : 'Start Review'}
+                          {t('workspace.startReview')}
                         </Button>
                       </div>
                     </div>
@@ -1014,20 +1014,19 @@ export default function FileDetailPage({ params }: PageProps) {
                   </div>
                   <div>
                     <h5 className="text-sm font-bold text-white mb-1.5">
-                      {locale === 'ar' ? 'الدردشة التفاعلية' : 'Interactive Chat'}
+                      {t('workspace.interactiveChat')}
                     </h5>
                     <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-                      {locale === 'ar'
-                        ? 'اطرح أي سؤال عن محتوى المستند وسيجيبك الذكاء الاصطناعي بالإشارة للمرجع.'
-                        : 'Ask anything about this document. The AI will answer with page references.'}
+                      {t('workspace.chatDescription')}
                     </p>
                   </div>
                   {/* Suggestion chips */}
                   <div className="flex flex-wrap gap-2 justify-center mt-2">
-                    {(locale === 'ar'
-                      ? ['ما هي النقاط الرئيسية؟', 'اشرح المفاهيم الأساسية', 'لخص هذا المستند']
-                      : ['What are the key points?', 'Explain the main concepts', 'Summarize this document']
-                    ).map((q) => (
+                    {[
+                      t('workspace.suggestionKeyPoints'),
+                      t('workspace.suggestionConcepts'),
+                      t('workspace.suggestionSummary'),
+                    ].map((q) => (
                       <button
                         key={q}
                         onClick={() => { setChatMessage(q); }}
@@ -1071,7 +1070,7 @@ export default function FileDetailPage({ params }: PageProps) {
                                   : 'bg-slate-900 text-indigo-400 border-slate-700 hover:border-indigo-500'
                               }`}
                             >
-                              📄 {locale === 'ar' ? `صفحة ${ref.page || 1}` : `p.${ref.page || 1}`}
+                              📄 {t('workspace.pageCitation', { page: ref.page || 1 })}
                             </button>
                           );
                         })}
@@ -1097,7 +1096,7 @@ export default function FileDetailPage({ params }: PageProps) {
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]" />
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]" />
                   </div>
-                  <span className="text-xs">{locale === 'ar' ? 'المساعد يفكر...' : 'Thinking...'}</span>
+                  <span className="text-xs">{t('workspace.thinking')}</span>
                 </div>
               )}
               <div ref={chatEndRef} />
@@ -1109,7 +1108,7 @@ export default function FileDetailPage({ params }: PageProps) {
               className="border-t border-white/5 p-4 bg-slate-950/30 backdrop-blur-lg flex items-center gap-3"
             >
               <Input
-                placeholder={locale === 'ar' ? 'اسألني أي شيء عن المستند...' : 'Ask anything about this document...'}
+                placeholder={t('workspace.chatPlaceholder')}
                 value={chatMessage}
                 onChange={(e) => setChatMessage(e.target.value)}
                 className="bg-slate-900/60 border-white/10 focus:border-indigo-500 flex-1"
@@ -1121,6 +1120,7 @@ export default function FileDetailPage({ params }: PageProps) {
                 loading={chatLoading}
                 disabled={!chatMessage.trim()}
                 className="shrink-0 w-10 h-10 p-0 rounded-xl"
+                aria-label={t('workspace.sendMessage')}
               >
                 <Send className="w-4 h-4 rtl-flip" />
               </Button>

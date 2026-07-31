@@ -87,9 +87,9 @@ export default function DashboardLayout({
   }
 
   const navItems = [
-    { label: t('dashboard.sidebarFiles') || 'Files', href: '/files', icon: FolderOpen },
-    { label: 'Exams', href: '/exams', icon: GraduationCap },
-    { label: 'Flashcards', href: '/flashcards', icon: MessageSquare },
+    { label: t('dashboard.sidebarFiles'), href: '/files', icon: FolderOpen },
+    { label: t('dashboard.sidebarExams'), href: '/exams', icon: GraduationCap },
+    { label: t('dashboard.sidebarFlashcards'), href: '/flashcards', icon: MessageSquare },
   ];
 
   const toggleLanguage = () => {
@@ -146,7 +146,7 @@ export default function DashboardLayout({
           <SidebarNav>
             <SidebarNavButton onClick={toggleLanguage} icon={<Globe />}>
               <span className="w-full text-start inline-block">
-                {locale === 'ar' ? 'English' : 'العربية'}
+                {t(locale === 'ar' ? 'common.english' : 'common.arabic')}
               </span>
             </SidebarNavButton>
             <SidebarNavButton
@@ -172,7 +172,7 @@ export default function DashboardLayout({
                   <BreadcrumbList>
                     <BreadcrumbItem>
                       <BreadcrumbLink href="/files" className="text-foreground font-semibold">
-                        {t('dashboard.welcome')}, {user.firstName}
+                        {t('dashboard.welcome')} {user.firstName}
                       </BreadcrumbLink>
                     </BreadcrumbItem>
                   </BreadcrumbList>
@@ -185,14 +185,14 @@ export default function DashboardLayout({
                 const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
                 document.dispatchEvent(event);
               }}>
-                <SearchField placeholder="Search workspace... (Cmd+K)" className="w-full bg-muted cursor-text" readOnly />
+                <SearchField placeholder={t('dashboard.searchWorkspace')} className="w-full bg-muted cursor-text" readOnly />
               </div>
             </TopNavCenter>
 
             <TopNavEnd>
               <Button variant="ghost" size="icon" className="md:hidden">
                 <Search className="w-5 h-5" />
-                <span className="sr-only">Search</span>
+                <span className="sr-only">{t('common.search')}</span>
               </Button>
 
               <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase select-none">
@@ -202,7 +202,7 @@ export default function DashboardLayout({
               <div className="w-8 h-8 rounded-full bg-muted border flex items-center justify-center text-muted-foreground select-none uppercase font-bold text-sm overflow-hidden">
                 {user.avatarUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={user.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  <img src={user.avatarUrl} alt={t('common.avatar')} className="w-full h-full object-cover" />
                 ) : (
                   user.firstName && user.lastName ? (
                     `${user.firstName[0]}${user.lastName[0]}`

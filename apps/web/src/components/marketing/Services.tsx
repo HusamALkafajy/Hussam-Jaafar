@@ -72,7 +72,7 @@ const ServicesComponent: React.FC = () => {
       <div className="text-center flex flex-col gap-3">
         <h2 className="text-3xl sm:text-4xl font-bold">{t('landing.featuresTitle')}</h2>
         <p className="text-slate-400 max-w-xl mx-auto">
-          منصة متكاملة تلبي جميع احتياجات الطالب والمعلم وأولياء الأمور بالاعتماد على أحدث تقنيات الذكاء الاصطناعي.
+          {t('landing.featuresSubtitle')}
         </p>
       </div>
 

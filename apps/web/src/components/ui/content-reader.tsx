@@ -95,6 +95,7 @@ const TOKEN_COLORS: Record<TokenType, string> = {
 // ─── Code Block ──────────────────────────────────────────────────────────────
 
 const CodeBlock = ({ language, value }: { language: string; value: string }) => {
+  const { t } = useLocale();
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -137,15 +138,23 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
         </div>
         <div className="flex items-center gap-1.5">
           {!fullscreen && (
-            <button onClick={() => setCollapsed(!collapsed)} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              aria-label={t(collapsed ? 'workspace.expandCode' : 'workspace.collapseCode')}
+              className="p-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors"
+            >
               {collapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
             </button>
           )}
-          <button onClick={() => setFullscreen(!fullscreen)} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
+          <button
+            onClick={() => setFullscreen(!fullscreen)}
+            aria-label={t(fullscreen ? 'workspace.exitFullscreen' : 'workspace.enterFullscreen')}
+            className="p-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors"
+          >
             {fullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
           <button onClick={copy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors text-[11px] font-medium">
-            {copied ? <><Check className="w-3.5 h-3.5 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3.5 h-3.5" /><span>Copy</span></>}
+            {copied ? <><Check className="w-3.5 h-3.5 text-emerald-400" /><span className="text-emerald-400">{t('workspace.copiedCode')}</span></> : <><Copy className="w-3.5 h-3.5" /><span>{t('workspace.copyCode')}</span></>}
           </button>
         </div>
       </div>
@@ -194,6 +203,7 @@ const ReadingProgressBar = () => {
 // ─── Table of Contents ────────────────────────────────────────────────────────
 
 const TableOfContents = ({ items, activeId }: { items: TocItem[]; activeId: string }) => {
+  const { t } = useLocale();
   if (items.length < 2) return null;
 
   return (
@@ -201,7 +211,7 @@ const TableOfContents = ({ items, activeId }: { items: TocItem[]; activeId: stri
       <div className="backdrop-blur-xl bg-slate-900/60 border border-white/5 rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <List className="w-4 h-4 text-indigo-400" />
-          <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Contents</span>
+          <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">{t('workspace.contents')}</span>
         </div>
         <ul className="flex flex-col gap-0.5">
           {items.map((item) => {
@@ -493,7 +503,7 @@ export const ContentReader = ({
   showProgress = true,
   showToc = true,
 }: ContentReaderProps) => {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
   const [activeHeadingId, setActiveHeadingId] = useState('');
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
@@ -545,7 +555,7 @@ export const ContentReader = ({
           >
             <span className="flex items-center gap-2 font-medium">
               <List className="w-4 h-4 text-indigo-400" />
-              Table of Contents
+              {t('workspace.contents')}
             </span>
             <ChevronRight className={`w-4 h-4 transition-transform ${tocOpen ? 'rotate-90' : ''}`} />
           </button>
@@ -594,15 +604,15 @@ export const ContentReader = ({
           <div className="flex items-center gap-4 mb-8 pb-6 border-b border-white/5 flex-wrap">
             <div className="flex items-center gap-1.5 text-sm text-slate-400">
               <Clock className="w-4 h-4 text-indigo-400" />
-              <span>{readingTime} min read</span>
+              <span>{t('workspace.readingTime', { count: readingTime })}</span>
             </div>
             <div className="flex items-center gap-1.5 text-sm text-slate-400">
               <Eye className="w-4 h-4 text-purple-400" />
-              <span>{wordCount.toLocaleString()} words</span>
+              <span>{t('workspace.wordCount', { count: wordCount.toLocaleString(locale) })}</span>
             </div>
             <div className="flex items-center gap-1.5 text-sm text-slate-400">
               <BookOpen className="w-4 h-4 text-pink-400" />
-              <span>{toc.length} sections</span>
+              <span>{t('workspace.sectionsCount', { count: toc.length })}</span>
             </div>
           </div>
 
@@ -625,9 +635,9 @@ export const ContentReader = ({
           <div className="max-w-[850px] mx-auto mt-16 pt-8 border-t border-white/5">
             <div className="backdrop-blur-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-2xl p-6 text-center">
               <div className="text-2xl mb-2">🎓</div>
-              <p className="text-sm font-semibold text-white mb-1">You've reached the end!</p>
+              <p className="text-sm font-semibold text-white mb-1">{t('workspace.reachedEnd')}</p>
               <p className="text-xs text-slate-400">
-                Use the tabs above to generate a summary, quiz, or flashcards from this content.
+                {t('workspace.endDescription')}
               </p>
             </div>
           </div>
@@ -639,7 +649,7 @@ export const ContentReader = ({
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           className="fixed bottom-8 right-8 z-40 w-11 h-11 rounded-full bg-indigo-600/90 hover:bg-indigo-500 backdrop-blur-lg shadow-lg shadow-indigo-500/20 flex items-center justify-center text-white transition-all hover:scale-110 border border-indigo-500/40"
-          aria-label="Back to top"
+          aria-label={t('workspace.backToTop')}
         >
           <ArrowUp className="w-4 h-4" />
         </button>

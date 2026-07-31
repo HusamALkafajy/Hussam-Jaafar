@@ -122,8 +122,8 @@ function ExamSession({ examId }: { examId: string }) {
       });
       setExam(results);
       setTimeLeft(null);
-    } catch (err) {
-      alert('Failed to submit exam: ' + (err instanceof Error ? err.message : 'Error'));
+    } catch {
+      alert(t('exams.submitFailure'));
       submissionStartedRef.current = false;
     } finally {
       setSubmitting(false);
@@ -171,8 +171,8 @@ function ExamSession({ examId }: { examId: string }) {
       // Re-fetch the full exam to get the updated questions list
       const updatedExam = await api.get<any>(`/exams/${examId}`);
       setExam(updatedExam);
-    } catch (err: any) {
-      alert(locale === 'ar' ? 'فشل توليد السؤال: ' + err.message : 'Failed to generate question: ' + err.message);
+    } catch {
+      alert(t('exams.generationFailure'));
     } finally {
       setGeneratingNext(false);
     }
@@ -195,9 +195,9 @@ function ExamSession({ examId }: { examId: string }) {
   if (!exam) {
     return (
       <div className="text-center py-12 flex flex-col items-center gap-3">
-        <p className="text-slate-400">Exam not found or access denied.</p>
+        <p className="text-slate-400">{t('exams.notFound')}</p>
         <Button nativeButton={false} render={<Link href="/exams" />}>
-          Back to Exams
+          {t('exams.backToExams')}
         </Button>
       </div>
     );
@@ -225,7 +225,7 @@ function ExamSession({ examId }: { examId: string }) {
                 {exam.difficulty}
               </span>
               <span>•</span>
-              <span>{exam.totalQuestions} {locale === 'ar' ? 'سؤال' : 'Questions'}</span>
+              <span>{t('exams.questions', { count: exam.totalQuestions })}</span>
             </div>
           </div>
         </div>
@@ -240,7 +240,7 @@ function ExamSession({ examId }: { examId: string }) {
 
         {isCompleted && (
           <Badge variant="success" className="px-4 py-1.5 self-start md:self-center font-bold">
-            {locale === 'ar' ? 'مكتمل' : 'Completed'}
+            {t('exams.completed')}
           </Badge>
         )}
       </div>
@@ -254,7 +254,7 @@ function ExamSession({ examId }: { examId: string }) {
             <Card className="p-6 bg-slate-900/20 border-slate-800/60 flex flex-col items-center text-center gap-4 relative overflow-hidden group">
               <div className="absolute top-0 left-0 w-full h-1.5 gradient-primary" />
               <h3 className="text-base font-bold text-white">
-                {locale === 'ar' ? 'النتيجة الإجمالية' : 'Overall Result'}
+                {t('exams.overallResult')}
               </h3>
 
               {/* Dynamic circular score gauge */}
@@ -283,15 +283,15 @@ function ExamSession({ examId }: { examId: string }) {
                 <div className="absolute flex flex-col items-center">
                   <span className="text-3xl font-extrabold text-white">{exam.score}%</span>
                   <span className="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">
-                    {Number(exam.score) >= 70 ? (locale === 'ar' ? 'ممتاز' : 'Excellent') : (locale === 'ar' ? 'يحتاج مراجعة' : 'Needs Review')}
+                    {Number(exam.score) >= 70 ? t('exams.excellent') : t('exams.needsReview')}
                   </span>
                 </div>
               </div>
 
               <div className="text-xs text-slate-400 font-medium">
-                {locale === 'ar'
-                  ? `تاريخ الحل: ${new Date(exam.completedAt).toLocaleDateString(locale)}`
-                  : `Completed on: ${new Date(exam.completedAt).toLocaleDateString(locale)}`}
+                {t('exams.completedOn', {
+                  date: new Date(exam.completedAt).toLocaleDateString(locale),
+                })}
               </div>
             </Card>
 
@@ -300,14 +300,14 @@ function ExamSession({ examId }: { examId: string }) {
               <Card className="p-6 bg-slate-900/20 border-slate-805/60 flex flex-col gap-5">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Lightbulb className="w-4 h-4 text-indigo-400" />
-                  <span>{locale === 'ar' ? 'تحليل الأداء بالذكاء الاصطناعي' : 'AI Performance Diagnostics'}</span>
+                  <span>{t('exams.performance')}</span>
                 </h4>
 
                 {exam.strengthAnalysis && (
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-bold text-emerald-450 uppercase flex items-center gap-1.5">
                       <CheckCircle className="w-3.5 h-3.5" />
-                      {locale === 'ar' ? 'نقاط القوة' : 'Strengths'}
+                      {t('exams.strengths')}
                     </span>
                     {exam.strengthAnalysis.topics?.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-1">
@@ -326,7 +326,7 @@ function ExamSession({ examId }: { examId: string }) {
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-bold text-amber-500 uppercase flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      {locale === 'ar' ? 'نقاط الضعف' : 'Weaknesses'}
+                      {t('exams.weaknesses')}
                     </span>
                     {exam.weaknessAnalysis.topics?.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-1">
@@ -349,18 +349,16 @@ function ExamSession({ examId }: { examId: string }) {
                 <div className="flex items-center gap-2">
                   <Brain className="w-4 h-4 text-violet-400" />
                   <h4 className="text-sm font-bold text-violet-300">
-                    {locale === 'ar' ? 'وضع التكيّف الذكي' : 'Adaptive Mode'}
+                    {t('exams.adaptiveMode')}
                   </h4>
                   {exam.adaptiveMode && (
                     <span className="text-[10px] bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-bold border border-violet-500/20">
-                      {locale === 'ar' ? 'نشط' : 'Active'}
+                      {t('exams.active')}
                     </span>
                   )}
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  {locale === 'ar'
-                    ? 'الذكاء الاصطناعي يمكنه توليد أسئلة تكيّفية تستهدف نقاط ضعفك المحددة.'
-                    : 'The AI can generate targeted follow-up questions for your identified weak areas.'}
+                  {t('exams.adaptiveDescription')}
                 </p>
                 <Button
                   onClick={handleNextAdaptiveQuestion}
@@ -368,7 +366,7 @@ function ExamSession({ examId }: { examId: string }) {
                   className="w-full font-bold flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 border-violet-500"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{locale === 'ar' ? 'توليد سؤال تكيّفي جديد' : 'Generate Next Adaptive Question'}</span>
+                  <span>{t('exams.generateAdaptive')}</span>
                 </Button>
               </Card>
             )}
@@ -378,7 +376,7 @@ function ExamSession({ examId }: { examId: string }) {
               <Card className="p-6 bg-indigo-950/10 border-indigo-500/10 flex flex-col gap-4">
                 <h4 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
                   <GraduationCap className="w-4.5 h-4.5" />
-                  <span>{locale === 'ar' ? 'خطة المراجعة المقترحة' : 'Suggested Study Path'}</span>
+                  <span>{t('exams.studyPath')}</span>
                 </h4>
                 <ul className="flex flex-col gap-2.5">
                   {exam.studyPlan.steps.map((step: string, idx: number) => (
@@ -397,7 +395,7 @@ function ExamSession({ examId }: { examId: string }) {
           {/* Right panel: Questions review */}
           <div className="lg:col-span-2 flex flex-col gap-6">
             <h3 className="text-lg font-bold text-white">
-              {locale === 'ar' ? 'مراجعة الإجابات التفصيلية' : 'Detailed Question Correction'}
+              {t('exams.detailedReview')}
             </h3>
             {exam.questions.map((q: any, idx: number) => {
               const isUserCorrect = q.isCorrect;
@@ -421,7 +419,10 @@ function ExamSession({ examId }: { examId: string }) {
                     <div className="flex flex-col gap-4 w-full">
                       <div className="flex flex-col gap-1.5">
                         <span className="text-xs text-slate-500 font-bold">
-                          {locale === 'ar' ? `السؤال ${idx + 1} (${q.type === 'mcq' ? 'اختياري' : 'صح/خطأ'})` : `Question ${idx + 1} (${q.type === 'mcq' ? 'MCQ' : 'T/F'})`}
+                          {t('exams.questionWithType', {
+                            number: idx + 1,
+                            type: t(q.type === 'mcq' ? 'exams.mcqShort' : 'exams.trueFalseShort'),
+                          })}
                         </span>
                         <h4 className="text-base font-bold text-white leading-relaxed">{q.questionText}</h4>
                       </div>
@@ -457,7 +458,7 @@ function ExamSession({ examId }: { examId: string }) {
                         <div className="mt-2 text-xs bg-slate-950/30 border border-slate-900 p-4 rounded-xl leading-relaxed text-slate-350">
                           <span className="font-bold text-indigo-400 block mb-1.5 flex items-center gap-1">
                             <Lightbulb className="w-3.5 h-3.5" />
-                            <span>{locale === 'ar' ? 'التفسير والشرح:' : 'Explanation:'}</span>
+                            <span>{t('exams.explanation')}</span>
                           </span>
                           <span>{q.explanation}</span>
                         </div>
@@ -468,7 +469,7 @@ function ExamSession({ examId }: { examId: string }) {
                         <div className="mt-2 text-xs bg-violet-950/20 border border-violet-500/20 p-4 rounded-xl leading-relaxed text-slate-300">
                           <span className="font-bold text-violet-400 block mb-1.5 flex items-center gap-1">
                             <Brain className="w-3.5 h-3.5" />
-                            <span>{locale === 'ar' ? 'تعليق المدرّس الذكي:' : 'AI Tutor Feedback:'}</span>
+                            <span>{t('exams.tutorFeedback')}</span>
                           </span>
                           <span className="whitespace-pre-line">{q.aiFeedback}</span>
                         </div>
@@ -488,7 +489,10 @@ function ExamSession({ examId }: { examId: string }) {
               <Card key={q.id} className="p-6 bg-slate-900/20 border-slate-805/60 flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-indigo-400 font-bold uppercase">
-                    {locale === 'ar' ? `السؤال ${idx + 1} من ${exam.totalQuestions}` : `Question ${idx + 1} of ${exam.totalQuestions}`}
+                    {t('exams.questionProgress', {
+                      current: idx + 1,
+                      total: exam.totalQuestions,
+                    })}
                   </span>
                   <h3 className="text-base font-bold text-white leading-relaxed">{q.questionText}</h3>
                 </div>
@@ -527,7 +531,7 @@ function ExamSession({ examId }: { examId: string }) {
                 {q.type === 'true_false' && (
                   <div className="grid grid-cols-2 gap-4 mt-2">
                     {['True', 'False'].map((val) => {
-                      const label = val === 'True' ? (locale === 'ar' ? 'صح' : 'True') : (locale === 'ar' ? 'خطأ' : 'False');
+                      const label = t(val === 'True' ? 'exams.true' : 'exams.false');
                       const isSelected = answers[q.id] === val;
                       return (
                         <button
@@ -552,10 +556,10 @@ function ExamSession({ examId }: { examId: string }) {
 
           <div className="flex items-center justify-between border-t border-slate-800/40 pt-6">
             <span className="text-xs text-slate-400">
-              {locale === 'ar' ? 'تأكد من إجابة جميع الأسئلة قبل تسليم الاختبار.' : 'Make sure to answer all questions before submitting.'}
+              {t('exams.submitHint')}
             </span>
             <Button type="submit" loading={submitting} className="px-6 font-bold cursor-pointer">
-              <span>{locale === 'ar' ? 'إنهاء وتسليم الاختبار' : 'Finish & Submit Exam'}</span>
+              <span>{t('exams.submit')}</span>
             </Button>
           </div>
         </form>

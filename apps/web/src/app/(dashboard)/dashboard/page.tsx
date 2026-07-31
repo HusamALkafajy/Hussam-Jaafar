@@ -42,10 +42,10 @@ export default function DashboardPage() {
   const data = MOCK_DASHBOARD_DATA;
 
   const statCards = [
-    { label: "Study Time", value: `${data.statistics.totalStudyTimeHours}h`, icon: Clock, color: 'text-amber-500 bg-amber-500/10' },
-    { label: "Documents", value: data.statistics.documentsRead, icon: FileText, color: 'text-indigo-500 bg-indigo-500/10' },
-    { label: "Quizzes", value: data.statistics.quizzesCompleted, icon: CheckSquare, color: 'text-emerald-500 bg-emerald-500/10' },
-    { label: "Average Score", value: `${data.statistics.averageScore}%`, icon: Award, color: 'text-rose-500 bg-rose-500/10' },
+    { label: t('dashboard.studyTime'), value: `${data.statistics.totalStudyTimeHours}h`, icon: Clock, color: 'text-amber-500 bg-amber-500/10' },
+    { label: t('dashboard.documents'), value: data.statistics.documentsRead, icon: FileText, color: 'text-indigo-500 bg-indigo-500/10' },
+    { label: t('dashboard.quizzes'), value: data.statistics.quizzesCompleted, icon: CheckSquare, color: 'text-emerald-500 bg-emerald-500/10' },
+    { label: t('dashboard.averageScore'), value: `${data.statistics.averageScore}%`, icon: Award, color: 'text-rose-500 bg-rose-500/10' },
   ];
 
   if (isReady && data.statistics.documentsRead === 0 && !ftueState.hasUploadedDocument) {
@@ -63,10 +63,10 @@ export default function DashboardPage() {
         <Surface variant="glass" className="p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 border-primary/20">
           <Stack gap={2} className="text-center md:text-start flex-1">
             <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-              {data.welcomeMessage}
+              {t('dashboard.welcome')} {user?.firstName}
             </h1>
             <p className="text-muted-foreground max-w-xl">
-              You are on a <strong className="text-foreground">{data.statistics.currentStreakDays} day</strong> learning streak. Keep it up!
+              {t('dashboard.streakMessage', { count: data.statistics.currentStreakDays })}
             </p>
           </Stack>
           <div className="flex items-center gap-3 bg-background/50 p-4 rounded-xl border border-border shrink-0">
@@ -74,8 +74,8 @@ export default function DashboardPage() {
               <Flame className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Current Streak</p>
-              <p className="text-2xl font-bold">{data.statistics.currentStreakDays} <span className="text-sm font-normal text-muted-foreground">days</span></p>
+              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t('dashboard.currentStreak')}</p>
+              <p className="text-2xl font-bold">{data.statistics.currentStreakDays} <span className="text-sm font-normal text-muted-foreground">{t('dashboard.days')}</span></p>
             </div>
           </div>
         </Surface>
@@ -108,14 +108,14 @@ export default function DashboardPage() {
             {/* Recent Subjects */}
             <Section>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold">Recent Subjects</h3>
+                <h3 className="text-lg font-bold">{t('dashboard.recentSubjects')}</h3>
                 <Button
                   nativeButton={false}
                   render={<Link href="/subjects" />}
                   variant="link"
                   className="text-primary p-0"
                 >
-                  View All <ArrowRight className="ms-1 w-4 h-4 rtl:-scale-x-100" />
+                  {t('dashboard.viewAll')} <ArrowRight className="ms-1 w-4 h-4 rtl:-scale-x-100" />
                 </Button>
               </div>
               <Grid cols={1} gap={4}>
@@ -126,7 +126,7 @@ export default function DashboardPage() {
                     </div>
                     <div>
                       <h4 className="font-semibold text-foreground line-clamp-1">{subject.name}</h4>
-                      <p className="text-xs text-muted-foreground">{subject.documentCount} items</p>
+                      <p className="text-xs text-muted-foreground">{t('dashboard.items', { count: subject.documentCount })}</p>
                     </div>
                   </Card>
                 ))}
@@ -140,7 +140,7 @@ export default function DashboardPage() {
             {/* Quick Actions Panel */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Quick Actions</CardTitle>
+                <CardTitle className="text-lg">{t('dashboard.quickActions')}</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 <Button
@@ -150,15 +150,15 @@ export default function DashboardPage() {
                   size="lg"
                 >
                   <Upload className="me-2 w-4 h-4" />
-                  Upload New File
+                  {t('dashboard.uploadNewFile')}
                 </Button>
                 <Button variant="outline" className="w-full justify-start" size="lg">
                   <Bot className="me-2 w-4 h-4" />
-                  Chat with AI Tutor
+                  {t('dashboard.chatTutor')}
                 </Button>
                 <Button variant="outline" className="w-full justify-start" size="lg">
                   <Sparkles className="me-2 w-4 h-4" />
-                  Generate Flashcards
+                  {t('dashboard.generateFlashcards')}
                 </Button>
               </CardContent>
             </Card>
@@ -173,7 +173,7 @@ export default function DashboardPage() {
             {/* Activity Feed */}
             <Card>
               <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                <CardTitle className="text-lg">Activity Feed</CardTitle>
+                <CardTitle className="text-lg">{t('dashboard.activityFeed')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <ActivityFeed items={data.activityFeed} />
@@ -183,7 +183,7 @@ export default function DashboardPage() {
             {/* Upcoming Reviews Placeholder */}
             <Card className="bg-muted/50 border-dashed">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg text-muted-foreground">Upcoming Reviews</CardTitle>
+                <CardTitle className="text-lg text-muted-foreground">{t('dashboard.upcomingReviews')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <Stack gap={4}>

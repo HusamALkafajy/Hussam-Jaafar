@@ -25,28 +25,28 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setErrorMessage('Invalid or missing reset token.');
+      setErrorMessage(t('auth.invalidResetToken'));
     }
-  }, [token]);
+  }, [t, token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
     
     if (!password || !confirmPassword) {
-      setErrorMessage(t('common.required') || 'Both fields are required');
+      setErrorMessage(t('common.required'));
       setStatus('error');
       return;
     }
 
     if (password.length < 8) {
-      setErrorMessage('Password must be at least 8 characters long');
+      setErrorMessage(t('auth.passwordTooShort'));
       setStatus('error');
       return;
     }
 
     if (password !== confirmPassword) {
-      setErrorMessage('Passwords do not match');
+      setErrorMessage(t('auth.passwordMismatch'));
       setStatus('error');
       return;
     }
@@ -66,13 +66,13 @@ export default function ResetPasswordPage() {
       setStatus('error');
       
       if (err.name === 'AbortError' || err.code === 'ECONNABORTED') {
-        setErrorMessage('Request timed out. Please try again.');
+        setErrorMessage(t('auth.requestTimeout'));
       } else if (err.response?.status === 429) {
-        setErrorMessage('Too many requests. Please wait a moment and try again.');
+        setErrorMessage(t('auth.tooManyRequests'));
       } else if (err.response?.status === 400 || err.response?.status === 401) {
-        setErrorMessage('Invalid or expired reset token. Please request a new one.');
+        setErrorMessage(t('auth.invalidResetToken'));
       } else {
-        setErrorMessage(err.response?.data?.message || err.message || 'Failed to reset password');
+        setErrorMessage(t('auth.resetFailed'));
       }
     }
   };
@@ -83,12 +83,12 @@ export default function ResetPasswordPage() {
         <div className="flex justify-center mb-4">
           <CheckCircle2 className="w-12 h-12 text-emerald-500" />
         </div>
-        <h2 className="text-2xl font-bold text-white mb-2">Password Reset Successful</h2>
+        <h2 className="text-2xl font-bold text-white mb-2">{t('auth.resetSuccessTitle')}</h2>
         <p className="text-sm text-slate-400 mb-6">
-          Your password has been updated. You can now sign in with your new password.
+          {t('auth.resetSuccessDescription')}
         </p>
         <Button onClick={() => router.push('/login')} className="w-full font-bold">
-          Go to Login
+          {t('auth.goToLogin')}
         </Button>
       </Card>
     );
@@ -97,8 +97,8 @@ export default function ResetPasswordPage() {
   return (
     <Card className="p-8">
       <div className="flex flex-col gap-2 text-center mb-6">
-        <h2 className="text-2xl font-bold text-white">Create New Password</h2>
-        <p className="text-sm text-slate-400">Enter your new password below.</p>
+        <h2 className="text-2xl font-bold text-white">{t('auth.createNewPassword')}</h2>
+        <p className="text-sm text-slate-400">{t('auth.createNewPasswordDescription')}</p>
       </div>
 
       {status === 'error' && (
@@ -106,9 +106,9 @@ export default function ResetPasswordPage() {
           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
           <div className="flex flex-col gap-1">
             <span>{errorMessage}</span>
-            {(errorMessage.includes('token') || errorMessage.includes('expired')) && (
+            {errorMessage === t('auth.invalidResetToken') && (
               <Link href="/forgot-password" className="text-rose-300 hover:underline mt-1 font-medium">
-                Request a new link
+                {t('auth.requestNewLink')}
               </Link>
             )}
           </div>
@@ -120,7 +120,7 @@ export default function ResetPasswordPage() {
           <Input
             id="password"
             type={showPassword ? 'text' : 'password'}
-            label="New Password"
+            label={t('auth.newPassword')}
             placeholder="••••••••"
             value={password}
             onChange={(e) => {
@@ -129,6 +129,7 @@ export default function ResetPasswordPage() {
             }}
             icon={<Lock className="w-4 h-4" />}
             disabled={status === 'loading' || !token}
+            aria-label={t(showPassword ? 'auth.hidePassword' : 'auth.showPassword')}
             required
           />
           <button
@@ -145,7 +146,7 @@ export default function ResetPasswordPage() {
           <Input
             id="confirmPassword"
             type={showPassword ? 'text' : 'password'}
-            label="Confirm Password"
+            label={t('auth.confirmPassword')}
             placeholder="••••••••"
             value={confirmPassword}
             onChange={(e) => {
@@ -159,14 +160,14 @@ export default function ResetPasswordPage() {
         </div>
 
         <Button type="submit" loading={status === 'loading'} disabled={status === 'loading' || !token} className="w-full mt-2 font-bold py-2.5">
-          Reset Password
+          {t('auth.resetPassword')}
         </Button>
       </form>
 
       <div className="mt-8 text-center text-sm">
         <Link href="/login" className="flex items-center justify-center gap-2 text-slate-400 hover:text-slate-300 transition-colors">
           <ArrowLeft className="w-4 h-4" />
-          Back to Login
+          {t('auth.backToLogin')}
         </Link>
       </div>
     </Card>

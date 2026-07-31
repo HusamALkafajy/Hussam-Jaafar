@@ -75,7 +75,7 @@ function renderInline(text: string): string {
 /** Collapsible references accordion */
 function References({ refs }: { refs: Array<{ page: number | null; text: string }> }) {
   const [open, setOpen] = useState(false);
-  const { locale } = useLocale();
+  const { t } = useLocale();
   if (!refs || refs.length === 0) return null;
   return (
     <div className="mt-3 border-t border-slate-700/30 pt-2">
@@ -84,7 +84,7 @@ function References({ refs }: { refs: Array<{ page: number | null; text: string 
         className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-violet-400 transition-colors"
       >
         <BookOpen className="w-3.5 h-3.5" />
-        <span>{locale === 'ar' ? `📄 المصادر (${refs.length})` : `📄 Sources (${refs.length})`}</span>
+        <span>📄 {t('tutor.sources', { count: refs.length })}</span>
         {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
       </button>
       {open && (
@@ -96,7 +96,7 @@ function References({ refs }: { refs: Array<{ page: number | null; text: string 
             >
               {ref.page != null && (
                 <span className="text-violet-400 font-bold text-[10px] block mb-1 uppercase">
-                  {locale === 'ar' ? `صفحة ${ref.page}` : `Page ${ref.page}`}
+                  {t('tutor.page', { page: ref.page })}
                 </span>
               )}
               <span className="italic">"{ref.text}"</span>
@@ -111,7 +111,7 @@ function References({ refs }: { refs: Array<{ page: number | null; text: string 
 export default function ChatConversationPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const sessionId = resolvedParams.id;
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
 
   const [session, setSession] = useState<ChatSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -180,7 +180,7 @@ export default function ChatConversationPage({ params }: PageProps) {
         {
           id: `error-${Date.now()}`,
           role: 'assistant',
-          content: 'AI Tutor is currently busy. Please try again.',
+          content: t('tutor.busy'),
           createdAt: new Date().toISOString(),
           isError: true // assuming we can optionally style this if needed, but it works as text
         } as any
@@ -210,10 +210,10 @@ export default function ChatConversationPage({ params }: PageProps) {
     return (
       <div className="text-center py-12 flex flex-col items-center gap-3">
         <p className="text-slate-400">
-          {locale === 'ar' ? 'المحادثة غير موجودة.' : 'Conversation not found.'}
+          {t('tutor.notFound')}
         </p>
         <Button nativeButton={false} render={<Link href="/chat" />}>
-          {locale === 'ar' ? 'العودة للمحادثات' : 'Back to Chats'}
+          {t('tutor.backToChats')}
         </Button>
       </div>
     );
@@ -236,9 +236,7 @@ export default function ChatConversationPage({ params }: PageProps) {
           <div className="min-w-0">
             <h2 className="text-base font-bold text-white truncate">{session.title}</h2>
             <p className="text-xs text-slate-500">
-              {locale === 'ar'
-                ? `${messages.length} رسالة • الذكاء الاصطناعي يستند إلى مستندك فقط`
-                : `${messages.length} messages • AI answers from your document only`}
+              {t('tutor.groundedCount', { count: messages.length })}
             </p>
           </div>
         </div>
@@ -252,12 +250,10 @@ export default function ChatConversationPage({ params }: PageProps) {
               <MessageSquare className="w-8 h-8 text-violet-400" />
             </div>
             <p className="text-slate-300 font-semibold">
-              {locale === 'ar' ? 'ابدأ المحادثة مع مدرّسك الذكي' : 'Start chatting with your AI Tutor'}
+              {t('tutor.startTitle')}
             </p>
             <p className="text-xs text-slate-500 max-w-sm">
-              {locale === 'ar'
-                ? 'اطرح أي سؤال حول مستندك وسيجيبك الذكاء الاصطناعي بناءً على محتواه فقط مع الإشارة للمصادر.'
-                : 'Ask any question about your document. The AI will answer based on its content only, with page citations.'}
+              {t('tutor.startDescription')}
             </p>
           </div>
         )}
@@ -281,7 +277,7 @@ export default function ChatConversationPage({ params }: PageProps) {
                       <span className="text-[8px] font-bold text-violet-400">AI</span>
                     </div>
                     <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wider">
-                      {locale === 'ar' ? 'مدرّس الذكاء الاصطناعي' : 'AI Tutor'}
+                      {t('tutor.assistantName')}
                     </span>
                   </div>
                   <div className="text-slate-200">
@@ -325,7 +321,7 @@ export default function ChatConversationPage({ params }: PageProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={locale === 'ar' ? 'اطرح سؤالاً على مستندك...' : 'Ask your document a question...'}
+            placeholder={t('tutor.placeholder')}
             rows={1}
             className="flex-1 bg-transparent text-slate-100 placeholder-slate-600 text-sm resize-none outline-none leading-relaxed max-h-32 overflow-y-auto"
             style={{ minHeight: '24px' }}
@@ -346,9 +342,7 @@ export default function ChatConversationPage({ params }: PageProps) {
           </div>
         </div>
         <p className="text-center text-[10px] text-slate-700 mt-2">
-          {locale === 'ar'
-            ? 'الذكاء الاصطناعي يجيب بناءً على محتوى مستندك فقط.'
-            : 'AI answers are grounded in your document content only.'}
+          {t('tutor.groundedNotice')}
         </p>
       </div>
     </div>

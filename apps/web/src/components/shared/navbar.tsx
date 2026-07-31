@@ -46,7 +46,7 @@ export const Navbar: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm transition-all"
           >
             <Globe className="w-4 h-4" />
-            <span>{locale === 'ar' ? 'English' : 'العربية'}</span>
+            <span>{t(locale === 'ar' ? 'common.english' : 'common.arabic')}</span>
           </button>
 
           {user ? (
@@ -106,7 +106,7 @@ export const Navbar: React.FC = () => {
               className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-slate-800 text-slate-300 text-sm hover:bg-slate-800"
             >
               <Globe className="w-4 h-4" />
-              <span>{locale === 'ar' ? 'English' : 'العربية'}</span>
+              <span>{t(locale === 'ar' ? 'common.english' : 'common.arabic')}</span>
             </button>
 
             {user ? (

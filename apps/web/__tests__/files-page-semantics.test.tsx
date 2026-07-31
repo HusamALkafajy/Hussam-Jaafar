@@ -43,24 +43,72 @@ const translations: Record<string, string> = {
   'dashboard.uploadNewFile': 'Upload File',
   'files.allSubjects': 'All subjects',
   'files.allTypes': 'All types',
+  'files.deleteDescription': '{fileName} will be permanently deleted. This action cannot be undone.',
+  'files.deleteFailure': 'Could not delete the file. Try again.',
+  'files.deleteFile': 'Delete file',
+  'files.deleteFileNamed': 'Delete {fileName}',
+  'files.deleteSuccess': 'File deleted successfully.',
+  'files.deleteTitle': 'Delete this file?',
   'files.date': 'Date',
   'files.emptyState': 'No files',
+  'files.fileTypeFilter': 'File type filter',
+  'files.fileTypeImage': 'Image',
+  'files.invalidType': 'Choose a PDF, Word document, or image.',
+  'files.maxSize': 'The file must be 50MB or smaller.',
   'files.mergingAndAnalyzing': 'Merging and analyzing',
+  'files.noSubject': 'No Subject',
+  'files.openFile': 'Open {fileName}',
   'files.searchPlaceholder': 'Search files',
+  'files.startUpload': 'Start Upload & Analysis',
   'files.statusCompleted': 'Completed',
   'files.statusFailed': 'Failed',
+  'files.statusPending': 'Queued',
   'files.statusProcessing': 'Processing',
   'files.subject': 'Subject',
+  'files.subjectFilter': 'Subject filter',
   'files.title': 'My Files',
+  'files.unnamedFile': 'This file',
+  'files.uploadDescription': 'You can optionally choose a subject before uploading.',
+  'files.uploadFailed': 'Upload failed',
+  'files.uploadKeepOpen': 'Keep this dialog open until the upload finishes.',
+  'files.uploadProgress': 'File upload progress',
   'files.uploadRequirements': 'PDF, Word, or image',
+  'files.uploadSuccess': 'File uploaded successfully!',
+  'files.uploadSuccessDescription': 'AI analysis started in the background.',
   'files.uploadZone': 'Choose a file',
   'files.uploadingChunk': 'Uploading chunk {chunk} of {total}',
+  'common.cancel': 'Cancel',
+  'common.close': 'Close',
+  'uploadQueue.recentJobs': 'Recent Processing Jobs',
+  'uploadQueue.viewAll': 'View All Queue',
+  'uploadQueue.stageUploading': 'Uploading',
+  'uploadQueue.stageQueued': 'Queued',
+  'uploadQueue.stageExtracting': 'Extracting content',
+  'uploadQueue.stageBuildingAst': 'Structuring content',
+  'uploadQueue.stageValidating': 'Validating',
+  'uploadQueue.stageIndexing': 'Indexing content',
+  'uploadQueue.stageFinalizing': 'Finalizing',
+  'uploadQueue.stageCompleted': 'Completed',
+};
+
+const arabicTranslations: Record<string, string> = {
+  'files.subjectFilter': 'تصفية حسب المادة',
 };
 
 vi.mock('../src/hooks/use-locale', () => ({
   useLocale: () => ({
     locale: mocks.locale,
-    t: (key: string) => translations[key] ?? key,
+    t: (key: string, params?: Record<string, string | number>) => {
+      const value =
+        (mocks.locale === 'ar' ? arabicTranslations[key] : undefined) ??
+        translations[key] ??
+        key;
+      return value.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
+        params && Object.prototype.hasOwnProperty.call(params, name)
+          ? String(params[name])
+          : placeholder,
+      );
+    },
   }),
 }));
 
@@ -291,8 +339,10 @@ describe('files and legacy navigation semantics', () => {
 
     await user.click(subjectFilter);
     await user.keyboard('{Escape}');
-    expect(subjectFilter.getAttribute('aria-expanded')).toBe('false');
-    expect(document.activeElement).toBe(subjectFilter);
+    await waitFor(() =>
+      expect(subjectFilter.getAttribute('aria-expanded')).toBe('false'),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(subjectFilter));
     expect(typeFilter.textContent).toContain('Word');
   });
 

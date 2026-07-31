@@ -68,17 +68,17 @@ export const Footer: React.FC = () => {
         </div>
 
         <div>
-          <h4 className="text-sm font-semibold text-slate-200 mb-4">Legal</h4>
+          <h4 className="text-sm font-semibold text-slate-200 mb-4">{t('landing.legal')}</h4>
           <ul className="flex flex-col gap-2.5 text-sm text-slate-400">
-            <li className="hover:text-white transition-colors cursor-pointer">Privacy Policy</li>
-            <li className="hover:text-white transition-colors cursor-pointer">Terms of Service</li>
+            <li className="hover:text-white transition-colors cursor-pointer">{t('landing.privacyPolicy')}</li>
+            <li className="hover:text-white transition-colors cursor-pointer">{t('landing.termsOfService')}</li>
           </ul>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 border-t border-slate-800/20 mt-8 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-        <p>© {new Date().getFullYear()} StudyAI. All rights reserved.</p>
-        <p>Powered by OpenRouter API</p>
+        <p>{t('landing.rightsReserved', { year: new Date().getFullYear() })}</p>
+        <p>{t('landing.poweredBy')}</p>
       </div>
     </footer>
   );
