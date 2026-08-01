@@ -38,17 +38,21 @@ export class NativePdfExtractor implements DocumentExtractor {
   }
 
   async extract(context: DocumentExtractionContext): Promise<ExtractedDocument> {
-    if (!context.filePath) {
-      throw new MalformedDocumentError('PDF extraction requires a valid file path.');
+    if (!context.filePath && !context.data) {
+      throw new MalformedDocumentError('PDF extraction requires a valid file path or data buffer.');
     }
 
     const pdfjsLib = this.pdfjsLib || await loadPdfJsServerRuntime();
 
     let rawData: Buffer;
-    try {
-      rawData = await fs.promises.readFile(context.filePath);
-    } catch (error: any) {
-      throw new MalformedDocumentError(`Failed to read PDF file: ${error.message}`);
+    if (context.data) {
+      rawData = context.data;
+    } else {
+      try {
+        rawData = await fs.promises.readFile(context.filePath!);
+      } catch (error: any) {
+        throw new MalformedDocumentError(`Failed to read PDF file: ${error.message}`);
+      }
     }
 
     let doc: any;

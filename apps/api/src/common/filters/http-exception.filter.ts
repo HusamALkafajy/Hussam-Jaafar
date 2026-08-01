@@ -34,6 +34,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
     };
     this.logger.error(safeLog);
+    if (status === 500) {
+      console.error('REAL EXCEPTION:', exception?.stack || exception);
+    }
 
     response.status(status).json({
       success: false,
