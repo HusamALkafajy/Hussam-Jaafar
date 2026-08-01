@@ -194,6 +194,17 @@ describe('FilesProcessor', () => {
     expect(documentPersistenceService.publish).toHaveBeenCalled();
   });
 
+  it('should pass storageProvider downloaded Buffer to context.data instead of local path', async () => {
+    const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
+    await processor.handle(context);
+    expect(pipelineRunner.execute).toHaveBeenCalled();
+    const executeArgs = pipelineRunner.execute.mock.calls[0][0];
+    expect(executeArgs.fileData).toBeInstanceOf(Buffer);
+    expect(executeArgs.fileData.toString()).toBe('dummy');
+    expect(executeArgs.filePath).toBeDefined();
+    expect(executeArgs.fileId).toBe('file-1');
+  });
+
   it('should handle failure atomically', async () => {
     pipelineRunner.execute.mockRejectedValueOnce(new Error('failed'));
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };

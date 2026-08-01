@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
       POSTGRES_DB: ${DATABASE_NAME:-studyai}
     ports:
-      - "5433:5432"
+      - "5435:5432"
     volumes:
       - pgdata-prod:/var/lib/postgresql/data
     healthcheck:
@@ -34,22 +34,24 @@ services:
       retries: 5
 
   api:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.api
+    image: studyai-api:t03r2c-b
     container_name: studyai-prod-api
     restart: always
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
-      REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}
+      DATABASE_URL: postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD}@db:5432/${DATABASE_NAME:-studyai}
+      REDIS_URL: redis://redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      STORAGE_PATH: /app/apps/api/uploads
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET must be set}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-dummy}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-dummy}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-dummy}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       FRONTEND_URL: ${FRONTEND_URL}
