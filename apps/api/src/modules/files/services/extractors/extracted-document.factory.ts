@@ -19,9 +19,24 @@ export class ExtractedDocumentFactory {
    * @returns An ExtractedDocument where fullText perfectly matches the blocks.
    */
   static fromBlocks(blocks: StructuralBlock[], metadata?: Record<string, any>): ExtractedDocument {
+    // Enforce single root policy for AST Builder: prepend a single 'document' block if necessary
+    let canonicalBlocks = blocks;
+    if (blocks.length === 0 || blocks[0].type !== 'document') {
+      canonicalBlocks = [
+        {
+          type: 'document',
+          text: '',
+          metadata: {
+            generatedRoot: true
+          }
+        },
+        ...blocks
+      ];
+    }
+
     return new ExtractedDocumentImpl(
-      CanonicalTextSerializer.serialize(blocks),
-      blocks,
+      CanonicalTextSerializer.serialize(canonicalBlocks),
+      canonicalBlocks,
       metadata
     );
   }

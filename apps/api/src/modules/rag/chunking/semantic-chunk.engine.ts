@@ -1,3 +1,4 @@
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { ExtractedDocument } from '../../files/contracts/extracted-document';
 import { StructuralBlock } from '@studyai/ast';
 import { SemanticChunk } from './contracts/semantic-chunk';
@@ -10,13 +11,14 @@ export interface ChunkingOptions {
   signal?: AbortSignal;
 }
 
+@Injectable()
 export class SemanticChunkEngine {
   private readonly maxTokens: number;
   private readonly minTokens: number;
 
   constructor(
-    private readonly tokenEstimator: TokenEstimator,
-    private readonly options?: ChunkingOptions
+    @Inject('TOKEN_ESTIMATOR') private readonly tokenEstimator: TokenEstimator,
+    @Optional() @Inject('CHUNKING_OPTIONS') private readonly options?: ChunkingOptions
   ) {
     this.maxTokens = options?.maxTokens ?? 512;
     this.minTokens = options?.minTokens ?? 50;

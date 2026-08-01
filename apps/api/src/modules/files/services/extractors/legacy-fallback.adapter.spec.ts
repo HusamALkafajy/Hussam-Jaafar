@@ -25,8 +25,8 @@ describe('LegacyFallbackAdapter', () => {
 
     expect(mockAiService.extractText).toHaveBeenCalledWith('/tmp/test.pdf', 'application/pdf');
     expect(result.fullText).toBe('Extracted pdf text');
-    expect(result.blocks.length).toBe(1);
-    expect(result.blocks[0].text).toBe('Extracted pdf text');
+    expect(result.blocks.length).toBe(2);
+    expect(result.blocks[1].text).toBe('Extracted pdf text');
   });
 
   it('should route image to aiService', async () => {

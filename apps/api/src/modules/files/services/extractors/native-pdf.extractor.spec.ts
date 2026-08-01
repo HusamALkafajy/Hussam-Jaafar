@@ -44,9 +44,9 @@ describe('NativePdfExtractor', () => {
 
     const result = await extractor.extract({ fileId: 'test-file-1', filePath, mimeType: 'application/pdf' });
     expect(result.fullText).toContain('Hello World');
-    expect(result.blocks).toHaveLength(1);
-    expect(result.blocks[0].text).toContain('Hello World');
-    expect(result.blocks[0].metadata?.sourcePage).toBe(1);
+    expect(result.blocks).toHaveLength(2);
+    expect(result.blocks[1].text).toContain('Hello World');
+    expect(result.blocks[1].metadata?.sourcePage).toBe(1);
   });
 
   it('should extract text from a multi-page PDF with deterministic page provenance', async () => {
@@ -59,13 +59,13 @@ describe('NativePdfExtractor', () => {
     });
 
     const result = await extractor.extract({ fileId: 'test-file-2', filePath, mimeType: 'application/pdf' });
-    expect(result.blocks).toHaveLength(2);
+    expect(result.blocks).toHaveLength(3);
 
-    expect(result.blocks[0].text).toContain('Page One Text');
-    expect(result.blocks[0].metadata?.sourcePage).toBe(1);
+    expect(result.blocks[1].text).toContain('Page One Text');
+    expect(result.blocks[1].metadata?.sourcePage).toBe(1);
 
-    expect(result.blocks[1].text).toContain('Page Two Text');
-    expect(result.blocks[1].metadata?.sourcePage).toBe(2);
+    expect(result.blocks[2].text).toContain('Page Two Text');
+    expect(result.blocks[2].metadata?.sourcePage).toBe(2);
 
     expect(result.fullText).toContain('Page One Text');
   });

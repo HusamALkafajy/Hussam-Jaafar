@@ -63,8 +63,8 @@ describe('MammothDocxExtractor', () => {
       const context: DocumentExtractionContext = { fileId: 'f1', filePath: 'doc.docx', mimeType: 'docx' };
       const doc = await extractor.extract(context);
       
-      expect(doc.blocks).toHaveLength(1);
-      expect(doc.blocks[0]).toMatchObject({
+      expect(doc.blocks).toHaveLength(2);
+      expect(doc.blocks[1]).toMatchObject({
         type: 'paragraph',
         text: 'Hello world'
       });
@@ -80,9 +80,9 @@ describe('MammothDocxExtractor', () => {
       const context: DocumentExtractionContext = { fileId: 'f1', filePath: 'doc.docx', mimeType: 'docx' };
       const doc = await extractor.extract(context);
       
-      expect(doc.blocks).toHaveLength(2);
-      expect(doc.blocks[0]).toMatchObject({ type: 'heading_1', text: 'Title' });
-      expect(doc.blocks[1]).toMatchObject({ type: 'heading_2', text: 'Subtitle' });
+      expect(doc.blocks).toHaveLength(3);
+      expect(doc.blocks[1]).toMatchObject({ type: 'heading_1', text: 'Title' });
+      expect(doc.blocks[2]).toMatchObject({ type: 'heading_2', text: 'Subtitle' });
     });
 
     it('should extract nested lists and tables successfully', async () => {
@@ -95,12 +95,16 @@ describe('MammothDocxExtractor', () => {
       const context: DocumentExtractionContext = { fileId: 'f1', filePath: 'doc.docx', mimeType: 'docx' };
       const doc = await extractor.extract(context);
       
-      // 3 list items + 1 table
-      expect(doc.blocks).toHaveLength(4);
-      expect(doc.blocks[0]).toMatchObject({ type: 'list_item', text: 'Item 1' });
-      expect(doc.blocks[1]).toMatchObject({ type: 'list_item', text: 'Item 2' });
-      expect(doc.blocks[2]).toMatchObject({ type: 'list_item', text: 'Nested' });
-      expect(doc.blocks[3]).toMatchObject({ type: 'table' });
+      // 3 list items + 1 table + 1 document root
+      expect(doc.blocks).toHaveLength(5);
+      expect(doc.blocks[1]).toMatchObject({ type: 'list_item', text: 'Item 1' });
+      expect(doc.blocks[2]).toMatchObject({ type: 'list_item', text: 'Item 2' });
+      expect(doc.blocks[3]).toMatchObject({ type: 'list_item', text: 'Nested' });
+      
+      expect(doc.blocks[4]).toMatchObject({
+        type: 'table',
+        text: 'Cell 1 | Cell 2'
+      });
     });
   });
 });
