@@ -22,3 +22,4 @@ apps/api/cookies.txt
 .storage
 scratch_verify
 test-register.js
+out/

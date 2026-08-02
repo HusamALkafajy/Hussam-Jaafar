@@ -4,15 +4,15 @@
 # Stage 1: Prune monorepo
 FROM node:20-alpine AS pruner
 RUN apk add --no-cache libc6-compat
-RUN npm install -g turbo
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 COPY . .
-RUN turbo prune @studyai/web --docker
+RUN pnpm dlx turbo@2.9.18 prune @studyai/web --docker
 
 # Stage 2: Install dependencies
 FROM node:20-alpine AS installer
 RUN apk add --no-cache libc6-compat
-RUN npm install -g pnpm@9.15.0
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 # First copy lockfile and package.json files
@@ -26,7 +26,7 @@ RUN pnpm install --frozen-lockfile
 # Stage 3: Build the application
 FROM node:20-alpine AS builder
 RUN apk add --no-cache libc6-compat
-RUN npm install -g pnpm@9.15.0
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 ARG INTERNAL_API_URL
