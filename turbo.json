@@ -3,6 +3,7 @@
   "globalDependencies": [".env"],
   "globalEnv": [
     "NODE_ENV",
+    "INTERNAL_API_URL",
     "DATABASE_URL",
     "OPENROUTER_API_KEY",
     "OPENROUTER_BASE_URL",

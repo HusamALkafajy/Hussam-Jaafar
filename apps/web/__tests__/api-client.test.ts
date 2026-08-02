@@ -114,15 +114,15 @@ describe('api-client — single-flight 401 refresh', () => {
 
     // After refresh, retries should succeed
     // We let the retry also get a 401 to keep fetch simple (retry guard stops loop)
-    fetchSpy.mockImplementation(async (input) => {
+    fetchSpy.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : (input as Request).url;
       if (url.includes('/auth/refresh')) {
         refreshCallCount++;
         return refreshSuccessResponse();
       }
       // Mark retries by checking Authorization header
-      const headers = (input as Request).headers;
-      const auth = typeof headers?.get === 'function' ? headers.get('Authorization') : undefined;
+      const headers = new Headers(init?.headers);
+      const auth = headers.get('Authorization');
       if (auth === 'Bearer new-access-token') {
         // This is the retry — return success
         return successResponse({ item: 1 });
@@ -239,5 +239,121 @@ describe('api-client — single-flight 401 refresh', () => {
     // Exactly one fetch call: the direct /auth/refresh call.
     // No second fetch to /auth/refresh was triggered by 401 recovery.
     expect(fetchCallCount).toBe(1);
+  });
+});
+
+describe('api-client — structured failure contract', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+    document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('preserves HTTP status without exposing a backend message', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: false,
+      message: 'internal stack and database details',
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+    const { api, ApiError } = await import('../src/lib/api-client');
+
+    const error = await api.post('/auth/register', {}).catch((value) => value);
+    expect(fetchSpy.mock.calls[0][0]).toBe('/api/auth/register');
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, kind: 'http', message: 'Request conflict.' });
+    expect(error.message).not.toContain('database');
+  });
+
+  it('handles a non-JSON error without exposing raw HTML', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response('<html>private proxy error</html>', {
+      status: 502,
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const { api } = await import('../src/lib/api-client');
+
+    const error = await api.get('/data').catch((value) => value);
+    expect(error).toMatchObject({ status: 502, kind: 'http', message: 'Server request failed.' });
+    expect(error.message).not.toContain('<html>');
+  });
+
+  it('maps network failures distinctly', async () => {
+    fetchSpy.mockRejectedValueOnce(new TypeError('connection details'));
+    const { api } = await import('../src/lib/api-client');
+
+    await expect(api.get('/data')).rejects.toMatchObject({
+      status: 0,
+      kind: 'network',
+      message: 'Network request failed.',
+    });
+  });
+
+  it('distinguishes timeout from caller cancellation', async () => {
+    vi.useFakeTimers();
+    fetchSpy.mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+    const { api } = await import('../src/lib/api-client');
+
+    const request = api.get('/slow', { timeout: 10 });
+    const assertion = expect(request).rejects.toMatchObject({ status: 504, kind: 'timeout' });
+    await vi.advanceTimersByTimeAsync(10);
+    await assertion;
+
+    vi.useRealTimers();
+    const caller = new AbortController();
+    const cancelled = api.get('/slow', { signal: caller.signal });
+    const cancelledAssertion = expect(cancelled).rejects.toMatchObject({
+      status: 0,
+      kind: 'aborted',
+    });
+    caller.abort();
+    await cancelledAssertion;
+  });
+
+  it('accepts a successful 204 response without parsing JSON', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const { api } = await import('../src/lib/api-client');
+    await expect(api.delete('/resource')).resolves.toBeUndefined();
+  });
+
+  it('preserves the CSRF header across a 401 refresh retry', async () => {
+    document.cookie = 'csrf_token=csrf-value; path=/';
+    let protectedCalls = 0;
+    fetchSpy.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url;
+      if (url.endsWith('/api/auth/refresh')) return refreshSuccessResponse('refreshed-token');
+      protectedCalls += 1;
+      expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('csrf-value');
+      return protectedCalls === 1 ? unauthorizedResponse() : successResponse({ ok: true });
+    });
+    const { api, setAccessToken } = await import('../src/lib/api-client');
+    setAccessToken('expired-token');
+
+    await expect(api.post('/protected', { value: 1 })).resolves.toEqual({ ok: true });
+    expect(protectedCalls).toBe(2);
+  });
+
+  it('keeps authenticated binary delivery outside JSON parsing', async () => {
+    const binaryResponse = new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { 'Content-Type': 'application/pdf' },
+    });
+    fetchSpy.mockResolvedValueOnce(binaryResponse);
+    const { authenticatedFetch, setAccessToken } = await import('../src/lib/api-client');
+    setAccessToken('memory-token');
+
+    const response = await authenticatedFetch('/files/file-id/original');
+    expect(response).toBe(binaryResponse);
+    expect(fetchSpy).toHaveBeenCalledWith('/api/files/file-id/original', expect.objectContaining({
+      credentials: 'include',
+    }));
+    const init = fetchSpy.mock.calls[0][1];
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer memory-token');
   });
 });

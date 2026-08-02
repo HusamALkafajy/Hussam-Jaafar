@@ -27,6 +27,33 @@ export class QuotaError extends Error {
 }
 
 /**
+ * Structured error containing HTTP status code for UI error mapping.
+ */
+export type ApiErrorKind = 'http' | 'network' | 'timeout' | 'aborted' | 'response';
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly kind: ApiErrorKind = 'http',
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+const safeHttpErrorMessage = (status: number): string => {
+  if (status === 400) return 'Request validation failed.';
+  if (status === 401) return 'Authentication required.';
+  if (status === 403) return 'Request forbidden.';
+  if (status === 404) return 'Requested resource not found.';
+  if (status === 409) return 'Request conflict.';
+  if (status === 429) return 'Too many requests.';
+  if (status >= 500) return 'Server request failed.';
+  return `Request failed with status ${status}.`;
+};
+
+/**
  * Sentinel error emitted when /auth/refresh fails during 401 recovery.
  * AuthProvider subscribes to onAuthExpired() and clears state on receipt.
  */
@@ -109,8 +136,6 @@ async function request<T>(
   }
 
   // Cookies (refresh_token, csrf_token) are always included automatically
-  options.credentials = 'include';
-
   // CSRF double-submit for state-changing requests
   try {
     const method = (options.method || 'GET').toUpperCase();
@@ -129,20 +154,40 @@ async function request<T>(
     headers.set('Authorization', `Bearer ${_accessToken}`);
   }
 
-  options.headers = headers;
-
   const timeoutMs = options.timeout ?? 10 * 60 * 1000; // 10 minutes
+  const callerSignal = options.signal;
+  const isRetry = options._isRetry;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  options.signal = controller.signal;
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+
+  if (callerSignal?.aborted) {
+    abortFromCaller();
+  } else {
+    callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
+
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const requestOptions: ExtendedRequestInit = {
+    ...options,
+    credentials: 'include',
+    headers,
+    signal: controller.signal,
+  };
+  delete requestOptions.timeout;
+  delete requestOptions._isRetry;
 
   try {
-    const response = await fetch(`${BASE_URL}/api${endpoint}`, options);
+    const response = await fetch(`${BASE_URL}/api${endpoint}`, requestOptions);
 
     // ── 401 recovery with single-flight refresh ───────────────────────────
     if (
       response.status === 401 &&
-      !options._isRetry &&
+      !isRetry &&
       !AUTH_ENDPOINTS.has(endpoint)
     ) {
       // Deduplicate: at most one concurrent refresh
@@ -191,7 +236,7 @@ async function request<T>(
       try {
         errorData = await response.json();
       } catch {
-        errorData = { message: response.statusText };
+        // Never expose raw text or HTML error bodies to callers.
       }
 
       if (errorData.errorCode === 'QUOTA_EXCEEDED') {
@@ -206,22 +251,37 @@ async function request<T>(
         );
       }
 
-      throw new Error(errorData.message || `API error status: ${response.status}`);
+      throw new ApiError(safeHttpErrorMessage(response.status), response.status);
     }
 
-    const result: ApiResponse<T> = await response.json();
+    if (response.status === 204) return undefined as T;
+
+    let result: ApiResponse<T>;
+    try {
+      result = await response.json();
+    } catch {
+      throw new ApiError('Invalid server response.', response.status, 'response');
+    }
+
     if (!result.success) {
-      throw new Error(result.message || 'Action failed');
+      throw new ApiError('Action failed.', response.status, 'response');
     }
 
     return result.data;
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      throw new Error('Request timed out while waiting for AI response. Please try again.');
+  } catch (error: unknown) {
+    if (controller.signal.aborted) {
+      if (timedOut) {
+        throw new ApiError('Request timed out.', 504, 'timeout');
+      }
+      throw new ApiError('Request was cancelled.', 0, 'aborted');
     }
-    throw error;
+    if (error instanceof ApiError || error instanceof QuotaError || error instanceof AuthExpiredError) {
+      throw error;
+    }
+    throw new ApiError('Network request failed.', 0, 'network');
   } finally {
     clearTimeout(timeoutId);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
   }
 }
 

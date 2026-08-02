@@ -19,3 +19,6 @@ playwright-report
 test-results
 StudyAI_*.md
 apps/api/cookies.txt
+.storage
+scratch_verify
+test-register.js

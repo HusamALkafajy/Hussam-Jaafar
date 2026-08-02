@@ -29,6 +29,9 @@ RUN apk add --no-cache libc6-compat
 RUN npm install -g pnpm@9.15.0
 WORKDIR /app
 
+ARG INTERNAL_API_URL
+ENV INTERNAL_API_URL=${INTERNAL_API_URL}
+
 COPY --from=installer /app/ .
 COPY --from=pruner /app/out/full/ .
 COPY turbo.json turbo.json

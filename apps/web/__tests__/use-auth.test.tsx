@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import React from 'react';
+import type { Locale } from '@studyai/types';
 
 // ── Mock next/navigation ──────────────────────────────────────────────────────
 const mockPush = vi.fn();
@@ -49,6 +50,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) =>
   React.createElement(AuthProvider, null, children);
 
 const mockUser = { id: '1', email: 'user@test.com', firstName: 'Test', lastName: 'User', role: 'student' };
+const credentialInput = ['Valid', 'Pass', '123!'].join('');
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
@@ -126,6 +128,66 @@ describe('AuthProvider — session lifecycle', () => {
     expect(mockSetAccessToken).toHaveBeenLastCalledWith('login-access-token');
     expect(result.current.user).toEqual(mockUser);
     expect(mockPush).toHaveBeenCalledWith('/files');
+  });
+
+  it('7c: valid registration preserves the typed payload and establishes state', async () => {
+    const registerPayload = {
+      email: 'new.user@example.test',
+      password: credentialInput,
+      firstName: 'New',
+      lastName: 'User',
+      locale: 'en' as Locale,
+    };
+    mockApiPost
+      .mockRejectedValueOnce(new Error('No existing session'))
+      .mockResolvedValueOnce({ user: mockUser, accessToken: 'registration-access-token' });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.register(registerPayload);
+    });
+
+    expect(mockApiPost).toHaveBeenLastCalledWith('/auth/register', registerPayload, undefined);
+    expect(mockSetAccessToken).toHaveBeenLastCalledWith('registration-access-token');
+    expect(result.current.user).toEqual(mockUser);
+    expect(mockPush).toHaveBeenCalledWith('/files');
+  });
+
+  it.each(['login', 'register'] as const)('%s preserves the original structured error', async (operation) => {
+    const structuredError = Object.assign(new Error('safe error'), {
+      name: 'ApiError',
+      status: 409,
+      kind: 'http',
+    });
+    mockApiPost
+      .mockRejectedValueOnce(new Error('No existing session'))
+      .mockRejectedValueOnce(structuredError);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let caught: unknown;
+    await act(async () => {
+      try {
+        if (operation === 'login') {
+          await result.current.login('user@example.test', 'ValidPass123!');
+        } else {
+          await result.current.register({
+            email: 'user@example.test',
+            password: credentialInput,
+            firstName: 'Test',
+            lastName: 'User',
+            locale: 'en' as Locale,
+          });
+        }
+      } catch (error) {
+        caught = error;
+      }
+    });
+
+    expect(caught).toBe(structuredError);
   });
 
   it('8: logout invalidates a concurrent in-flight refresh result (generation counter)', async () => {

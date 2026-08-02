@@ -74,12 +74,15 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
+      args:
+        INTERNAL_API_URL: http://api:4000
     container_name: studyai-prod-web
     restart: always
     environment:
       NODE_ENV: production
       PORT: 3000
       NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      INTERNAL_API_URL: http://api:4000
     ports:
       - "3000:3000"
     depends_on:

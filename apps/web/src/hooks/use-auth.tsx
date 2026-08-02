@@ -146,9 +146,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(data.user);
       const plan = searchParams?.get('plan') ?? null;
       await handlePostAuthRedirect(plan);
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (generationRef.current === myGeneration) setUser(null);
-      throw new Error(e.message || 'Login failed');
+      throw e;
     } finally {
       if (generationRef.current === myGeneration) setLoading(false);
     }
@@ -156,7 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ── Register ──────────────────────────────────────────────────────────────
 
-  const register = async (registerData: any) => {
+  const register = async (registerData: RegisterDto) => {
     setLoading(true);
     const myGeneration = (generationRef.current += 1);
     try {
@@ -171,9 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(data.user);
       const plan = searchParams?.get('plan') ?? null;
       await handlePostAuthRedirect(plan);
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (generationRef.current === myGeneration) setUser(null);
-      throw new Error(e.message || 'Registration failed');
+      throw e;
     } finally {
       if (generationRef.current === myGeneration) setLoading(false);
     }

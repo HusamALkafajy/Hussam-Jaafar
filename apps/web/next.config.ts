@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { resolveInternalApiOrigin } from './src/config/internal-api-origin';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -44,18 +45,15 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
+    const internalApiOrigin = resolveInternalApiOrigin();
     return [
       {
         source: '/api/:path*',
-        destination: process.env.NODE_ENV === 'production'
-          ? 'http://api:4000/api/:path*' // Docker backend container name
-          : 'http://localhost:4000/api/:path*',
+        destination: `${internalApiOrigin}/api/:path*`,
       },
       {
         source: '/uploads/:path*',
-        destination: process.env.NODE_ENV === 'production'
-          ? 'http://api:4000/uploads/:path*'
-          : 'http://localhost:4000/uploads/:path*',
+        destination: `${internalApiOrigin}/uploads/:path*`,
       },
     ];
   },
