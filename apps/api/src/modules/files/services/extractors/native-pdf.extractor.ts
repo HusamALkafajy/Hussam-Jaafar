@@ -27,6 +27,10 @@ async function loadPdfJsServerRuntime(): Promise<any> {
   `);
 }
 
+interface PdfTextContent {
+  readonly items: ReadonlyArray<{ readonly str?: string }>;
+}
+
 export class NativePdfExtractor implements DocumentExtractor {
   private readonly logger = new Logger(NativePdfExtractor.name);
   private pdfjsLib?: any;
@@ -123,7 +127,7 @@ export class NativePdfExtractor implements DocumentExtractor {
         throw new MalformedDocumentError(`Failed to get page ${i}: ${error.message}`);
       }
 
-      let textContent: import('pdfjs-dist/types/src/display/api').TextContent;
+      let textContent: PdfTextContent;
       try {
         textContent = await page.getTextContent();
       } catch (error: any) {
@@ -136,7 +140,7 @@ export class NativePdfExtractor implements DocumentExtractor {
         // Aggregate all text items on the page into a single paragraph block
         const pageStrings = textContent.items
           // `item` could be TextItem or TextMarkedContent; we assume `str` is on TextItem
-          .map((item: any) => item.str || '')
+          .map((item) => item.str || '')
           .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
