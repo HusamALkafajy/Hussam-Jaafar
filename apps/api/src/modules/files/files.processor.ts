@@ -15,6 +15,17 @@ import { PipelineContext } from './services/pipeline/pipeline-stage.interface';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter, Histogram } from 'prom-client';
 import { IStorageProvider } from '@studyai/infrastructure';
+import { SemanticChunk } from '../rag/chunking/contracts/semantic-chunk';
+
+const resolveChunkPageNumber = (chunk: SemanticChunk): number | undefined => {
+  const sourcePages = chunk.structuralMetadata?.sourcePages ?? Array.from(new Set(
+    (chunk.chunkContent ?? [])
+      .map((block) => block.metadata?.sourcePage)
+      .filter((page): page is number => Number.isInteger(page) && page > 0),
+  )).sort((left, right) => left - right);
+
+  return sourcePages.length === 1 ? sourcePages[0] : undefined;
+};
 
 @Injectable()
 export class FilesProcessor {
@@ -188,12 +199,12 @@ export class FilesProcessor {
         fileId,
         extractedText: canonicalText,
         structuralBlocks: blocks as any,
-        generatedChunks: chunks?.map((c: any, index: number) => ({
+        extractionMetadata: extractedDocument?.metadata,
+        generatedChunks: chunks?.map((c: SemanticChunk, index: number) => ({
           fileId,
-          content: c.content ?? c.text ?? c.plainText ?? '',
-          chunkIndex: c.chunkIndex ?? c.chunkOrder ?? index,
-          pageNumber: c.pageNumber ?? c.metadata?.pageNumber ?? c.chunkContent?.[0]?.metadata?.sourcePage,
-          ...(c.embedding ? { embedding: c.embedding } : {}),
+          content: c.plainText,
+          chunkIndex: c.chunkOrder ?? index,
+          pageNumber: resolveChunkPageNumber(c),
         })) || [] // Semantic chunks mapped to the persisted RAG contract
       });
 

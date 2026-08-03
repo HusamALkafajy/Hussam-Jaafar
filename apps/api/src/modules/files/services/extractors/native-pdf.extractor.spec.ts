@@ -55,6 +55,8 @@ describe('NativePdfExtractor', () => {
     expect(result.blocks[1].metadata?.sourcePage).toBe(1);
     expect(result.blocks[2].text).toContain('Buffer Page Two');
     expect(result.blocks[2].metadata?.sourcePage).toBe(2);
+    expect(result.metadata?.pageCount).toBe(2);
+    expect(result.blocks[0].metadata).toMatchObject({ generatedRoot: true, pageCount: 2 });
   });
 
   it('B. Buffer precedence: should prefer data over filePath', async () => {
@@ -65,6 +67,34 @@ describe('NativePdfExtractor', () => {
 
     const result = await extractor.extract({ fileId: 'buf-2', data: buffer, filePath: fakeFilePath, mimeType: 'application/pdf' });
     expect(result.blocks[1].text).toContain('From Buffer');
+  });
+
+  it('records verified page count and per-page provenance without a native test runtime', async () => {
+    const mockPdfjsLib = {
+      OPS: {},
+      getDocument: jest.fn().mockReturnValue({
+        promise: Promise.resolve({
+          numPages: 2,
+          getPage: jest.fn()
+            .mockResolvedValueOnce({ getTextContent: jest.fn().mockResolvedValue({ items: [{ str: 'Page One' }] }) })
+            .mockResolvedValueOnce({ getTextContent: jest.fn().mockResolvedValue({ items: [{ str: 'Page Two' }] }) }),
+        }),
+        destroy: jest.fn(),
+      }),
+      createUint8Array: (buffer: Buffer) => new Uint8Array(buffer),
+    };
+    const testExtractor = new NativePdfExtractor(mockPdfjsLib);
+
+    const result = await testExtractor.extract({
+      fileId: 'page-provenance',
+      data: Buffer.from('fixture'),
+      mimeType: 'application/pdf',
+    });
+
+    expect(result.metadata?.pageCount).toBe(2);
+    expect(result.blocks[0].metadata).toMatchObject({ generatedRoot: true, pageCount: 2 });
+    expect(result.blocks[1].metadata?.sourcePage).toBe(1);
+    expect(result.blocks[2].metadata?.sourcePage).toBe(2);
   });
 
   it('C. filePath fallback: should extract from filePath when data is missing', async () => {

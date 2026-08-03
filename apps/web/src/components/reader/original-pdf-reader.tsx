@@ -2,7 +2,13 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { authenticatedFetch } from '../../lib/api-client';
-import { loadPdfJsRuntime } from '../../lib/pdfjs-runtime';
+import {
+  loadPdfJsRuntime,
+  PdfDocumentLoadingTask,
+  PdfDocumentProxy,
+  PdfPageProxy,
+  PdfRenderTask,
+} from '../../lib/pdfjs-runtime';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
 import { AlertCircle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
@@ -26,7 +32,7 @@ interface OriginalPdfReaderProps {
 
 export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderProps) {
   const { dir } = useLocale();
-  const [pdfDoc, setPdfDoc] = useState<any>(null);
+  const [pdfDoc, setPdfDoc] = useState<PdfDocumentProxy | null>(null);
   const [status, setStatus] = useState<'loading' | 'error' | 'success'>('loading');
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -36,6 +42,8 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const loadingTaskRef = useRef<PdfDocumentLoadingTask | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
   
   // Track resizing to update fit-width
   const [containerWidth, setContainerWidth] = useState<number>(0);
@@ -58,44 +66,71 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
     }
   }, [status]);
 
+  const releasePdfResources = useCallback(() => {
+    const loadingTask = loadingTaskRef.current;
+    loadingTaskRef.current = null;
+    if (loadingTask) {
+      void loadingTask.destroy().catch(() => undefined);
+    }
+
+    const objectUrl = objectUrlRef.current;
+    objectUrlRef.current = null;
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }, []);
+
   const loadDocument = useCallback(async () => {
     setStatus('loading');
+    setPdfDoc(null);
     
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    abortControllerRef.current = new AbortController();
+    releasePdfResources();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
     
     try {
       const response = await authenticatedFetch(`/files/${fileId}/original`, {
-        signal: abortControllerRef.current.signal
+        signal: abortController.signal,
       });
       
       if (!response.ok) {
         throw new Error('Failed to fetch original PDF');
       }
       
-      const buffer = await response.arrayBuffer();
-      const data = new Uint8Array(buffer);
+      const blob = await response.blob();
+      const signature = new TextDecoder().decode(await blob.slice(0, 5).arrayBuffer());
+      if (signature !== '%PDF-') {
+        throw new Error('Original response is not a PDF document.');
+      }
+      if (abortController.signal.aborted) return;
+
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrlRef.current = objectUrl;
       
       const pdfjs = await loadPdfJsRuntime();
+      if (abortController.signal.aborted) return;
       
       const loadingTask = pdfjs.getDocument({
-        data,
+        url: objectUrl,
         isEvalSupported: false,
       });
+      loadingTaskRef.current = loadingTask;
       
       const doc = await loadingTask.promise;
+      if (abortController.signal.aborted) return;
       setPdfDoc(doc);
       setNumPages(doc.numPages);
       setStatus('success');
       
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
+    } catch (error: unknown) {
+      const errorName = error instanceof Error ? error.name : '';
+      if (!abortController.signal.aborted && errorName !== 'AbortError') {
+        releasePdfResources();
         setStatus('error');
       }
     }
-  }, [fileId]);
+  }, [fileId, releasePdfResources]);
 
   useEffect(() => {
     loadDocument();
@@ -103,12 +138,9 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      setPdfDoc((prev: any) => {
-        if (prev) prev.destroy().catch(() => {});
-        return null;
-      });
+      releasePdfResources();
     };
-  }, [loadDocument]);
+  }, [loadDocument, releasePdfResources]);
 
   const handleZoomIn = () => {
     setIsFitWidth(false);
@@ -194,6 +226,15 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
         <Button onClick={() => loadDocument()} variant="outline" size="sm">
           {labels.retry}
         </Button>
+      </div>
+    );
+  }
+
+  if (!pdfDoc) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] border border-slate-800 rounded-lg bg-slate-950/50" role="status" aria-busy="true">
+        <Spinner className="w-8 h-8 text-sky-500 mb-4" />
+        <p className="text-slate-400 text-sm">{labels.loading}</p>
       </div>
     );
   }
@@ -286,6 +327,7 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
               scale={scale}
               isFitWidth={isFitWidth}
               containerWidth={containerWidth}
+              failureLabel={labels.failed}
               pageRef={(el) => {
                 pageRefs.current[pageNum - 1] = el;
               }}
@@ -298,24 +340,32 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
 }
 
 interface PdfPageProps {
-  pdfDoc: any;
+  pdfDoc: PdfDocumentProxy;
   pageNum: number;
   scale: number;
   isFitWidth: boolean;
   containerWidth: number;
+  failureLabel: string;
   pageRef: (el: HTMLDivElement | null) => void;
 }
 
-function PdfPage({ pdfDoc, pageNum, scale, isFitWidth, containerWidth, pageRef }: PdfPageProps) {
+function PdfPage({ pdfDoc, pageNum, scale, isFitWidth, containerWidth, failureLabel, pageRef }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [renderTask, setRenderTask] = useState<any>(null);
-  const [page, setPage] = useState<any>(null);
+  const renderTaskRef = useRef<PdfRenderTask | null>(null);
+  const [page, setPage] = useState<PdfPageProxy | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [renderFailed, setRenderFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
-    pdfDoc.getPage(pageNum).then((p: any) => {
-      if (active) setPage(p);
+    setRenderFailed(false);
+    void pdfDoc.getPage(pageNum).then((loadedPage) => {
+      if (active) setPage(loadedPage);
+    }).catch(() => {
+      if (active) {
+        setPage(null);
+        setRenderFailed(true);
+      }
     });
     return () => { active = false; };
   }, [pdfDoc, pageNum]);
@@ -334,9 +384,11 @@ function PdfPage({ pdfDoc, pageNum, scale, isFitWidth, containerWidth, pageRef }
 
   useEffect(() => {
     if (!page || !canvasRef.current) return;
+    let active = true;
+    setRenderFailed(false);
     
-    if (renderTask) {
-      renderTask.cancel();
+    if (renderTaskRef.current) {
+      renderTaskRef.current.cancel();
     }
     
     const viewport = page.getViewport({ scale: computedScale });
@@ -362,18 +414,18 @@ function PdfPage({ pdfDoc, pageNum, scale, isFitWidth, containerWidth, pageRef }
       viewport,
     });
     
-    setRenderTask(task);
+    renderTaskRef.current = task;
     
-    task.promise.catch((err: any) => {
-      if (err.name !== 'RenderingCancelledException') {
-        console.error(`Page ${pageNum} render error:`, err);
-      }
+    void task.promise.catch((error: unknown) => {
+      const errorName = error instanceof Error ? error.name : '';
+      if (active && errorName !== 'RenderingCancelledException') setRenderFailed(true);
     });
     
     return () => {
+      active = false;
       task.cancel();
+      if (renderTaskRef.current === task) renderTaskRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, computedScale]);
 
   return (
@@ -393,6 +445,11 @@ function PdfPage({ pdfDoc, pageNum, scale, isFitWidth, containerWidth, pageRef }
         dir="ltr"
         className="block"
       />
+      {renderFailed && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-950 text-slate-200" role="alert">
+          {failureLabel}
+        </div>
+      )}
     </div>
   );
 }

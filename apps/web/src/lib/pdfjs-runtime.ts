@@ -1,28 +1,58 @@
 const PDFJS_RUNTIME_URL = '/vendor/pdfjs/pdf.mjs';
 const PDFJS_WORKER_URL = '/vendor/pdfjs/pdf.worker.mjs';
 
-interface PdfDocumentProxy {
-  readonly numPages: number;
-  destroy(): Promise<void>;
-  getPage(pageNumber: number): Promise<unknown>;
+export interface PdfViewport {
+  readonly width: number;
+  readonly height: number;
 }
 
-interface PdfJsRuntime {
+export interface PdfRenderTask {
+  readonly promise: Promise<void>;
+  cancel(): void;
+}
+
+export interface PdfPageProxy {
+  getViewport(options: { scale: number }): PdfViewport;
+  render(options: {
+    canvasContext: CanvasRenderingContext2D;
+    viewport: PdfViewport;
+  }): PdfRenderTask;
+}
+
+export interface PdfDocumentProxy {
+  readonly numPages: number;
+  getPage(pageNumber: number): Promise<PdfPageProxy>;
+}
+
+export interface PdfDocumentLoadingTask {
+  readonly promise: Promise<PdfDocumentProxy>;
+  destroy(): Promise<void>;
+}
+
+export interface PdfJsRuntime {
   readonly GlobalWorkerOptions: { workerSrc: string };
   getDocument(options: {
-    data: Uint8Array;
+    data?: Uint8Array;
+    url?: string;
     isEvalSupported: false;
-  }): { promise: Promise<PdfDocumentProxy> };
+  }): PdfDocumentLoadingTask;
 }
 
 let runtimePromise: Promise<PdfJsRuntime> | undefined;
 
-function isPdfJsRuntime(value: unknown): value is PdfJsRuntime {
+export function isPdfJsRuntime(value: unknown): value is PdfJsRuntime {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<PdfJsRuntime>;
+  const candidate = value as {
+    readonly GlobalWorkerOptions?: unknown;
+    readonly getDocument?: unknown;
+  };
+  const workerOptions = candidate.GlobalWorkerOptions;
+  const hasWorkerOptions = workerOptions !== null
+    && (typeof workerOptions === 'object' || typeof workerOptions === 'function')
+    && 'workerSrc' in workerOptions;
+
   return typeof candidate.getDocument === 'function'
-    && typeof candidate.GlobalWorkerOptions === 'object'
-    && candidate.GlobalWorkerOptions !== null;
+    && hasWorkerOptions;
 }
 
 export function loadPdfJsRuntime(): Promise<PdfJsRuntime> {

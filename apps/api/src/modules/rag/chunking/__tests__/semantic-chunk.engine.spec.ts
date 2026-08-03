@@ -173,4 +173,33 @@ describe('SemanticChunkEngine', () => {
     expect(chunks1[0]!.chunkHash).toEqual(chunks2[0]!.chunkHash);
     expect(chunks1[0]!.chunkId).toEqual(chunks2[0]!.chunkId);
   });
+
+  it('preserves PDF page boundaries and ordered source-page metadata', () => {
+    const engine = new SemanticChunkEngine(tokenEstimator, { maxTokens: 100, minTokens: 50 });
+    const blocks: StructuralBlock[] = [
+      { type: 'document', text: '', metadata: { generatedRoot: true, pageCount: 2 } },
+      { type: 'paragraph', text: 'Page one content', metadata: { sourcePage: 1 } },
+      { type: 'paragraph', text: 'Page two content', metadata: { sourcePage: 2 } },
+    ];
+
+    const chunks = engine.chunkDocument('pdf-doc', makeDoc(blocks));
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]!.plainText).toBe('Page one content');
+    expect(chunks[0]!.structuralMetadata.sourcePages).toEqual([1]);
+    expect(chunks[1]!.plainText).toBe('Page two content');
+    expect(chunks[1]!.structuralMetadata.sourcePages).toEqual([2]);
+    expect(chunks.flatMap((chunk) => chunk.chunkContent)).not.toContainEqual(blocks[0]);
+  });
+
+  it('does not fabricate source pages for plain text blocks', () => {
+    const engine = new SemanticChunkEngine(tokenEstimator, { maxTokens: 100, minTokens: 1 });
+    const chunks = engine.chunkDocument('text-doc', makeDoc([
+      { type: 'document', text: '', metadata: { generatedRoot: true } },
+      { type: 'paragraph', text: 'Unpaginated text' },
+    ]));
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]!.structuralMetadata.sourcePages).toBeUndefined();
+  });
 });

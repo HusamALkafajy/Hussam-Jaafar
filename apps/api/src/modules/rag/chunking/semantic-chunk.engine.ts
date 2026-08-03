@@ -66,6 +66,25 @@ export class SemanticChunkEngine {
 
       const block = blocks[i];
 
+      // The generated canonical root anchors the AST, but it is not study
+      // content and must not create an empty semantic chunk.
+      if (block.type === 'document' && block.text.trim() === '') {
+        continue;
+      }
+
+      // A persisted chunk has a single page_number field. Keep PDF page
+      // boundaries authoritative instead of assigning the first page to a
+      // chunk that actually spans more than one source page.
+      const currentSourcePages = this.collectSourcePages(currentChunkContent);
+      const blockSourcePages = this.collectSourcePages([block]);
+      if (
+        currentSourcePages.length > 0
+        && blockSourcePages.length > 0
+        && !this.sameSourcePages(currentSourcePages, blockSourcePages)
+      ) {
+        flushChunk();
+      }
+
       // 1. Check if it's a heading to update hierarchy and force flush
       if (block.type.startsWith('heading_')) {
         flushChunk();
@@ -178,7 +197,12 @@ export class SemanticChunkEngine {
       const samePath = JSON.stringify(current.sectionPath) === JSON.stringify(next.sectionPath);
       const combinedTokens = current.estimatedTokens + next.estimatedTokens;
 
-      if (current.estimatedTokens < this.minTokens && samePath && combinedTokens <= this.maxTokens) {
+      const samePages = this.sameSourcePages(
+        this.collectSourcePages(current.chunkContent),
+        this.collectSourcePages(next.chunkContent),
+      );
+
+      if (current.estimatedTokens < this.minTokens && samePath && samePages && combinedTokens <= this.maxTokens) {
         // Merge next into current
         current.chunkContent.push(...next.chunkContent);
         current.blockReferences.push(...next.blockReferences);
@@ -205,6 +229,15 @@ export class SemanticChunkEngine {
       chunk.previousChunkId = i > 0 ? this.generateChunkId(chunk.documentId, i - 1) : null;
       chunk.nextChunkId = i < chunks.length - 1 ? this.generateChunkId(chunk.documentId, i + 1) : null;
       chunk.chunkId = this.generateChunkId(chunk.documentId, i);
+      const sourcePages = this.collectSourcePages(chunk.chunkContent);
+      chunk.structuralMetadata = sourcePages.length === 0
+        ? {}
+        : {
+            sourcePages,
+            ...(sourcePages.length > 1
+              ? { sourcePageRange: { start: sourcePages[0]!, end: sourcePages[sourcePages.length - 1]! } }
+              : {}),
+          };
       
       // chunkHash derived from AST subtree explicitly
       const hashPayload = {
@@ -231,6 +264,18 @@ export class SemanticChunkEngine {
       .createHash('sha256')
       .update(`${documentId}-chunk-${order}`)
       .digest('hex');
+  }
+
+  private collectSourcePages(blocks: StructuralBlock[]): number[] {
+    return Array.from(new Set(
+      blocks
+        .map((block) => block.metadata?.sourcePage)
+        .filter((page): page is number => Number.isInteger(page) && page > 0),
+    )).sort((a, b) => a - b);
+  }
+
+  private sameSourcePages(left: number[], right: number[]): boolean {
+    return left.length === right.length && left.every((page, index) => page === right[index]);
   }
 
   private createDraftChunk(

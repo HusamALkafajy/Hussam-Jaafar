@@ -1,9 +1,9 @@
 import { StructuralBlock } from '@studyai/ast';
-import { ExtractedDocument } from '../../contracts/extracted-document';
+import { ExtractedDocument, ExtractionMetadata } from '../../contracts/extracted-document';
 import { CanonicalTextSerializer } from './canonical-text.serializer';
 
 class ExtractedDocumentImpl extends ExtractedDocument {
-  constructor(fullText: string, blocks: StructuralBlock[], metadata?: Record<string, any>) {
+  constructor(fullText: string, blocks: StructuralBlock[], metadata?: ExtractionMetadata) {
     super(fullText, blocks, metadata);
   }
 }
@@ -18,7 +18,7 @@ export class ExtractedDocumentFactory {
    * @param metadata Optional extraction metadata (e.g. page counts, warnings).
    * @returns An ExtractedDocument where fullText perfectly matches the blocks.
    */
-  static fromBlocks(blocks: StructuralBlock[], metadata?: Record<string, any>): ExtractedDocument {
+  static fromBlocks(blocks: StructuralBlock[], metadata?: ExtractionMetadata): ExtractedDocument {
     // Enforce single root policy for AST Builder: prepend a single 'document' block if necessary
     let canonicalBlocks = blocks;
     if (blocks.length === 0 || blocks[0].type !== 'document') {
@@ -27,7 +27,8 @@ export class ExtractedDocumentFactory {
           type: 'document',
           text: '',
           metadata: {
-            generatedRoot: true
+            generatedRoot: true,
+            ...(metadata?.pageCount === undefined ? {} : { pageCount: metadata.pageCount }),
           }
         },
         ...blocks

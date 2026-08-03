@@ -1,5 +1,10 @@
 import { StructuralBlock } from '@studyai/ast';
 
+export interface ExtractionMetadata {
+  pageCount?: number;
+  [key: string]: unknown;
+}
+
 /**
  * The canonical extraction contract.
  * Extractors must produce this interface.
@@ -26,12 +31,12 @@ export class ExtractedDocument {
   /**
    * Extraction metadata such as warnings or page count.
    */
-  public readonly metadata?: Record<string, any>;
+  public readonly metadata?: ExtractionMetadata;
 
   /**
    * Internal constructor. Use ExtractedDocumentFactory to instantiate.
    */
-  protected constructor(fullText: string, blocks: StructuralBlock[], metadata?: Record<string, any>) {
+  protected constructor(fullText: string, blocks: StructuralBlock[], metadata?: ExtractionMetadata) {
     this.fullText = fullText;
     this.blocks = blocks;
     this.metadata = metadata;

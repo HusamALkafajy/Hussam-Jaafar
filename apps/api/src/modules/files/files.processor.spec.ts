@@ -80,7 +80,7 @@ describe('FilesProcessor', () => {
         FilesProcessor,
         {
           provide: PipelineRunner,
-          useValue: { execute: jest.fn().mockResolvedValue({ extractedDocument: { fullText: '', blocks: [] }, chunks: [] }) },
+          useValue: { execute: jest.fn().mockResolvedValue({ extractedDocument: { fullText: '', blocks: [], metadata: { pageCount: 2 } }, chunks: [] }) },
         },
         {
           provide: 'IStorageProvider',
@@ -192,6 +192,9 @@ describe('FilesProcessor', () => {
     await processor.handle(context);
     expect(pipelineRunner.execute).toHaveBeenCalled();
     expect(documentPersistenceService.publish).toHaveBeenCalled();
+    expect(documentPersistenceService.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ extractionMetadata: { pageCount: 2 } }),
+    );
   });
 
   it('should pass storageProvider downloaded Buffer to context.data instead of local path', async () => {

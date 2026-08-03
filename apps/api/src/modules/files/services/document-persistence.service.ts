@@ -7,6 +7,7 @@ import { ASTBuilder } from '@studyai/ast';
 import { DocumentRepository } from '@studyai/database';
 import { RagService } from '../../rag/rag.service';
 import { LostProcessingOwnershipError } from '../utils/domain.exceptions';
+import { ExtractionMetadata } from '../contracts/extracted-document';
 
 export interface PublicationPayload {
   token: WorkerExecutionToken;
@@ -14,6 +15,7 @@ export interface PublicationPayload {
   structuralBlocks: StructuralBlock[];
   generatedChunks: any[];
   extractedText?: string;
+  extractionMetadata?: ExtractionMetadata;
 }
 
 @Injectable()
@@ -26,7 +28,12 @@ export class DocumentPersistenceService {
   ) {}
 
   async publish(payload: PublicationPayload): Promise<void> {
-    const { token, fileId, structuralBlocks, generatedChunks, extractedText } = payload;
+    const { token, fileId, structuralBlocks, generatedChunks, extractedText, extractionMetadata } = payload;
+    const pageCount = extractionMetadata?.pageCount;
+
+    if (pageCount !== undefined && (!Number.isInteger(pageCount) || pageCount < 1)) {
+      throw new Error('Published page count must be a positive integer.');
+    }
 
     if (token.fileId !== fileId) {
       throw new Error(`Token fileId mismatch. Expected ${fileId}, got ${token.fileId}`);
@@ -151,7 +158,19 @@ export class DocumentPersistenceService {
         .set({
           processingStatus: 'completed',
           processedAt: new Date(),
-          ...(extractedText ? { extractedText } : {})
+          ...(extractedText ? { extractedText } : {}),
+          ...(pageCount === undefined
+            ? {}
+            : {
+                pageCount,
+                metadata: {
+                  ...(lockedFile.metadata && typeof lockedFile.metadata === 'object'
+                    ? lockedFile.metadata
+                    : {}),
+                  ...extractionMetadata,
+                  pageCount,
+                },
+              }),
         })
         .where(eq(files.id, fileId));
 

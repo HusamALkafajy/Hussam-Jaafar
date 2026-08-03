@@ -11,7 +11,11 @@ export interface SemanticChunk {
   blockReferences: number[];
   plainText: string;
   chunkContent: StructuralBlock[];
-  structuralMetadata: Record<string, any>;
+  structuralMetadata: {
+    sourcePages?: number[];
+    sourcePageRange?: { start: number; end: number };
+    [key: string]: unknown;
+  };
   estimatedTokens: number;
   previousChunkId: string | null;
   nextChunkId: string | null;

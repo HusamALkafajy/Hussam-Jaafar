@@ -1,12 +1,30 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentPersistenceService } from '../document-persistence.service';
 import { RagService } from '../../../rag/rag.service';
-import { db, files, fileProcessingAttempts, documentVersions, processingSessions, processingCheckpoints, documentChunks, subjects } from '@studyai/database';
-import { eq, desc, and } from 'drizzle-orm';
+import {
+  client,
+  db,
+  type DatabaseExecutor,
+  documentChunks,
+  documentNodes,
+  documentVersions,
+  fileProcessingAttempts,
+  files,
+  users,
+} from '@studyai/database';
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { LostProcessingOwnershipError } from '../../utils/domain.exceptions';
 
 describe('DocumentPersistenceService (PostgreSQL Integration)', () => {
+  interface TestChunk {
+    fileId: string;
+    content: string;
+    chunkIndex: number;
+    pageNumber: number;
+    embedding: number[];
+  }
+
   let service: DocumentPersistenceService;
   let ragService: RagService;
 
@@ -17,17 +35,21 @@ describe('DocumentPersistenceService (PostgreSQL Integration)', () => {
         {
           provide: RagService,
           useValue: {
-            persistChunks: jest.fn().mockImplementation(async (versionId, chunks, tx) => {
+            persistChunks: jest.fn().mockImplementation(async (
+              versionId: string,
+              chunks: TestChunk[],
+              tx: DatabaseExecutor,
+            ) => {
               if (chunks && chunks.length > 0) {
-                await tx.insert(documentChunks).values(chunks.map((c: any) => ({
-                  fileId: c.fileId,
+                await tx.insert(documentChunks).values(chunks.map((chunk) => ({
+                  fileId: chunk.fileId,
                   sessionId: 'test-session',
                   checkpointId: 'test-checkpoint',
                   versionId: versionId,
-                  content: c.content,
-                  embedding: c.embedding,
-                  chunkIndex: c.chunkIndex,
-                  pageNumber: c.pageNumber
+                  content: chunk.content,
+                  embedding: chunk.embedding,
+                  chunkIndex: chunk.chunkIndex,
+                  pageNumber: chunk.pageNumber,
                 })));
               }
             }),
@@ -41,14 +63,12 @@ describe('DocumentPersistenceService (PostgreSQL Integration)', () => {
   });
 
   afterAll(async () => {
-    // Attempt to close any lingering pool connections if possible, though in test env `db` might not expose close.
-    // Drizzle-orm postgres-js connection requires closing the query client.
-    // For now we'll just let the runner handle it or add a dummy disconnect if exposed.
+    await client.end();
   });
 
   const setupFileAndAttempt = async (generation = 1, fileId = randomUUID(), attemptId = randomUUID()) => {
     const userId = randomUUID();
-    await db.insert(require('@studyai/database').users).values({
+    await db.insert(users).values({
       id: userId,
       email: `${userId}@example.com`,
       firstName: 'Test',
@@ -85,8 +105,12 @@ describe('DocumentPersistenceService (PostgreSQL Integration)', () => {
     await service.publish({
       token: { attemptId, fileId, generation },
       fileId,
-      structuralBlocks: [{ type: 'paragraph', text: 'Hello' }],
+      structuralBlocks: [
+        { type: 'document', text: '', metadata: { generatedRoot: true, pageCount: 2 } },
+        { type: 'paragraph', text: 'Hello', metadata: { sourcePage: 1 } },
+      ],
       generatedChunks: [{ fileId, content: 'Hello', chunkIndex: 0, pageNumber: 1, embedding: new Array(1536).fill(0.1) }],
+      extractionMetadata: { pageCount: 2 },
     });
 
     const versions = await db.select().from(documentVersions).where(eq(documentVersions.fileId, fileId));
@@ -95,6 +119,14 @@ describe('DocumentPersistenceService (PostgreSQL Integration)', () => {
 
     const f = await db.query.files.findFirst({ where: eq(files.id, fileId) });
     expect(f?.processingStatus).toBe('completed');
+    expect(f?.pageCount).toBe(2);
+    expect(f?.metadata).toMatchObject({ pageCount: 2 });
+
+    const nodes = await db.select().from(documentNodes).where(eq(documentNodes.versionId, versions[0].id));
+    expect(nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeType: 'document', metadata: expect.objectContaining({ pageCount: 2 }) }),
+      expect.objectContaining({ nodeType: 'paragraph', metadata: expect.objectContaining({ sourcePage: 1 }) }),
+    ]));
   });
 
   it('2. second independent attempt creates V2', async () => {
@@ -221,7 +253,7 @@ describe('DocumentPersistenceService (PostgreSQL Integration)', () => {
     await expect(service.publish({
       token: { attemptId, fileId, generation },
       fileId,
-      structuralBlocks: [] as any, // Invalid blocks, AST build should fail
+      structuralBlocks: [], // Invalid blocks, AST build should fail
       generatedChunks: [],
     })).rejects.toThrow();
 

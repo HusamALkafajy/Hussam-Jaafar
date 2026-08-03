@@ -188,6 +188,6 @@ export class NativePdfExtractor implements DocumentExtractor {
       throw new EmptyDocumentError('PDF text extraction yielded no usable text.');
     }
 
-    return ExtractedDocumentFactory.fromBlocks(blocks);
+    return ExtractedDocumentFactory.fromBlocks(blocks, { pageCount: numPages });
   }
 }
