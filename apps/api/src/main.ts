@@ -13,6 +13,7 @@ import { requestContextMiddleware } from './common/request-context';
 import { StructuredLogger } from './common/logging/structured-logger';
 import { reportBootstrapFailure } from './common/bootstrap/bootstrap-failure';
 import { createCsrfProtectionMiddleware } from './common/middleware/csrf-protection.middleware';
+import { resolveCorsOrigins } from './config/cors-origins';
 
 // Bootstrap runs before ConfigService is available to dependency injection.
 // eslint-disable-next-line no-restricted-syntax
@@ -35,6 +36,8 @@ export async function bootstrap() {
 
   const port = configService.get<number>('app.port') || 4000;
   const frontendUrl = configService.get<string>('app.frontendUrl') || 'http://localhost:3000';
+  const nodeEnvironment = configService.get<string>('app.nodeEnv');
+  const corsOrigins = resolveCorsOrigins(frontendUrl, nodeEnvironment);
 
   // 1. Security & Parsing Middleware
   app.use(requestContextMiddleware);
@@ -42,16 +45,12 @@ export async function bootstrap() {
   app.use(cookieParser());
 
   app.use(
-    createCsrfProtectionMiddleware([
-      frontendUrl,
-      'http://localhost:3000',
-      'http://localhost:3001',
-    ]),
+    createCsrfProtectionMiddleware(corsOrigins),
   );
 
   // 2. CORS
   app.enableCors({
-    origin: [frontendUrl, 'http://localhost:3000', 'http://localhost:3001'],
+    origin: corsOrigins,
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type, Accept, Authorization, X-CSRF-Token',

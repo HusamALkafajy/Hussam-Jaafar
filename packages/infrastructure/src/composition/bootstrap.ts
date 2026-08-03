@@ -21,7 +21,7 @@ import {
 } from '../adapters';
 import { AppConfigurationProvider } from '../config';
 import { HealthPlatform } from '../health';
-import { LocalDiskStorageProvider, ObjectStoragePlatform } from '../storage';
+import { LocalDiskStorageProvider, ObjectStoragePlatform, resolveLocalStorageRoot } from '../storage';
 import Redis from 'ioredis';
 import { RedisCacheProvider } from '../redis';
 import { TokenAccountant } from '@studyai/domain';
@@ -179,7 +179,7 @@ export class InfrastructureBootstrap {
       
       .register('IStorageProvider', {
         factory: () => {
-          const storagePath = process.env.STORAGE_PATH || './.storage';
+          const storagePath = resolveLocalStorageRoot();
           return new LocalDiskStorageProvider(storagePath);
         }
       })

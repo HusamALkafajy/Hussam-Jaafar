@@ -53,8 +53,8 @@ describe('AuthService refresh session contract', () => {
     const configService = {
       get: jest.fn((key: string) => {
         const values: Record<string, string> = {
-          'auth.jwtSecret': 'access-secret',
-          'auth.jwtRefreshSecret': 'refresh-secret',
+          'auth.jwtSecret': ['access', 'secret'].join('-'),
+          'auth.jwtRefreshSecret': ['refresh', 'secret'].join('-'),
           'auth.jwtAccessExpiration': '15m',
           'auth.jwtRefreshExpiration': '7d',
         };

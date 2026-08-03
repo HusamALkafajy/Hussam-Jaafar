@@ -3,11 +3,15 @@ declare var it: any;
 declare var expect: any;
 declare var beforeEach: any;
 declare var afterEach: any;
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { Readable } from 'stream';
-import { LocalDiskStorageProvider } from './local-disk.adapter';
+import {
+  LocalDiskStorageProvider,
+  LocalStorageOperationError,
+  resolveLocalStorageRoot,
+} from './local-disk.adapter';
 
 async function readAll(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];
@@ -28,7 +32,7 @@ describe('LocalDiskStorageProvider', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it('persists an opaque key and supports a byte range', async () => {
+  it('creates nested directories, persists an opaque key, and supports a byte range', async () => {
     await provider.upload('documents', 'user-a/original.pdf', Readable.from(Buffer.from('abcdef')));
 
     expect(await provider.exists('documents', 'user-a/original.pdf')).toBe(true);
@@ -88,5 +92,47 @@ describe('LocalDiskStorageProvider', () => {
       await expect(provider.upload(bucket, 'file.pdf', Readable.from(Buffer.from('x')))).rejects.toThrow();
       await expect(provider.download(bucket, 'file.pdf')).rejects.toThrow();
     }
+  });
+
+  it('fails safely without disclosing the configured path when storage is unavailable', async () => {
+    const unavailableRoot = join(root, 'unavailable-root');
+    await writeFile(unavailableRoot, 'not a directory');
+    const unavailableProvider = new LocalDiskStorageProvider(unavailableRoot);
+
+    let failure: unknown;
+    try {
+      await unavailableProvider.upload(
+        'documents',
+        'user-a/original.pdf',
+        Readable.from(Buffer.from('x')),
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(LocalStorageOperationError);
+    expect((failure as Error).message).toBe('Local storage write failed.');
+    expect((failure as Error).message).not.toContain(unavailableRoot);
+    expect((failure as Error).message).not.toContain('user-a/original.pdf');
+  });
+});
+
+describe('resolveLocalStorageRoot', () => {
+  it('resolves the configured storage root from the supplied working directory', () => {
+    expect(
+      resolveLocalStorageRoot(
+        { NODE_ENV: 'production', STORAGE_PATH: './durable-documents' },
+        '/srv/studyai',
+      ),
+    ).toBe(resolve('/srv/studyai', 'durable-documents'));
+  });
+
+  it('uses a local development root but fails closed in production', () => {
+    expect(resolveLocalStorageRoot({ NODE_ENV: 'development' }, '/srv/studyai')).toBe(
+      resolve('/srv/studyai', '.storage'),
+    );
+    expect(() => resolveLocalStorageRoot({ NODE_ENV: 'production' }, '/srv/studyai')).toThrow(
+      'STORAGE_PATH is required when NODE_ENV=production.',
+    );
   });
 });

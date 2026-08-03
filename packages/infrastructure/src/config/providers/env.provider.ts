@@ -1,6 +1,7 @@
 import { IConfigurationSource, ISecretProvider, IEnvironmentProvider } from '../contracts';
 import { ApplicationConfiguration, ConfigurationSchemaValidator } from '../schema';
 import { ConfigurationSnapshot } from '../snapshot';
+import { resolveLocalStorageRoot } from '../../storage/adapters/local-disk.adapter';
 
 export class EnvironmentSource implements IConfigurationSource {
   load(): Record<string, any> {
@@ -12,7 +13,7 @@ export class EnvironmentSource implements IConfigurationSource {
       storage: {
         provider: process.env.STORAGE_PROVIDER || 'local',
         bucket: process.env.STORAGE_BUCKET || 'studyai-assets',
-        basePath: process.env.STORAGE_PATH || './.storage',
+        basePath: resolveLocalStorageRoot(),
       },
       queue: {
         provider: process.env.QUEUE_PROVIDER || 'memory',

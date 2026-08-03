@@ -15,17 +15,14 @@ if (fs.existsSync(envPath)) {
   });
 }
 
-// Fallback for tests if not provided
-if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = 'postgres://studyai_test:studyai_test_password@localhost:5434/studyai_test';
-}
-
 export default async () => {
   console.log('\n--- TEST BOOTSTRAP START ---');
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
   if (!databaseUrl || !databaseUrl.includes('studyai_test')) {
-    throw new Error('CRITICAL: DATABASE_URL is not configured for test environment. Aborting to protect dev data.');
+    throw new Error('CRITICAL: TEST_DATABASE_URL or DATABASE_URL must identify the isolated studyai_test database.');
   }
+
+  process.env.DATABASE_URL = databaseUrl;
 
   const rootDir = resolve(__dirname, '../../../');
   console.log('Applying the Drizzle migration chain to the configured isolated test database.');

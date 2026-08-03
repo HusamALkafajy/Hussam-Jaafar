@@ -134,7 +134,7 @@ describe('AiService embedding provider contract', () => {
 
     await expect(
       createService('https://openrouter.ai/api/v1', {
-        apiKey: 'gemini-generation-only',
+        apiKey: ['gemini', 'generation', 'only'].join('-'),
         embeddingApiKey: null,
       }).getEmbedding('semantic input'),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);

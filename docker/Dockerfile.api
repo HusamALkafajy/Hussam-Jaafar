@@ -44,6 +44,15 @@ RUN pnpm exec turbo build --filter=@studyai/api...
 RUN --mount=type=cache,id=studyai-pnpm-store,target=/pnpm/store \
     pnpm --store-dir /pnpm/store --prefer-offline --filter @studyai/api --prod deploy /app/deploy
 
+# Workspace packages can carry Turbo task logs into pnpm's deployed tree.
+# Remove build-only metadata and package readmes, then fail the image build if
+# either Turbo metadata or an absolute developer-workspace marker remains.
+RUN find /app -type d -name .turbo -prune -exec rm -rf '{}' + \
+    && find /app -type f \( -name 'turbo-*.log' -o -name 'README*' -o -name 'readme*' -o -name '*.d.ts' -o -name '*.dll' -o -name '*.dll.node' -o -name '*.exe' \) -exec rm -f '{}' + \
+    && test -z "$(find /app -type d -name .turbo -print -quit)" \
+    && test -z "$(find /app -type f -name 'turbo-*.log' -print -quit)" \
+    && ! grep -R -I -m 1 -E 'C:\\Users\\|C:/Users/|ViberDownloads|studyai-p0-v2-clean' /app/deploy
+
 # Shared non-root runtime base.
 FROM node:22-alpine AS runtime-base
 RUN apk add --no-cache libc6-compat openssl
@@ -53,28 +62,38 @@ ENV NODE_ENV=production
 ENV APP_PORT=4000
 
 RUN addgroup --system --gid 1001 nestjs
-RUN adduser --system --uid 1001 api
+RUN adduser --system --uid 1001 --ingroup nestjs api
 
-# One-shot migration image. It intentionally includes Drizzle Kit but is never
-# used as the long-running API runtime.
-FROM runtime-base AS migrator
-COPY --from=builder --chown=api:nestjs /app/node_modules ./node_modules
-COPY --from=builder --chown=api:nestjs /app/packages/database ./packages/database
+# One-shot migration image. The full pruned build tree retains both migration
+# CLIs, while the long-running API image below remains production-only.
+FROM builder AS migrator
+RUN test -z "$(find /app -type d -name .turbo -print -quit)" \
+    && test -z "$(find /app -type f -name 'turbo-*.log' -print -quit)"
+RUN corepack disable \
+    && npm install --global pnpm@9.15.0
+RUN addgroup --system --gid 1001 nestjs \
+    && adduser --system --uid 1001 --ingroup nestjs api
 
 USER api
 
-CMD ["node", "packages/database/scripts/run-drizzle-kit.cjs", "migrate"]
+CMD ["node", "packages/database/scripts/run-production-migrations.cjs"]
 
 # Long-running API image with the production-only deployed API tree.
 FROM runtime-base AS runner
 COPY --from=builder --chown=api:nestjs /app/deploy ./apps/api
 
-# Ensure upload directory exists and is owned by the app user
-RUN mkdir -p /app/apps/api/uploads && chown -R api:nestjs /app/apps/api/uploads
+ENV STORAGE_PATH=/app/apps/api/uploads
+
+# The named document volume is mounted at this exact owned directory. Docker
+# preserves its initial ownership when populating a new named volume.
+RUN mkdir -p ${STORAGE_PATH} && chown -R api:nestjs ${STORAGE_PATH}
 
 USER api
 
 EXPOSE 4000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=12 \
+  CMD wget -qO- http://127.0.0.1:4000/api/health >/dev/null || exit 1
 
 # Start the NestJS production build. The embedded WorkerRuntime starts during
 # application bootstrap and stays in this same process.

@@ -39,6 +39,14 @@ COPY turbo.json turbo.json
 # Build NestJS API & web app to ensure shared packages are built
 RUN pnpm run build --filter=@studyai/web...
 
+# Standalone packaging must not retain Turbo task output or developer paths.
+RUN find /app -type d -name .turbo -prune -exec rm -rf '{}' + \
+    && find /app -type f \( -name 'turbo-*.log' -o -name 'README*' -o -name 'readme*' -o -name '*.d.ts' -o -name '*.dll' -o -name '*.dll.node' -o -name '*.exe' \) -exec rm -f '{}' + \
+    && find /app -type f -path '*/next/dist/next-devtools/server/launch-editor.js' -exec sed -i '/myusername.*Downloads/d' '{}' + \
+    && test -z "$(find /app -type d -name .turbo -print -quit)" \
+    && test -z "$(find /app -type f -name 'turbo-*.log' -print -quit)" \
+    && ! grep -R -I -m 1 -E 'C:\\Users\\|C:/Users/|ViberDownloads|studyai-p0-v2-clean' /app/apps/web/.next/standalone /app/apps/web/.next/static /app/apps/web/public
+
 # Stage 4: Production runner
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -48,7 +56,7 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN adduser --system --uid 1001 --ingroup nodejs nextjs
 
 # Copy Next.js standalone build output files
 COPY --from=builder /app/apps/web/public ./apps/web/public
@@ -58,6 +66,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/
 USER nextjs
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=12 \
+  CMD wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1
 
 # Start the Next.js production server using standalone output launcher
 CMD ["node", "apps/web/server.js"]

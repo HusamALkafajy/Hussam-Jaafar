@@ -1,8 +1,39 @@
 import { IStorageProvider } from '../contracts';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
 import { mkdir, stat, unlink } from 'fs/promises';
+
+type StorageEnvironment = Readonly<{
+  NODE_ENV?: string;
+  STORAGE_PATH?: string;
+}>;
+
+export class LocalStorageOperationError extends Error {
+  readonly code = 'LOCAL_STORAGE_OPERATION_FAILED';
+
+  constructor(operation: 'read' | 'write' | 'delete' | 'inspect') {
+    super(`Local storage ${operation} failed.`);
+    this.name = 'LocalStorageOperationError';
+  }
+}
+
+export function resolveLocalStorageRoot(
+  environment: StorageEnvironment = process.env,
+  workingDirectory: string = process.cwd(),
+): string {
+  const configuredPath = environment.STORAGE_PATH?.trim();
+
+  if (!configuredPath) {
+    if (environment.NODE_ENV === 'production') {
+      throw new Error('STORAGE_PATH is required when NODE_ENV=production.');
+    }
+
+    return path.resolve(workingDirectory, '.storage');
+  }
+
+  return path.resolve(workingDirectory, configuredPath);
+}
 
 export class LocalDiskStorageProvider implements IStorageProvider {
   private readonly resolvedBasePath: string;
@@ -33,24 +64,33 @@ export class LocalDiskStorageProvider implements IStorageProvider {
 
   async upload(bucket: string, key: string, stream: Readable, options?: { contentType?: string, contentLength?: number }): Promise<void> {
     const filePath = this.getFilePath(bucket, key);
-    await mkdir(path.dirname(filePath), { recursive: true });
-    
-    const writeStream = fs.createWriteStream(filePath);
-    return new Promise((resolve, reject) => {
-      stream.pipe(writeStream)
-        .on('finish', resolve)
-        .on('error', reject);
-      stream.on('error', reject);
-    });
+    try {
+      await mkdir(path.dirname(filePath), { recursive: true });
+
+      const writeStream = fs.createWriteStream(filePath);
+      await new Promise<void>((resolve, reject) => {
+        stream.once('error', reject);
+        writeStream.once('finish', resolve);
+        writeStream.once('error', reject);
+        stream.pipe(writeStream);
+      });
+    } catch {
+      throw new LocalStorageOperationError('write');
+    }
   }
 
   async download(bucket: string, key: string, range?: { start: number; end: number }): Promise<Readable> {
     const filePath = this.getFilePath(bucket, key);
     
-    if (range) {
-      return fs.createReadStream(filePath, { start: range.start, end: range.end });
-    }
-    return fs.createReadStream(filePath);
+    const source = range
+      ? fs.createReadStream(filePath, { start: range.start, end: range.end })
+      : fs.createReadStream(filePath);
+    const output = new PassThrough();
+
+    source.once('error', () => output.destroy(new LocalStorageOperationError('read')));
+    source.pipe(output);
+
+    return output;
   }
 
   async delete(bucket: string, key: string): Promise<void> {
@@ -58,7 +98,7 @@ export class LocalDiskStorageProvider implements IStorageProvider {
     try {
       await unlink(filePath);
     } catch (error: any) {
-      if (error.code !== 'ENOENT') throw error;
+      if (error.code !== 'ENOENT') throw new LocalStorageOperationError('delete');
     }
   }
 
@@ -67,8 +107,9 @@ export class LocalDiskStorageProvider implements IStorageProvider {
     try {
       await stat(filePath);
       return true;
-    } catch {
-      return false;
+    } catch (error: any) {
+      if (error.code === 'ENOENT') return false;
+      throw new LocalStorageOperationError('inspect');
     }
   }
 
@@ -77,8 +118,9 @@ export class LocalDiskStorageProvider implements IStorageProvider {
     try {
       const stats = await stat(filePath);
       return stats.size;
-    } catch {
-      return 0;
+    } catch (error: any) {
+      if (error.code === 'ENOENT') return 0;
+      throw new LocalStorageOperationError('inspect');
     }
   }
 }

@@ -6,12 +6,24 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
   private readonly logger = new Logger(AppleStrategy.name);
+  private readonly oauthConfigured: boolean;
 
   constructor(private readonly configService: ConfigService) {
     super();
+    this.oauthConfigured = Boolean(
+      configService.get<string>('auth.appleClientId')
+      && configService.get<string>('auth.appleTeamId')
+      && configService.get<string>('auth.appleKeyId')
+      && configService.get<string>('auth.applePrivateKey'),
+    );
   }
 
   authenticate(this: any, req: any, options?: any) {
+    if (!this.oauthConfigured) {
+      this.fail({ message: 'Apple OAuth is not configured.' }, 503);
+      return;
+    }
+
     const code = req.query?.code || req.body?.code;
 
     if (code) {

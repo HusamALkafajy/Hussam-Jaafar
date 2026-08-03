@@ -1,5 +1,13 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsNumber, IsString, IsOptional, validateSync, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUrl,
+  MinLength,
+  validateSync,
+} from 'class-validator';
 import { StructuredLogger } from '../common/logging/structured-logger';
 
 enum Environment {
@@ -17,6 +25,10 @@ class EnvironmentVariables {
   @IsOptional()
   PORT: number = 4000;
 
+  @IsNumber()
+  @IsOptional()
+  APP_PORT?: number;
+
   @IsString()
   @MinLength(32, { message: 'JWT_SECRET must be at least 32 characters long' })
   JWT_SECRET!: string;
@@ -32,6 +44,14 @@ class EnvironmentVariables {
   @IsOptional()
   REDIS_URL?: string;
 
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'] })
+  @IsOptional()
+  FRONTEND_URL?: string;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_PATH?: string;
+
   @IsString()
   @IsOptional()
   GOOGLE_CLIENT_ID?: string;
@@ -42,12 +62,28 @@ class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  APPLE_CLIENT_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  APPLE_TEAM_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  APPLE_KEY_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  APPLE_PRIVATE_KEY?: string;
+
+  @IsString()
+  @IsOptional()
   STRIPE_SECRET_KEY?: string;
 
   @IsString()
   @IsOptional()
   GEMINI_API_KEY?: string;
-  
+
   @IsString()
   @IsOptional()
   OPENAI_API_KEY?: string;
@@ -61,23 +97,49 @@ export function validate(config: Record<string, unknown>) {
   const errors = validateSync(validatedConfig, { skipMissingProperties: false });
 
   if (errors.length > 0) {
-    const errorMessages = errors.map((err) => {
-      return Object.values(err.constraints || {}).join(', ');
-    });
-    
-    // Fail fast on mandatory errors
-    throw new Error(`\n❌ Configuration Validation Failed:\n- ${errorMessages.join('\n- ')}\n\nPlease check your .env file.`);
+    const errorMessages = errors.map((error) =>
+      Object.values(error.constraints || {}).join(', '),
+    );
+
+    throw new Error(
+      `Configuration validation failed:\n- ${errorMessages.join('\n- ')}\n\nPlease check your environment.`,
+    );
   }
 
-  // Handle optional/deployment-mode-specific warnings
+  const deploymentErrors: string[] = [];
   const warnings: string[] = [];
-  
-  if (!validatedConfig.GOOGLE_CLIENT_ID || !validatedConfig.GOOGLE_CLIENT_SECRET) {
-    if (validatedConfig.NODE_ENV === Environment.Production) {
-      throw new Error(`\n❌ Configuration Validation Failed:\n- Google OAuth credentials (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET) are mandatory in production.\n\nPlease check your .env file.`);
-    } else {
-      warnings.push('Google OAuth credentials are missing. Google SSO will not work.');
-    }
+
+  if (validatedConfig.NODE_ENV === Environment.Production) {
+    if (!validatedConfig.REDIS_URL) deploymentErrors.push('REDIS_URL is required in production.');
+    if (!validatedConfig.FRONTEND_URL) deploymentErrors.push('FRONTEND_URL is required in production.');
+    if (!validatedConfig.STORAGE_PATH) deploymentErrors.push('STORAGE_PATH is required in production.');
+  }
+
+  const googleValues = [validatedConfig.GOOGLE_CLIENT_ID, validatedConfig.GOOGLE_CLIENT_SECRET];
+  const configuredGoogleValues = googleValues.filter(Boolean).length;
+  if (configuredGoogleValues > 0 && configuredGoogleValues < googleValues.length) {
+    deploymentErrors.push('Google OAuth requires both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
+  } else if (configuredGoogleValues === 0) {
+    warnings.push('Google OAuth is disabled because its optional credentials are missing.');
+  }
+
+  const appleValues = [
+    validatedConfig.APPLE_CLIENT_ID,
+    validatedConfig.APPLE_TEAM_ID,
+    validatedConfig.APPLE_KEY_ID,
+    validatedConfig.APPLE_PRIVATE_KEY,
+  ];
+  const configuredAppleValues = appleValues.filter(Boolean).length;
+  if (configuredAppleValues > 0 && configuredAppleValues < appleValues.length) {
+    deploymentErrors.push('Apple OAuth requires its complete credential set when enabled.');
+  } else if (configuredAppleValues === 0) {
+    warnings.push('Apple OAuth is disabled because its optional credentials are missing.');
+  }
+
+  if (deploymentErrors.length > 0) {
+    throw new Error(
+      `Configuration validation failed:\n- ${deploymentErrors.join('\n- ')}\n\nPlease check your environment.`,
+    );
   }
 
   if (!validatedConfig.STRIPE_SECRET_KEY) {
@@ -85,7 +147,9 @@ export function validate(config: Record<string, unknown>) {
   }
 
   if (!validatedConfig.GEMINI_API_KEY && !validatedConfig.OPENAI_API_KEY) {
-    warnings.push('AI Provider API keys (GEMINI_API_KEY or OPENAI_API_KEY) are missing. Core AI generation features will fail.');
+    warnings.push(
+      'AI Provider API keys (GEMINI_API_KEY or OPENAI_API_KEY) are missing. Core AI generation features will fail.',
+    );
   }
 
   if (warnings.length > 0) {
