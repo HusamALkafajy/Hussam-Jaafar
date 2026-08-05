@@ -334,6 +334,9 @@ importers:
         specifier: ^3.22.4
         version: 3.25.76
     devDependencies:
+      '@next/swc-linux-x64-musl':
+        specifier: 15.5.19
+        version: 15.5.19
       '@tailwindcss/postcss':
         specifier: ^4.3.1
         version: 4.3.1
@@ -9670,8 +9673,7 @@ snapshots:
   '@next/swc-linux-x64-gnu@15.5.19':
     optional: true
 
-  '@next/swc-linux-x64-musl@15.5.19':
-    optional: true
+  '@next/swc-linux-x64-musl@15.5.19': {}
 
   '@next/swc-win32-arm64-msvc@15.5.19':
     optional: true
