@@ -7,7 +7,7 @@ type Logger = { log: (message: string) => void };
 const {
   runProductionMigrations,
 }: {
-  runProductionMigrations: (dependencies: { run: Runner; logger: Logger }) => void;
+  runProductionMigrations: (dependencies: { run: Runner; logger: Logger; environment?: Record<string, string | undefined> }) => void;
 } = require('../../scripts/run-production-migrations.cjs');
 
 describe('production migration runner', () => {
@@ -43,22 +43,105 @@ describe('production migration runner', () => {
 
   it('logs fixed step labels without rendering connection configuration', () => {
     const log = vi.fn();
-    const previousUrl = process.env.DATABASE_URL;
-    process.env.DATABASE_URL = [
-      'postgresql://',
-      'credential',
-      '-value',
-      '@example.test/database',
-    ].join('');
+    const environment = {
+      DATABASE_URL: [
+        'postgresql://',
+        'credential',
+        '-value',
+        '@example.test/database',
+      ].join(''),
+    };
 
-    try {
-      runProductionMigrations({ run: () => ({ status: 0 }), logger: { log } });
-    } finally {
-      process.env.DATABASE_URL = previousUrl;
-    }
+    runProductionMigrations({ run: () => ({ status: 0 }), logger: { log }, environment });
 
     const output = log.mock.calls.flat().join('\n');
     expect(output).not.toContain('credential-value');
     expect(output).not.toContain('postgresql://');
+  });
+
+  describe('URL normalization', () => {
+    it('leaves URL without schema equivalent for Drizzle', () => {
+      const calls: Array<{ env: Record<string, string | undefined> }> = [];
+      const run: Runner = (command, args, options) => {
+        calls.push({ env: options.env as Record<string, string | undefined> });
+        return { status: 0 };
+      };
+
+      runProductionMigrations({
+        run,
+        logger: { log: vi.fn() },
+        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db' },
+      });
+
+      expect(calls[1].env.DRIZZLE_DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db');
+    });
+
+    it('removes schema=public for Drizzle', () => {
+      const calls: Array<{ env: Record<string, string | undefined> }> = [];
+      const run: Runner = (command, args, options) => {
+        calls.push({ env: options.env as Record<string, string | undefined> });
+        return { status: 0 };
+      };
+
+      runProductionMigrations({
+        run,
+        logger: { log: vi.fn() },
+        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=public' },
+      });
+
+      expect(calls[1].env.DRIZZLE_DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db');
+    });
+
+    it('preserves sslmode and other supported query parameters', () => {
+      const calls: Array<{ env: Record<string, string | undefined> }> = [];
+      const run: Runner = (command, args, options) => {
+        calls.push({ env: options.env as Record<string, string | undefined> });
+        return { status: 0 };
+      };
+
+      runProductionMigrations({
+        run,
+        logger: { log: vi.fn() },
+        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=public&sslmode=require&pool_timeout=10' },
+      });
+
+      expect(calls[1].env.DRIZZLE_DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db?sslmode=require&pool_timeout=10');
+    });
+
+    it('leaves DATABASE_URL unchanged for Prisma', () => {
+      const calls: Array<{ env: Record<string, string | undefined> }> = [];
+      const run: Runner = (command, args, options) => {
+        calls.push({ env: options.env as Record<string, string | undefined> });
+        return { status: 0 };
+      };
+
+      runProductionMigrations({
+        run,
+        logger: { log: vi.fn() },
+        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=public' },
+      });
+
+      expect(calls[0].env.DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db?schema=public');
+    });
+
+    it('rejects non-public schema', () => {
+      expect(() =>
+        runProductionMigrations({
+          run: () => ({ status: 0 }),
+          logger: { log: vi.fn() },
+          environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=custom' },
+        }),
+      ).toThrow('Non-public schema requested but not supported by postgres.js configuration.');
+    });
+
+    it('rejects malformed URL safely without logging credentials', () => {
+      expect(() =>
+        runProductionMigrations({
+          run: () => ({ status: 0 }),
+          logger: { log: vi.fn() },
+          environment: { DATABASE_URL: 'not-a-valid-url://secret-user:secret-password@host' },
+        }),
+      ).toThrow('Malformed database URL provided.');
+    });
   });
 });
