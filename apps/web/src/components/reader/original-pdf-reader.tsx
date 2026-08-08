@@ -254,8 +254,8 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={dir === 'rtl' ? handleNextPage : handlePrevPage} 
-            disabled={dir === 'rtl' ? currentPage >= numPages : currentPage <= 1}
+            onClick={handlePrevPage}
+            disabled={currentPage <= 1}
             aria-label={labels.previous}
             title={labels.previous}
           >
@@ -269,8 +269,8 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={dir === 'rtl' ? handlePrevPage : handleNextPage} 
-            disabled={dir === 'rtl' ? currentPage <= 1 : currentPage >= numPages}
+            onClick={handleNextPage}
+            disabled={currentPage >= numPages}
             aria-label={labels.next}
             title={labels.next}
           >

@@ -81,6 +81,13 @@ const defaultLabels = {
   page: 'Page',
 };
 
+const rtlLabels = {
+  ...defaultLabels,
+  previous: 'الصفحة السابقة',
+  next: 'الصفحة التالية',
+  page: 'الصفحة',
+};
+
 const mockedFetch = vi.mocked(authenticatedFetch);
 const mockedLoadRuntime = vi.mocked(loadPdfJsRuntime);
 
@@ -199,8 +206,10 @@ describe('OriginalPdfReader', () => {
     const previous = screen.getByRole('button', { name: 'Previous Page' });
     const next = screen.getByRole('button', { name: 'Next Page' });
     expect((previous as HTMLButtonElement).disabled).toBe(true);
+    expect((next as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(next);
     expect(screen.getByText('Page 2 / 2')).toBeTruthy();
+    expect((previous as HTMLButtonElement).disabled).toBe(false);
     expect((next as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(previous);
     expect(screen.getByText('Page 1 / 2')).toBeTruthy();
@@ -211,6 +220,33 @@ describe('OriginalPdfReader', () => {
     expect(screen.getByText('100%')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Fit Width' }));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps Arabic Previous and Next controls bound to logical document order', async () => {
+    vi.mocked(LocaleHook.useLocale).mockReturnValue({
+      dir: 'rtl',
+      locale: 'ar',
+      setLocale: vi.fn(),
+      t: (key: string) => key,
+    });
+
+    render(<OriginalPdfReader fileId="file-rtl-navigation" label="المستند الأصلي" labels={rtlLabels} />);
+    await waitFor(() => expect(screen.getByText('الصفحة 1 / 2')).toBeTruthy());
+
+    const previous = screen.getByRole('button', { name: 'الصفحة السابقة' });
+    const next = screen.getByRole('button', { name: 'الصفحة التالية' });
+    expect((previous as HTMLButtonElement).disabled).toBe(true);
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(next);
+    expect(screen.getByText('الصفحة 2 / 2')).toBeTruthy();
+    expect((previous as HTMLButtonElement).disabled).toBe(false);
+    expect((next as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(previous);
+    expect(screen.getByText('الصفحة 1 / 2')).toBeTruthy();
+    expect((previous as HTMLButtonElement).disabled).toBe(true);
+    expect((next as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('keeps incremental visibility state and scrolls only to bounded page targets', async () => {
