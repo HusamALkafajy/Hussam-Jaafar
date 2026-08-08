@@ -367,7 +367,7 @@ function buildComponents(headingRefs: React.MutableRefObject<Map<string, HTMLEle
         );
       }
       return (
-        <p className="text-[1.0625rem] leading-[1.85] text-slate-300 mb-5">{children}</p>
+        <p className="text-[1.0625rem] leading-[1.85] text-slate-600 dark:text-slate-300 mb-5">{children}</p>
       );
     },
 
