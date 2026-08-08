@@ -45,6 +45,14 @@ class IntersectionObserverMock implements IntersectionObserver {
   }
 }
 
+function intersectionEntry(target: Element, intersectionRatio: number): IntersectionObserverEntry {
+  return {
+    target,
+    intersectionRatio,
+    isIntersecting: intersectionRatio > 0,
+  } as IntersectionObserverEntry;
+}
+
 interface Deferred<T> {
   readonly promise: Promise<T>;
   resolve(value: T): void;
@@ -89,6 +97,7 @@ function errorResponse(status: number): Response {
 }
 
 describe('OriginalPdfReader', () => {
+  let intersectionObserver: IntersectionObserverMock | null;
   let pageOneRenderTask: PdfRenderTask;
   let pageTwoRenderTask: PdfRenderTask;
   let pageOne: PdfPageProxy;
@@ -110,7 +119,13 @@ describe('OriginalPdfReader', () => {
       t: (key: string) => key,
     });
     vi.stubGlobal('ResizeObserver', ResizeObserverMock);
-    vi.stubGlobal('IntersectionObserver', IntersectionObserverMock);
+    intersectionObserver = null;
+    vi.stubGlobal('IntersectionObserver', class extends IntersectionObserverMock {
+      constructor(callback: IntersectionObserverCallback) {
+        super(callback);
+        intersectionObserver = this;
+      }
+    });
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
       value: vi.fn(),
@@ -196,6 +211,43 @@ describe('OriginalPdfReader', () => {
     expect(screen.getByText('100%')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Fit Width' }));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps incremental visibility state and scrolls only to bounded page targets', async () => {
+    render(<OriginalPdfReader fileId="file-navigation" label="Original PDF" labels={defaultLabels} />);
+    await waitFor(() => expect(screen.getByText('Page 1 / 2')).toBeTruthy());
+
+    const pageOneElement = document.querySelector('[data-page-num="1"]');
+    const pageTwoElement = document.querySelector('[data-page-num="2"]');
+    expect(pageOneElement).toBeTruthy();
+    expect(pageTwoElement).toBeTruthy();
+    await waitFor(() => expect(intersectionObserver).toBeTruthy());
+
+    await act(async () => {
+      intersectionObserver?.notify([intersectionEntry(pageOneElement!, 1)]);
+      intersectionObserver?.notify([intersectionEntry(pageTwoElement!, 0.6)]);
+    });
+    expect(screen.getByText('Page 1 / 2')).toBeTruthy();
+
+    const pageOneScroll = vi.fn();
+    const pageTwoScroll = vi.fn();
+    Object.defineProperty(pageOneElement, 'scrollIntoView', { configurable: true, value: pageOneScroll });
+    Object.defineProperty(pageTwoElement, 'scrollIntoView', { configurable: true, value: pageTwoScroll });
+
+    const previous = screen.getByRole('button', { name: 'Previous Page' });
+    const next = screen.getByRole('button', { name: 'Next Page' });
+    fireEvent.click(previous);
+    expect(pageOneScroll).not.toHaveBeenCalled();
+
+    fireEvent.click(next);
+    expect(pageTwoScroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(screen.getByText('Page 2 / 2')).toBeTruthy();
+    fireEvent.click(next);
+    expect(pageTwoScroll).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(previous);
+    expect(pageOneScroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(screen.getByText('Page 1 / 2')).toBeTruthy();
   });
 
   it('rejects HTTP errors without invoking PDF.js and retries through the authenticated path', async () => {

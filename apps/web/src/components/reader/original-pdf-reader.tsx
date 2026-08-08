@@ -178,15 +178,22 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
 
   useEffect(() => {
     if (status !== 'success' || typeof IntersectionObserver === 'undefined') return;
-    
+
+    const visibleRatios = new Map<Element, number>();
     const observer = new IntersectionObserver((entries) => {
-      const visibleEntries = entries.filter(e => e.isIntersecting);
-      if (visibleEntries.length > 0) {
-        const best = visibleEntries.reduce((prev, current) => 
-          (prev.intersectionRatio > current.intersectionRatio) ? prev : current
-        );
-        
-        const pageNumStr = best.target.getAttribute('data-page-num');
+      entries.forEach((entry) => {
+        visibleRatios.set(entry.target, entry.isIntersecting ? entry.intersectionRatio : 0);
+      });
+
+      const mostVisiblePage = pageRefs.current.reduce<HTMLDivElement | null>((best, page) => {
+        if (!page || (visibleRatios.get(page) ?? 0) <= (best ? visibleRatios.get(best) ?? 0 : 0)) {
+          return best;
+        }
+        return page;
+      }, null);
+
+      if (mostVisiblePage) {
+        const pageNumStr = mostVisiblePage.getAttribute('data-page-num');
         if (pageNumStr) {
           setCurrentPage(parseInt(pageNumStr, 10));
         }
