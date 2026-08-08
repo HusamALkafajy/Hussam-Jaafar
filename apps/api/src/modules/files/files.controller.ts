@@ -14,7 +14,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { FilesService } from './files.service';
+import { FilesService, UnsatisfiableByteRangeException } from './files.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { FileQueryDto } from './dto/file-query.dto';
@@ -86,7 +86,20 @@ export class FilesController {
     @Headers('range') rangeHeader: string | undefined,
     @Res() response: Response,
   ) {
-    const original = await this.filesService.openOriginalFile(id, userId, rangeHeader);
+    let original;
+    try {
+      original = await this.filesService.openOriginalFile(id, userId, rangeHeader);
+    } catch (error) {
+      if (error instanceof UnsatisfiableByteRangeException) {
+        response.status(416);
+        response.setHeader('Accept-Ranges', 'bytes');
+        response.setHeader('Content-Range', `bytes */${error.completeLength}`);
+        response.setHeader('Content-Length', '0');
+        response.end();
+        return;
+      }
+      throw error;
+    }
     const { stream, fileName, mimeType, size, range } = original;
     const length = range ? range.end - range.start + 1 : size;
 

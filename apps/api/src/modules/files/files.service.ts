@@ -22,6 +22,15 @@ import { IStorageProvider } from '@studyai/infrastructure';
 import { Readable } from 'stream';
 import { randomUUID } from 'crypto';
 
+export class UnsatisfiableByteRangeException extends HttpException {
+  constructor(
+    public readonly completeLength: number,
+    message = 'Requested range is not satisfiable.',
+  ) {
+    super(message, HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+  }
+}
+
 @Injectable()
 export class FilesService {
   private readonly logger = new Logger(FilesService.name);
@@ -895,7 +904,7 @@ export class FilesService {
     if (!header) return undefined;
     const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim());
     if (!match || size <= 0) {
-      throw new HttpException('Invalid byte range.', HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+      throw new UnsatisfiableByteRangeException(size, 'Invalid byte range.');
     }
 
     const [, rawStart, rawEnd] = match;
@@ -908,7 +917,7 @@ export class FilesService {
       : rawEnd === '' ? size - 1 : Number(rawEnd);
 
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= size) {
-      throw new HttpException('Requested range is not satisfiable.', HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+      throw new UnsatisfiableByteRangeException(size);
     }
     return { start, end: Math.min(end, size - 1) };
   }
