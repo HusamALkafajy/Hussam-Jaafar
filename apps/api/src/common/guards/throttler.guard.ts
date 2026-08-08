@@ -23,7 +23,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
 
     if (token) {
       try {
-        const secret = this.configService.get<string>('auth.jwtSecret') || 'your-jwt-secret-change-in-production-min-32-chars';
+        const secret = this.configService.getOrThrow<string>('auth.jwtSecret');
         const payload = await this.jwtService.verifyAsync(token, { secret });
         if (payload && payload.role === 'ADMIN') {
           return true; // Bypass rate limiting for ADMIN

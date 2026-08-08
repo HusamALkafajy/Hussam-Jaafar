@@ -35,7 +35,10 @@ describe('JwtStrategy logging', () => {
       findById: jest.fn().mockRejectedValue(lookupError),
     } as unknown as UsersService;
     const config = {
-      get: jest.fn().mockReturnValue('x'.repeat(40)),
+      getOrThrow: jest.fn((key: string) => {
+        if (key === 'auth.jwtSecret') return 'x'.repeat(40);
+        throw new Error(`Missing required configuration: ${key}`);
+      }),
     } as unknown as ConfigService;
     const strategy = new JwtStrategy(config, usersService);
     (

@@ -48,6 +48,7 @@ import { ConfigService } from '@nestjs/config';
    */
   transports: ['polling', 'websocket'],
   namespace: '/study-groups',
+  addTrailingSlash: false,
 })
 export class StudyGroupsGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
@@ -178,8 +179,16 @@ export class StudyGroupsGateway
       throw new Error('No authentication token provided');
     }
 
+    if (authPayload && raw === authPayload) {
+      this.logger.log(`[WS] Token resolved from auth payload for socket ${client.id}`);
+    } else if (cookieToken && raw === cookieToken) {
+      this.logger.log(`[WS] Token resolved from cookie for socket ${client.id}`);
+    } else if (headerToken && raw === headerToken) {
+      this.logger.log(`[WS] Token resolved from header for socket ${client.id}`);
+    }
+
     try {
-      const secret = this.configService.get<string>('auth.jwtSecret');
+      const secret = this.configService.getOrThrow<string>('auth.jwtSecret');
       const payload = this.jwtService.verify(raw, { secret });
       if (!payload?.sub) throw new Error('JWT payload missing sub claim');
       return payload.sub as string;

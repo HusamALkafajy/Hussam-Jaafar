@@ -74,6 +74,10 @@ export const setAccessToken = (token: string | undefined): void => {
   _accessToken = token;
 };
 
+export const getAccessToken = (): string | undefined => {
+  return _accessToken;
+};
+
 /**
  * Use for authenticated binary responses such as original documents. Callers
  * receive a Response rather than JSON, while credentials and the in-memory

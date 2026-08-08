@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
-import { api } from '../../../../lib/api-client';
+import { api, getAccessToken } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Button } from '../../../../components/ui/button';
 import { Spinner } from '../../../../components/ui/spinner';
@@ -234,20 +234,6 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
   // ── WebSocket setup ───────────────────────────────────────────────────────
   useEffect(() => {
     /**
-     * Derive the backend base URL (no /api suffix) from the env variable that
-     * the rest of the app already uses.  The fallback must match APP_URL in .env
-     * (http://localhost:4000).
-     *
-     * NEXT_PUBLIC_API_URL is used by lib/api.ts as the REST base — it already
-     * points to the API server without the /api path segment.
-     */
-    const API_BASE =
-      process.env.NEXT_PUBLIC_API_URL ||
-      (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-        ? '' // same-origin in production (Nginx proxies both REST and WS)
-        : 'http://localhost:4000');
-
-    /**
      * socket.io-client accepts the namespace as a path suffix on the URL.
      * The server-side @WebSocketGateway has namespace: '/study-groups'.
      *
@@ -256,13 +242,15 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
      * forwarded during this first HTTP request.  After the handshake, socket.io
      * upgrades to WebSocket automatically.
      */
-    const socket = io(`${API_BASE}/study-groups`, {
+    const socket = io('/study-groups', {
+      auth: { token: getAccessToken() },
       withCredentials: true,                       // send cookies (access_token)
       transports: ['polling', 'websocket'],         // polling FIRST — required for cookie auth
       reconnectionAttempts: 8,
       reconnectionDelay: 1500,
       reconnectionDelayMax: 8000,
       timeout: 10000,
+      addTrailingSlash: false,
     });
 
     socketRef.current = socket;

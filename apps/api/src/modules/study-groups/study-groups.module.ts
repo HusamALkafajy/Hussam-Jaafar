@@ -11,7 +11,7 @@ import { StudyGroupsGateway } from './study-groups.gateway';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('auth.jwtSecret'),
+        secret: configService.getOrThrow<string>('auth.jwtSecret'),
         signOptions: { expiresIn: '15m' },
       }),
       inject: [ConfigService],

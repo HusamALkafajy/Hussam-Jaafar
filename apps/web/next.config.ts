@@ -48,6 +48,10 @@ const nextConfig: NextConfig = {
     const internalApiOrigin = resolveInternalApiOrigin();
     return [
       {
+        source: '/socket.io',
+        destination: `${internalApiOrigin}/socket.io`,
+      },
+      {
         source: '/api/:path*',
         destination: `${internalApiOrigin}/api/:path*`,
       },
