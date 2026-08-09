@@ -72,6 +72,9 @@ jobs:
     - name: Install Dependencies
       run: pnpm install --frozen-lockfile
 
+    - name: Generate Platform-Correct Prisma Client
+      run: pnpm --filter @studyai/infrastructure exec prisma generate
+
     - name: Generate Disposable Test Secrets
       shell: bash
       run: |
