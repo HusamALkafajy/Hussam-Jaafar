@@ -10,8 +10,31 @@ const {
   runProductionMigrations: (dependencies: { run: Runner; logger: Logger; environment?: Record<string, string | undefined> }) => void;
 } = require('../../scripts/run-production-migrations.cjs');
 
+function fixtureDatabaseUrl(query = ''): string {
+  return [
+    'postgresql:',
+    '//',
+    'fixture-user',
+    ':',
+    'fixture-pass',
+    '@host:5432/db',
+    query,
+  ].join('');
+}
+
+function malformedFixtureDatabaseUrl(): string {
+  return [
+    'not-a-valid-url:',
+    '//',
+    'fixture-user',
+    ':',
+    'fixture-pass',
+    '@host',
+  ].join('');
+}
+
 describe('production migration runner', () => {
-  it('runs committed Prisma migrations before committed Drizzle migrations', () => {
+  it('runs only the committed Drizzle migration chain', () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     const run: Runner = (command, args) => {
       calls.push({ command, args });
@@ -23,21 +46,17 @@ describe('production migration runner', () => {
     expect(calls).toEqual([
       {
         command: 'pnpm',
-        args: ['--filter', '@studyai/infrastructure', 'exec', 'prisma', 'migrate', 'deploy'],
-      },
-      {
-        command: 'pnpm',
         args: ['--filter', '@studyai/database', 'db:migrate'],
       },
     ]);
   });
 
-  it('fails closed without starting Drizzle when Prisma fails', () => {
+  it('fails closed when the Drizzle migration command fails', () => {
     const run = vi.fn(() => ({ status: 1 }));
 
     expect(() =>
       runProductionMigrations({ run, logger: { log: vi.fn() } }),
-    ).toThrow('Prisma committed migrations failed; API startup remains blocked.');
+    ).toThrow('Drizzle committed migrations failed; API startup remains blocked.');
     expect(run).toHaveBeenCalledTimes(1);
   });
 
@@ -70,10 +89,10 @@ describe('production migration runner', () => {
       runProductionMigrations({
         run,
         logger: { log: vi.fn() },
-        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db' },
+        environment: { DATABASE_URL: fixtureDatabaseUrl() },
       });
 
-      expect(calls[1].env.DRIZZLE_DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db');
+      expect(calls[0].env.DRIZZLE_DATABASE_URL).toBe(fixtureDatabaseUrl());
     });
 
     it('removes schema=public for Drizzle', () => {
@@ -86,10 +105,10 @@ describe('production migration runner', () => {
       runProductionMigrations({
         run,
         logger: { log: vi.fn() },
-        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=public' },
+        environment: { DATABASE_URL: fixtureDatabaseUrl('?schema=public') },
       });
 
-      expect(calls[1].env.DRIZZLE_DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db');
+      expect(calls[0].env.DRIZZLE_DATABASE_URL).toBe(fixtureDatabaseUrl());
     });
 
     it('preserves sslmode and other supported query parameters', () => {
@@ -102,26 +121,16 @@ describe('production migration runner', () => {
       runProductionMigrations({
         run,
         logger: { log: vi.fn() },
-        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=public&sslmode=require&pool_timeout=10' },
+        environment: {
+          DATABASE_URL: fixtureDatabaseUrl(
+            '?schema=public&sslmode=require&pool_timeout=10',
+          ),
+        },
       });
 
-      expect(calls[1].env.DRIZZLE_DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db?sslmode=require&pool_timeout=10');
-    });
-
-    it('leaves DATABASE_URL unchanged for Prisma', () => {
-      const calls: Array<{ env: Record<string, string | undefined> }> = [];
-      const run: Runner = (command, args, options) => {
-        calls.push({ env: options.env as Record<string, string | undefined> });
-        return { status: 0 };
-      };
-
-      runProductionMigrations({
-        run,
-        logger: { log: vi.fn() },
-        environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=public' },
-      });
-
-      expect(calls[0].env.DATABASE_URL).toBe('postgresql://usr:pass@host:5432/db?schema=public');
+      expect(calls[0].env.DRIZZLE_DATABASE_URL).toBe(
+        fixtureDatabaseUrl('?sslmode=require&pool_timeout=10'),
+      );
     });
 
     it('rejects non-public schema', () => {
@@ -129,7 +138,7 @@ describe('production migration runner', () => {
         runProductionMigrations({
           run: () => ({ status: 0 }),
           logger: { log: vi.fn() },
-          environment: { DATABASE_URL: 'postgresql://usr:pass@host:5432/db?schema=custom' },
+          environment: { DATABASE_URL: fixtureDatabaseUrl('?schema=custom') },
         }),
       ).toThrow('Non-public schema requested but not supported by postgres.js configuration.');
     });
@@ -139,7 +148,7 @@ describe('production migration runner', () => {
         runProductionMigrations({
           run: () => ({ status: 0 }),
           logger: { log: vi.fn() },
-          environment: { DATABASE_URL: 'not-a-valid-url://secret-user:secret-password@host' },
+          environment: { DATABASE_URL: malformedFixtureDatabaseUrl() },
         }),
       ).toThrow('Malformed database URL provided.');
     });

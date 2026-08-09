@@ -52,15 +52,14 @@ connect to or mutate an original-project database.
 | `pnpm db:migrate` | `package.json` | Turbo invokes `@studyai/database`; Drizzle migration only. |
 | `drizzle-kit generate` / `drizzle-kit migrate` | `packages/database/package.json` | Generates/applies SQL in `packages/database/src/migrations`. |
 | `prisma generate` | `packages/infrastructure/package.json`, `docker/Dockerfile.api` | Generates the Prisma runtime client; it does not migrate. |
-| `prisma migrate deploy` | `packages/infrastructure/package.json` | Package-local Prisma deployment command; not called by the root migration command or CI. |
-| `prisma db push` followed by Drizzle migration | `apps/api/test/setup.ts` | Current destructive integration-test bootstrap, not a safe deployment process. |
-| Drizzle generate, lint, typecheck, tests, build | `.github/workflows/ci-cd.yml` | CI does not validate either complete migration history against PostgreSQL. |
+| `prisma migrate deploy` / `prisma db push` | None in active scripts | Historical Prisma migration artifacts remain for provenance; Prisma schema mutation is not executable from production, CI, or test provisioning. |
+| Production migration runner | `packages/database/scripts/run-production-migrations.cjs` | Executes only the committed Drizzle migration chain. |
+| Drizzle check and migration, lint, typecheck, tests, build | `.github/workflows/ci-cd.yml` | CI validates and applies the committed Drizzle history against disposable PostgreSQL. |
 
-`turbo.json` orders Prisma `db:push` before Drizzle `db:push` for that specific
-push task, but defines no equivalent deploy-safe ordering for `db:migrate`.
-The API Dockerfile generates a Prisma client but does not apply migrations.
-No inspected production startup script supplies a complete dual-ORM migration
-sequence.
+`turbo.json` exposes only the database package's Drizzle commands. The API
+Dockerfile generates a Prisma runtime client without applying Prisma schema
+changes. Its one-shot migrator target invokes the Drizzle-only production
+runner before API startup.
 
 ### Runtime roles
 

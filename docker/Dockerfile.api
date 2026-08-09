@@ -64,8 +64,9 @@ ENV APP_PORT=4000
 RUN addgroup --system --gid 1001 nestjs
 RUN adduser --system --uid 1001 --ingroup nestjs api
 
-# One-shot migration image. The full pruned build tree retains both migration
-# CLIs, while the long-running API image below remains production-only.
+# One-shot migration image. The full pruned build tree retains Drizzle Kit for
+# the sole production DDL path, while Prisma remains client-generation/runtime
+# tooling and the long-running API image below remains production-only.
 FROM builder AS migrator
 RUN test -z "$(find /app -type d -name .turbo -print -quit)" \
     && test -z "$(find /app -type f -name 'turbo-*.log' -print -quit)"

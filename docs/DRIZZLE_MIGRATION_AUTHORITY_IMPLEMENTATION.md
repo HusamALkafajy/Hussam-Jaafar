@@ -56,6 +56,12 @@ The API test bootstrap runs only
 test must supply an isolated disposable database whose URL passes the existing
 `studyai_test` guard.
 
+The production migration runner at
+`packages/database/scripts/run-production-migrations.cjs` likewise invokes
+only that committed Drizzle chain. The Docker migrator and CI call this
+Drizzle authority; Prisma generation remains a connection-free runtime-client
+build step.
+
 ## Drizzle command boundary
 
 Use the supported package scripts:
@@ -77,7 +83,7 @@ Do not invoke `drizzle-kit` directly from the repository root with
 `out: './src/migrations'` as repository-root `src/`. Root `src/` is not
 an ignored output path and should be treated as an incorrect invocation.
 
-## Validation status
+## Validation contract
 
 Static validation covers inventory parity, all-absent/all-present adoption
 guards, mismatch rejection, WorkerRuntime compatibility, and migration
@@ -87,8 +93,7 @@ tests deliberately inspect source, migration SQL, and generated metadata as
 governance guards; they do not replace catalog-level fixture tests against an
 isolated PostgreSQL database.
 
-Live fixture validation remains intentionally pending. Before it is run, use a
-new disposable database and verify:
+For every release candidate, use a new disposable database and verify:
 
 1. fresh migration succeeds;
 2. a second migration invocation is a no-op;

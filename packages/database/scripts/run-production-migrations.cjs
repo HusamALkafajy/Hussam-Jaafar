@@ -30,11 +30,6 @@ function getDrizzleEnvironment(env) {
 
 const MIGRATION_STEPS = Object.freeze([
   Object.freeze({
-    name: 'Prisma committed migrations',
-    args: ['--filter', '@studyai/infrastructure', 'exec', 'prisma', 'migrate', 'deploy'],
-    prepareEnv: (env) => env,
-  }),
-  Object.freeze({
     name: 'Drizzle committed migrations',
     args: ['--filter', '@studyai/database', 'db:migrate'],
     prepareEnv: getDrizzleEnvironment,
