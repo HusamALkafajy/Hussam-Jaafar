@@ -1,17 +1,31 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RagService } from '../rag.service';
 import { AiService } from '../../ai/ai.service';
-import { db, users, files, documentChunks, documentVersions } from '@studyai/database';
+import { users, files, documentChunks, documentVersions, type DatabaseExecutor } from '@studyai/database';
 import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres = require('postgres');
+
+const testDatabaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+
+if (!testDatabaseUrl) {
+  throw new Error('TEST_DATABASE_URL or DATABASE_URL must be supplied through the environment.');
+}
+
+const testClient = postgres(testDatabaseUrl, { prepare: false });
+const db = drizzle(testClient, {
+  schema: { users, files, documentChunks, documentVersions },
+});
 
 describe('RagService Transaction Executor', () => {
   let ragService: RagService;
+  let module: TestingModule;
   let userId: string;
   let fileId: string;
   let versionId: string;
 
   beforeAll(async () => {
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         RagService,
         {
@@ -49,7 +63,12 @@ describe('RagService Transaction Executor', () => {
   });
 
   afterAll(async () => {
-    await db.delete(users).where(eq(users.id, userId));
+    try {
+      await db.delete(users).where(eq(users.id, userId));
+      await module.close();
+    } finally {
+      await testClient.end();
+    }
   });
 
   it('TEST 3: RAG persistence writes using tx roll back with the outer transaction', async () => {
@@ -63,7 +82,7 @@ describe('RagService Transaction Executor', () => {
 
     try {
       await db.transaction(async (tx) => {
-        await ragService.persistChunks(versionId, chunkValues, tx);
+        await ragService.persistChunks(versionId, chunkValues, tx as unknown as DatabaseExecutor);
         throw new Error('Rollback RAG');
       });
     } catch (e: any) {
@@ -86,7 +105,7 @@ describe('RagService Transaction Executor', () => {
     }];
 
     await db.transaction(async (tx) => {
-      await ragService.persistChunks(versionId, chunkValues, tx);
+      await ragService.persistChunks(versionId, chunkValues, tx as unknown as DatabaseExecutor);
     });
 
     const chunks = await db.query.documentChunks.findMany({ where: eq(documentChunks.fileId, fileId) });
