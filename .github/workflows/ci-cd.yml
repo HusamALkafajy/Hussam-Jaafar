@@ -41,7 +41,6 @@ jobs:
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: 6379
       FRONTEND_URL: http://127.0.0.1:3000
-      STORAGE_PATH: ${{ runner.temp }}/studyai-uploads
 
     steps:
     - name: Checkout Repository
@@ -76,6 +75,8 @@ jobs:
     - name: Generate Disposable Test Secrets
       shell: bash
       run: |
+        STORAGE_PATH="$RUNNER_TEMP/studyai-uploads"
+        echo "STORAGE_PATH=$STORAGE_PATH" >> "$GITHUB_ENV"
         node -e "const { randomBytes } = require('node:crypto'); for (const name of ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'STRIPE_SECRET_KEY']) process.stdout.write(name + '=' + randomBytes(48).toString('hex') + '\n')" >> "$GITHUB_ENV"
         mkdir -p "$STORAGE_PATH"
 
