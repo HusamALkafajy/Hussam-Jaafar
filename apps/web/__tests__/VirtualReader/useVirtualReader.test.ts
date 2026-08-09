@@ -31,7 +31,7 @@ describe('useVirtualReader', () => {
     });
 
     const { result } = renderHook(() => useVirtualReader({
-      documentId: 'doc-1',
+      versionId: 'version-1',
       rootNodeId: 'root-1',
       config: { windowSize: 50 }
     }));
@@ -58,7 +58,7 @@ describe('useVirtualReader', () => {
     });
 
     const { result } = renderHook(() => useVirtualReader({
-      documentId: 'doc-1',
+      versionId: 'version-1',
       rootNodeId: 'root-1',
       config: { windowSize: 50 }
     }));
@@ -133,7 +133,7 @@ describe('useVirtualReader', () => {
       .mockReturnValueOnce(promiseB); // Second request (rapid scroll)
 
     const { result } = renderHook(() => useVirtualReader({
-      documentId: 'doc-1',
+      versionId: 'version-1',
       rootNodeId: 'root-1',
       config: { windowSize: 50 }
     }));

@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../../../app.module';
-import { InfrastructureLifecycleService } from '../../infrastructure/infrastructure.module';
 import { db, users, files, documentVersions, documentNodes } from '@studyai/database';
 import { eq } from 'drizzle-orm';
 import { AuthService } from '../../auth/auth.service';
@@ -32,12 +31,8 @@ describe('DocumentReadController (Security Isolation)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
-    .overrideProvider(InfrastructureLifecycleService)
-    .useValue({
-      onModuleInit: jest.fn(),
-      onApplicationShutdown: jest.fn(),
-      onApplicationBootstrap: jest.fn(),
-    })
+    .overrideProvider('IWorkerRuntimeEngine')
+    .useValue({ start: jest.fn(), stop: jest.fn(), pause: jest.fn(), resume: jest.fn() })
     .compile();
 
     app = moduleFixture.createNestApplication();

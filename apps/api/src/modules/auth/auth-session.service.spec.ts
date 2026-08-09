@@ -60,6 +60,15 @@ describe('AuthService refresh session contract', () => {
         };
         return values[key];
       }),
+      getOrThrow: jest.fn((key: string) => {
+        const values: Record<string, string> = {
+          'auth.jwtSecret': ['access', 'secret'].join('-'),
+          'auth.jwtRefreshSecret': ['refresh', 'secret'].join('-'),
+        };
+        const value = values[key];
+        if (!value) throw new Error(`Missing test configuration: ${key}`);
+        return value;
+      }),
     };
     service = new AuthService(usersService as any, jwtService as any, configService as any);
     jest.clearAllMocks();

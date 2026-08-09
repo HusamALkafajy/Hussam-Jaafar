@@ -1,51 +1,46 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FilesProcessor } from '../src/modules/files/files.processor';
-import { ExtractorRegistry } from '../src/modules/files/services/extractor.registry';
 import { FileProcessingStateRepository } from '../src/modules/files/repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from '../src/modules/files/services/document-persistence.service';
-import { RagService } from '../src/modules/rag/rag.service';
+import { PipelineRunner } from '../src/modules/files/services/pipeline/pipeline-runner';
 import { db, files, fileProcessingAttempts, users } from '@studyai/database';
 import { v4 as uuidv4 } from 'uuid';
 import { getToken } from '@willsoto/nestjs-prometheus';
+import { Readable } from 'stream';
 
-import { DocumentExtractor, DocumentExtractionContext } from '../src/modules/files/contracts/document-extractor';
-import { ExtractedDocument } from '../src/modules/files/contracts/extracted-document';
-
-class HangingExtractor implements DocumentExtractor {
-  async extract(context: DocumentExtractionContext): Promise<ExtractedDocument> {
-    return new Promise((resolve, reject) => {
-      // Simulate a parser that hangs indefinitely unless aborted
-      if (context.signal) {
-        if (context.signal.aborted) {
-          return reject(context.signal.reason || new Error('Aborted'));
-        }
-        context.signal.addEventListener('abort', () => {
-          reject(context.signal?.reason || new Error('Aborted'));
-        });
+const hangingPipelineRunner = {
+  execute: jest.fn((_input: unknown, context: { signal: AbortSignal }) =>
+    new Promise((_resolve, reject) => {
+      if (context.signal.aborted) {
+        reject(context.signal.reason || new Error('Aborted'));
+        return;
       }
-    });
-  }
-}
+      context.signal.addEventListener('abort', () => {
+        reject(context.signal.reason || new Error('Aborted'));
+      });
+    }),
+  ),
+};
 
 describe('FilesProcessor Timeout Integration', () => {
   let processor: FilesProcessor;
-  let registry: ExtractorRegistry;
-  let stateRepository: FileProcessingStateRepository;
 
   beforeAll(async () => {
     
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         FilesProcessor,
-        ExtractorRegistry,
         FileProcessingStateRepository,
+        { provide: PipelineRunner, useValue: hangingPipelineRunner },
         {
           provide: DocumentPersistenceService,
           useValue: { publish: jest.fn() }
         },
         {
-          provide: RagService,
-          useValue: { generateChunkValues: jest.fn().mockResolvedValue([]) }
+          provide: 'IStorageProvider',
+          useValue: {
+            download: jest.fn().mockResolvedValue(Readable.from(Buffer.from('pdf fixture'))),
+          },
         },
         {
           provide: getToken('studyai_worker_jobs_total'),
@@ -71,10 +66,6 @@ describe('FilesProcessor Timeout Integration', () => {
     }).compile();
 
     processor = moduleRef.get<FilesProcessor>(FilesProcessor);
-    registry = moduleRef.get<ExtractorRegistry>(ExtractorRegistry);
-    stateRepository = moduleRef.get<FileProcessingStateRepository>(FileProcessingStateRepository);
-
-    registry.register('application/pdf', new HangingExtractor());
   });
 
 
@@ -116,11 +107,12 @@ describe('FilesProcessor Timeout Integration', () => {
     });
 
     // Mock setTimeout to instantly fire if it's our 300,000ms timeout
+    const realSetTimeout = global.setTimeout;
     const setTimeoutSpy = jest.spyOn(global, 'setTimeout').mockImplementation((cb: any, ms?: number) => {
       if (ms === 300_000) {
         return setImmediate(cb) as any;
       }
-      return setTimeout(cb, ms) as any;
+      return realSetTimeout(cb, ms) as any;
     });
 
     await processor.handle({

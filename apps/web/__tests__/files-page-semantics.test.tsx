@@ -329,6 +329,7 @@ describe('files and legacy navigation semantics', () => {
     await user.click(typeFilter);
     await user.click(await screen.findByRole('option', { name: 'Word' }));
     await waitFor(() => expect(typeFilter.textContent).toContain('Word'));
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
     await waitFor(() =>
       expect(mocks.apiGet).toHaveBeenCalledWith(
         expect.stringMatching(
@@ -337,7 +338,8 @@ describe('files and legacy navigation semantics', () => {
       ),
     );
 
-    await user.click(subjectFilter);
+    subjectFilter.focus();
+    await user.keyboard('{Enter}');
     await user.keyboard('{Escape}');
     await waitFor(() =>
       expect(subjectFilter.getAttribute('aria-expanded')).toBe('false'),

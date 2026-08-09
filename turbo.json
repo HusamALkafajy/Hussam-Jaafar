@@ -5,10 +5,19 @@
     "NODE_ENV",
     "INTERNAL_API_URL",
     "DATABASE_URL",
+    "TEST_DATABASE_URL",
+    "DRIZZLE_DATABASE_URL",
+    "REDIS_URL",
+    "REDIS_HOST",
+    "REDIS_PORT",
+    "REDIS_PASSWORD",
     "OPENROUTER_API_KEY",
     "OPENROUTER_BASE_URL",
     "JWT_SECRET",
-    "JWT_REFRESH_SECRET"
+    "JWT_REFRESH_SECRET",
+    "STRIPE_SECRET_KEY",
+    "FRONTEND_URL",
+    "STORAGE_PATH"
   ],
   "tasks": {
     "build": {

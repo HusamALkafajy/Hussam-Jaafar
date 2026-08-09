@@ -1,34 +1,24 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FilesProcessor } from '../src/modules/files/files.processor';
-import { FileProcessingDispatcherService } from '../src/modules/files/services/file-processing-dispatcher.service';
-import { ExtractorRegistry } from '../src/modules/files/services/extractor.registry';
 import { RagService } from '../src/modules/rag/rag.service';
 import { FileProcessingStateRepository } from '../src/modules/files/repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from '../src/modules/files/services/document-persistence.service';
-import { eq, and, db, files, users, fileProcessingAttempts, processingSessions, processingCheckpoints, documentChunks, documentVersions } from '@studyai/database';
+import { PipelineRunner } from '../src/modules/files/services/pipeline/pipeline-runner';
+import { RetryableRateLimitError } from '../src/modules/files/utils/domain.exceptions';
+import { EmptyDocumentError } from '../src/modules/files/contracts/document-extractor';
+import { eq, db, files, users, fileProcessingAttempts, processingSessions, processingCheckpoints, documentChunks, documentVersions } from '@studyai/database';
 import { randomUUID } from 'crypto';
-import { ConfigService } from '@nestjs/config';
-import { IQueue } from '@studyai/infrastructure';
+import { Readable } from 'stream';
 
 describe('SRE Production Readiness Validation', () => {
   let processor: FilesProcessor;
-  let dispatcher: FileProcessingDispatcherService;
-  let extractorRegistry: jest.Mocked<ExtractorRegistry>;
-  let mockExtractor: any;
+  let pipelineRunner: { execute: jest.Mock };
   let ragService: jest.Mocked<RagService>;
-  let stateRepository: FileProcessingStateRepository;
-  let queue: jest.Mocked<IQueue>;
 
   const globalUserId = randomUUID();
 
   beforeAll(async () => {
-    mockExtractor = {
-      extract: jest.fn(),
-    };
-
-    extractorRegistry = {
-      getExtractor: jest.fn().mockReturnValue(mockExtractor),
-    } as any;
+    pipelineRunner = { execute: jest.fn() };
 
     ragService = {
       generateChunkValues: jest.fn(),
@@ -37,28 +27,18 @@ describe('SRE Production Readiness Validation', () => {
       persistChunks: jest.fn().mockResolvedValue(undefined),
     } as any;
 
-    queue = {
-      enqueue: jest.fn(),
-    } as any;
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FilesProcessor,
-        FileProcessingDispatcherService,
         FileProcessingStateRepository,
         DocumentPersistenceService,
-        { provide: ExtractorRegistry, useValue: extractorRegistry },
+        { provide: PipelineRunner, useValue: pipelineRunner },
         { provide: RagService, useValue: ragService },
-        { provide: 'IQueue', useValue: queue },
         {
-          provide: ConfigService,
+          provide: 'IStorageProvider',
           useValue: {
-            get: jest.fn().mockReturnValue('true'),
+            download: jest.fn().mockResolvedValue(Readable.from(Buffer.from('pdf fixture'))),
           },
-        },
-        {
-          provide: 'studyai_worker_jobs_total',
-          useValue: { labels: () => ({ inc: jest.fn() }) },
         },
         {
           provide: 'PROM_METRIC_STUDYAI_WORKER_JOBS_TOTAL',
@@ -84,8 +64,6 @@ describe('SRE Production Readiness Validation', () => {
     }).compile();
 
     processor = module.get<FilesProcessor>(FilesProcessor);
-    dispatcher = module.get<FileProcessingDispatcherService>(FileProcessingDispatcherService);
-    stateRepository = module.get<FileProcessingStateRepository>(FileProcessingStateRepository);
 
     await db.insert(users).values({
       id: globalUserId,
@@ -99,6 +77,7 @@ describe('SRE Production Readiness Validation', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    pipelineRunner.execute.mockReset();
   });
 
   const setupFile = async () => {
@@ -137,10 +116,17 @@ describe('SRE Production Readiness Validation', () => {
     await db.insert(processingSessions).values({ id: sessionId, fileId, status: 'pending', totalChunks: 1 });
     await db.insert(processingCheckpoints).values({ id: checkpointId, sessionId, chunkIndex: 0, startPage: 1, endPage: 5, status: 'pending' });
 
-    mockExtractor.extract.mockResolvedValue({ fullText: 'small text', blocks: [{ type: 'paragraph', text: 'test text', metadata: {} }] });
-    ragService.generateChunkValues.mockResolvedValue([{
-      fileId, content: 'small text', chunkIndex: 0, pageNumber: 1, embedding: Array(1536).fill(0.1),
-    }]);
+    pipelineRunner.execute.mockResolvedValue({
+      extractedDocument: {
+        fullText: 'small text',
+        blocks: [{ type: 'paragraph', text: 'test text', metadata: { sourcePage: 1 } }],
+      },
+      chunks: [{
+        plainText: 'small text',
+        chunkOrder: 0,
+        structuralMetadata: { sourcePages: [1] },
+      }],
+    });
 
     await processor.handle({
       jobId: queueJobId,
@@ -163,16 +149,16 @@ describe('SRE Production Readiness Validation', () => {
   it('Scenario 3: Empty PDF', async () => {
     const { fileId, attemptId, queueJobId } = await setupFile();
 
-    const emptyPdfError = new Error('PDF/Image extraction returned no usable text. Failing explicitly to prevent empty publication.');
-    (emptyPdfError as any).code = 'VALIDATION_FAILED'; // Simulated ErrorClassifier classification if needed
-    mockExtractor.extract.mockRejectedValue(emptyPdfError);
+    pipelineRunner.execute.mockRejectedValue(
+      new EmptyDocumentError('PDF extraction returned no usable text.'),
+    );
 
     await processor.handle({
       jobId: queueJobId,
-      payload: { attemptId, fileId, generation: 5 } // High generation to trigger immediate failure rather than retry
+      payload: { attemptId, fileId }
     } as any);
 
-    expect(ragService.generateChunkValues).not.toHaveBeenCalled();
+    expect(ragService.persistChunks).not.toHaveBeenCalled();
 
     const f = await db.query.files.findFirst({ where: eq(files.id, fileId) });
     const a = await db.query.fileProcessingAttempts.findFirst({ where: eq(fileProcessingAttempts.id, attemptId) });
@@ -207,10 +193,9 @@ describe('SRE Production Readiness Validation', () => {
   it('Scenario 5: AI Provider Failure (Transaction Rollback)', async () => {
     const { fileId, attemptId, queueJobId } = await setupFile();
 
-    mockExtractor.extract.mockResolvedValue({ fullText: 'text', blocks: [{ type: 'paragraph', text: 'test text', metadata: {} }] });
-    const rateLimitError: any = new Error('AI Rate Limit (429)');
-    rateLimitError.status = 429;
-    ragService.generateChunkValues.mockRejectedValue(rateLimitError);
+    pipelineRunner.execute.mockRejectedValue(
+      new RetryableRateLimitError('AI provider rate limit'),
+    );
 
     await processor.handle({
       jobId: queueJobId,

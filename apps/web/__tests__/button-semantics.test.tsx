@@ -14,6 +14,8 @@ let consoleError: ReturnType<typeof vi.spyOn>;
 
 const translations: Record<string, string> = {
   'common.appName': 'StudyAI',
+  'common.arabic': 'العربية',
+  'common.english': 'English',
   'common.login': 'Log in',
   'common.logout': 'Log out',
   'common.register': 'Register',
@@ -24,6 +26,7 @@ const translations: Record<string, string> = {
   'landing.heroSubtitle': 'Study with AI',
   'landing.heroTitle': 'Learn smarter',
   'landing.institutionPlan': 'Institution',
+  'landing.contactUs': 'تواصل معنا',
   'landing.mostPopular': 'Most popular',
   'landing.priceFree': '$0',
   'landing.priceInst': 'Contact us',
@@ -35,6 +38,7 @@ const translations: Record<string, string> = {
   'landing.pricingTitle': 'Pricing',
   'landing.proPlan': 'Pro',
   'landing.startFree': 'Start free',
+  'landing.subscribeNow': 'اشترك الآن',
   'landing.studentsCount': 'Students',
   'landing.summariesCount': 'Summaries',
   'landing.viewDemo': 'View demo',

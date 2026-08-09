@@ -2,19 +2,16 @@ import { FilesProcessor } from '../src/modules/files/files.processor';
 import { db, files, fileProcessingAttempts, documentVersions, users } from '@studyai/database';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-import { ErrorClassifier } from '../src/modules/files/utils/error-classifier.util';
 import { FileProcessingStateRepository } from '../src/modules/files/repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from '../src/modules/files/services/document-persistence.service';
 import { RagService } from '../src/modules/rag/rag.service';
-import { ExtractorRegistry } from '../src/modules/files/services/extractor.registry';
+import { Readable } from 'stream';
 
 describe('FilesProcessor (Integration with PostgreSQL)', () => {
   let processor: FilesProcessor;
   let stateRepository: FileProcessingStateRepository;
   let documentPersistenceService: DocumentPersistenceService;
-  
-  let mockExtractor: { extract: jest.Mock };
-  let extractorRegistry: ExtractorRegistry;
+  let pipelineRunner: { execute: jest.Mock };
   
   let ragService: {
     generateChunkValues: jest.Mock;
@@ -27,7 +24,7 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
     // Ensure test user exists to satisfy foreign key constraints
     await db.insert(users).values({
       id: globalUserId,
-      email: 'processor-test@example.com',
+      email: `processor-${globalUserId}@example.test`,
       firstName: 'Processor',
       lastName: 'User',
       passwordHash: 'hash',
@@ -35,18 +32,6 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
   });
 
   beforeEach(() => {
-    mockExtractor = {
-      extract: jest.fn().mockResolvedValue({ 
-        fullText: 'test text', 
-        blocks: [{ type: 'paragraph', text: 'test text', metadata: {} }] 
-      }),
-    };
-
-    extractorRegistry = {
-      getExtractor: jest.fn().mockReturnValue(mockExtractor),
-      registerExtractor: jest.fn(),
-    } as any;
-
     stateRepository = new FileProcessingStateRepository();
     
     ragService = {
@@ -56,25 +41,30 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
 
     documentPersistenceService = new DocumentPersistenceService(ragService as any);
 
-    const pipelineRunner = {
-      stages: [],
-      registerStages: jest.fn(),
+    pipelineRunner = {
       execute: jest.fn().mockResolvedValue({
-        chunks: [{ text: 'extracted dummy text', metadata: { pageNumber: 1 } }],
-        metadata: { title: 'dummy' },
-        rawText: 'extracted dummy text'
-      })
-    } as any;
+        extractedDocument: {
+          fullText: 'extracted dummy text',
+          blocks: [{ type: 'paragraph', text: 'extracted dummy text', metadata: {} }],
+        },
+        chunks: [],
+      }),
+    };
+
+    const storageProvider = {
+      download: jest.fn().mockResolvedValue(Readable.from(Buffer.from('pdf fixture'))),
+    };
 
     processor = new FilesProcessor(
-      pipelineRunner,
+      pipelineRunner as any,
       stateRepository,
       documentPersistenceService,
       { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any, // workerJobsTotal
       { inc: jest.fn(), labels: jest.fn().mockReturnThis() } as any, // checkpointJobsTotal
       { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any, // ocrDuration
       { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any, // embeddingDuration
-      { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any // dbTxDuration
+      { observe: jest.fn(), startTimer: jest.fn().mockReturnValue(jest.fn()), labels: jest.fn().mockReturnThis() } as any, // dbTxDuration
+      storageProvider as any,
     );
   });
 
@@ -113,9 +103,16 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
   it('1: Successful extraction publishes document and transitions attempt to completed', async () => {
     const { fileId, attemptId, jobId } = await setupFileAndAttempt();
 
-    mockExtractor.extract.mockResolvedValue({ 
-      fullText: 'test canonical text', 
-      blocks: [{ type: 'paragraph', text: 'test canonical text', metadata: {} }] 
+    pipelineRunner.execute.mockResolvedValue({
+      extractedDocument: {
+        fullText: 'test canonical text',
+        blocks: [{ type: 'paragraph', text: 'test canonical text', metadata: {} }],
+      },
+      chunks: [{
+        plainText: 'test canonical text',
+        chunkOrder: 0,
+        structuralMetadata: { sourcePages: [1] },
+      }],
     });
     
     ragService.generateChunkValues.mockResolvedValue([{
@@ -128,8 +125,14 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
 
     await processor.handle({ jobId, payload: { attemptId, fileId } });
 
-    // Verify extraction was called with correct context
-    expect(extractorRegistry.getExtractor).toHaveBeenCalledWith('application/pdf');
+    expect(pipelineRunner.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId,
+        mimeType: 'application/pdf',
+        fileData: expect.any(Buffer),
+      }),
+      expect.objectContaining({ attemptId, fileId }),
+    );
     
     // Verify attempt completed
     const attempt = await db.query.fileProcessingAttempts.findFirst({
@@ -158,7 +161,7 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
   it('2: Extractor failure triggers typed error and terminal failure', async () => {
     const { fileId, attemptId, jobId } = await setupFileAndAttempt();
 
-    mockExtractor.extract.mockRejectedValue(new Error('Some generic error'));
+    pipelineRunner.execute.mockRejectedValue(new Error('Some generic error'));
 
     await processor.handle({ jobId, payload: { attemptId, fileId } });
 
@@ -169,15 +172,17 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
     expect(attempt?.lastError).toContain('Some generic error');
   });
 
-  it('3: Empty extraction publishes empty document but does not trigger RAG generation', async () => {
+  it('3: Extracted text with no generated chunks still publishes atomically', async () => {
     const { fileId, attemptId, jobId } = await setupFileAndAttempt();
     
-    // Empty extraction
-    mockExtractor.extract.mockResolvedValue({ 
-      fullText: 'No extractable text found in this document.', 
-      blocks: [
-        { type: 'paragraph', text: 'No extractable text found in this document.', metadata: {} }
-      ] 
+    pipelineRunner.execute.mockResolvedValue({
+      extractedDocument: {
+        fullText: 'No generated chunks for this document.',
+        blocks: [
+          { type: 'paragraph', text: 'No generated chunks for this document.', metadata: {} },
+        ],
+      },
+      chunks: [],
     });
     
     await processor.handle({ jobId, payload: { attemptId, fileId } });

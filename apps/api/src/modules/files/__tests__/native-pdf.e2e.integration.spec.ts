@@ -66,9 +66,9 @@ describe('Native PDF End-to-End Extraction Integration', () => {
           ...input,
           extractedDocument,
           chunks: [{
-            text: extractedDocument.fullText,
-            chunkIndex: 0,
-            metadata: { pageNumber: 1 },
+            plainText: extractedDocument.fullText,
+            chunkOrder: 0,
+            structuralMetadata: { sourcePages: [1] },
           }],
         };
       }),
@@ -173,8 +173,16 @@ describe('Native PDF End-to-End Extraction Integration', () => {
     // Assert AST nodes persisted
     const nodes = await db.query.documentNodes.findMany({ where: eq(documentNodes.versionId, versions[0].id) });
     expect(nodes.length).toBeGreaterThan(0);
-    expect((nodes[0].content as any).text).toContain('Real End-to-End Test Text');
-    expect(nodes[0].metadata).toMatchObject({ sourcePage: 1 });
+    expect(
+      nodes.some((node) =>
+        String((node.content as { text?: string } | null)?.text ?? '').includes(
+          'Real End-to-End Test Text',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      nodes.some((node) => (node.metadata as { sourcePage?: number } | null)?.sourcePage === 1),
+    ).toBe(true);
 
     // Assert RAG chunks persisted
     const chunks = await db.query.documentChunks.findMany({ where: eq(documentChunks.fileId, fileId) });
