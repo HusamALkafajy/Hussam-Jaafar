@@ -80,8 +80,16 @@ jobs:
       run: |
         STORAGE_PATH="$RUNNER_TEMP/studyai-uploads"
         echo "STORAGE_PATH=$STORAGE_PATH" >> "$GITHUB_ENV"
-        node -e "const { randomBytes } = require('node:crypto'); for (const name of ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'STRIPE_SECRET_KEY']) process.stdout.write(name + '=' + randomBytes(48).toString('hex') + '\n')" >> "$GITHUB_ENV"
         mkdir -p "$STORAGE_PATH"
+        TMP_JWT=$(node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))")
+        echo "::add-mask::$TMP_JWT"
+        echo "JWT_SECRET=$TMP_JWT" >> "$GITHUB_ENV"
+        TMP_REFRESH=$(node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))")
+        echo "::add-mask::$TMP_REFRESH"
+        echo "JWT_REFRESH_SECRET=$TMP_REFRESH" >> "$GITHUB_ENV"
+        TMP_STRIPE=$(node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))")
+        echo "::add-mask::$TMP_STRIPE"
+        echo "STRIPE_SECRET_KEY=$TMP_STRIPE" >> "$GITHUB_ENV"
 
     - name: Scan Tracked Content for Committed Secrets
       run: pnpm security:scan
