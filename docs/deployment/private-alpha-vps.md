@@ -13,7 +13,7 @@ Supabase project, configure DNS/TLS, provision object storage, or add CI/CD.
 | Redis / BullMQ state | Private Redis container on the VPS |
 | PostgreSQL | Owner-managed Supabase PostgreSQL |
 | Migrations | One-shot Drizzle service using a direct connection |
-| Uploaded documents | **Not ready for real data**; current source uses local disk |
+| Uploaded documents | Single-host named volume with required external backup/restore workflow |
 
 The worker starts in `InfrastructureLifecycleService.onApplicationBootstrap`.
 There is no independent worker executable, so `studyai-api` is deliberately the
@@ -29,8 +29,8 @@ only long-running application service.
   use. `FRONTEND_URL` is the current source of truth for CORS and CSRF origin
   validation.
 - Private Alpha authentication/provider credentials, stored outside Git.
-- A selected durable object-storage provider and adapter implementation before
-  accepting real user documents.
+- Encrypted external backup storage, restricted recovery-operator access, and
+  an approved backup/restore schedule for database and uploaded-file recovery.
 
 ## Secret handling
 
@@ -99,16 +99,19 @@ only with the stack stopped and only after recording the queue-recovery plan.
 ## Storage readiness boundary
 
 Current upload code writes to `/app/apps/api/uploads` and worker processing
-reads the same path. The Compose volume `studyai-upload-validation` is therefore
-only for disposable smoke validation. It is not durable object storage and must
-not be used for real Private Alpha documents.
+reads the same path. Compose persists that path in
+`studyai-upload-validation`. This is supported only as a single-host
+private-alpha contract: it requires the checksum-verified, externally stored
+backup and restore procedure in `docs/UPLOAD_BACKUP_RESTORE.md`, plus capacity
+monitoring and regular isolated recovery rehearsals. It is not highly
+available object storage.
 
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_STORAGE_BUCKET` are
 reserved in the template for the later storage-adapter decision and
 implementation. The existing deployment architecture report also discusses
-Cloudflare R2; resolve that provider choice in the storage task before adding
-credentials or accepting documents. This baseline intentionally does not
-pretend that either object-storage adapter is active.
+Cloudflare R2. This baseline intentionally does not pretend that either
+object-storage adapter is active; provider selection and migration remain
+deferred scaling/durability work.
 
 ## Rollback and deferred work
 
@@ -119,4 +122,5 @@ database schema by hand.
 
 Deferred T03 work includes VPS provisioning, TLS/reverse proxy, DNS, object
 storage adapter implementation, email setup, GitHub deployment automation,
-Vercel configuration, backup automation, and end-to-end document processing.
+Vercel configuration, off-host backup scheduling/retention automation, and
+object-storage migration.

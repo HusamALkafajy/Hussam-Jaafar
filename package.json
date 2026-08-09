@@ -16,6 +16,7 @@
     "db:migrate": "turbo db:migrate --filter=@studyai/database",
     "db:push": "turbo db:push --filter=@studyai/database",
     "db:studio": "turbo db:studio --filter=@studyai/database",
+    "ops:test-upload-recovery": "bash scripts/test-upload-recovery.sh",
     "clean": "turbo clean && rimraf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "security:scan": "node scripts/check-no-committed-secrets.mjs"

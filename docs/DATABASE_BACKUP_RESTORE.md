@@ -78,3 +78,18 @@ storage provider's secure lifecycle policy.
 Backups and generated SQL archives are ignored by Git. Never commit a dump,
 checksum containing a secret path, credential, or recovery log with sensitive
 data.
+
+## Database and uploaded-file consistency
+
+Database rows identify uploaded objects whose bytes live outside PostgreSQL.
+A usable recovery set therefore requires both this database dump and the upload
+archive described in `docs/UPLOAD_BACKUP_RESTORE.md`. Stop the API and embedded
+worker before creating either artifact, use the same non-secret recovery-set
+label for both, and keep the service stopped until both artifacts and their
+checksums are recorded. Restore PostgreSQL first, restore the matching upload
+archive second, run the Drizzle migration gate, and only then start the API and
+perform authorized health and document-download checks.
+
+The scripts do not invent an acceptable gap between the two artifacts.
+Recovery-point objective (RPO) and recovery-time objective (RTO) are
+**OWNER/OPERATIONS POLICY NOT YET DEFINED**.

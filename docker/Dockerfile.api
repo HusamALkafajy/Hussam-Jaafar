@@ -64,6 +64,15 @@ ENV APP_PORT=4000
 RUN addgroup --system --gid 1001 nestjs
 RUN adduser --system --uid 1001 --ingroup nestjs api
 
+# Offline helper for explicit upload-volume backup or restore operations. It is
+# not part of either the migrator or API runner image and has no network need.
+FROM runtime-base AS upload-ops
+RUN apk add --no-cache bash coreutils tar
+COPY --chmod=0555 scripts/backup-uploads.sh /usr/local/bin/backup-uploads
+COPY --chmod=0555 scripts/restore-uploads.sh /usr/local/bin/restore-uploads
+
+ENTRYPOINT ["/usr/local/bin/backup-uploads"]
+
 # One-shot migration image. The full pruned build tree retains Drizzle Kit for
 # the sole production DDL path, while Prisma remains client-generation/runtime
 # tooling and the long-running API image below remains production-only.
