@@ -29,19 +29,17 @@ describe('Exams Submission Concurrency (e2e)', () => {
 
   // AI mock controller
   let resolveAi: (val: any) => void = () => {};
-  let rejectAi: (err: any) => void = () => {};
-  let aiPromise: Promise<any> | null = null;
-  let aiCallCount = 0;
+  let aiStarted: Promise<void> = Promise.resolve();
+  let signalAiStarted: () => void = () => {};
 
   beforeAll(async () => {
     const mockAiService = {
       generateExamFeedback: jest.fn().mockImplementation(() => {
-        aiCallCount++;
-        aiPromise = new Promise((resolve, reject) => {
+        const pendingAi = new Promise((resolve) => {
           resolveAi = resolve;
-          rejectAi = reject;
         });
-        return aiPromise;
+        signalAiStarted();
+        return pendingAi;
       }),
       // other methods can just resolve
       generateExam: jest.fn().mockResolvedValue({}),
@@ -124,9 +122,10 @@ describe('Exams Submission Concurrency (e2e)', () => {
   };
 
   beforeEach(() => {
-    aiCallCount = 0;
     resolveAi = () => {};
-    rejectAi = () => {};
+    aiStarted = new Promise(resolve => {
+      signalAiStarted = resolve;
+    });
   });
 
   describe('Part 3 & 4: Simultaneous Submissions', () => {
@@ -148,8 +147,8 @@ describe('Exams Submission Concurrency (e2e)', () => {
         body: JSON.stringify(payload2),
       });
 
-      // Give the server time to start Phase 2 (AI call) on the winning request
-      await new Promise(r => setTimeout(r, 500));
+      // Wait until the winning request has entered Phase 2 (AI call).
+      await aiStarted;
 
       // Release AI so the winning request finishes cleanly
       resolveAi({
@@ -188,8 +187,8 @@ describe('Exams Submission Concurrency (e2e)', () => {
         });
       });
 
-      // Give the server time to hit the AI mock for the winner
-      await new Promise(r => setTimeout(r, 500));
+      // Wait until the winning request has entered Phase 2 (AI call).
+      await aiStarted;
 
       resolveAi({
         strengthAnalysis: { topics: [], description: 'OK' },
@@ -224,8 +223,8 @@ describe('Exams Submission Concurrency (e2e)', () => {
         body: JSON.stringify({ answers: [{ questionId, userAnswer: 'first-answer' }] }),
       });
 
-      // Wait a tiny bit to ensure Phase 1 committed
-      await new Promise(r => setTimeout(r, 250));
+      // The AI call begins only after Phase 1 has committed.
+      await aiStarted;
 
       // Request 2 attempts to claim and should fail
       const res2 = await fetch(`${url}/exams/${examId}/submit`, {
@@ -257,7 +256,8 @@ describe('Exams Submission Concurrency (e2e)', () => {
         body: JSON.stringify({ answers: [{ questionId, userAnswer: 'A' }] }),
       });
 
-      await new Promise(r => setTimeout(r, 250));
+      // The AI call begins only after Worker A has committed Phase 1.
+      await aiStarted;
 
       // 2. Simulate Worker B reclaiming due to stale lock
       // We manually mutate the DB to simulate B's Phase 1
