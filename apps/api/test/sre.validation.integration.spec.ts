@@ -80,6 +80,10 @@ describe('SRE Production Readiness Validation', () => {
     pipelineRunner.execute.mockReset();
   });
 
+  afterAll(async () => {
+    await db.delete(users).where(eq(users.id, globalUserId));
+  });
+
   const setupFile = async () => {
     const fileId = randomUUID();
     const attemptId = randomUUID();
@@ -174,11 +178,12 @@ describe('SRE Production Readiness Validation', () => {
 
   it('Scenario 4: Corrupted PDF (Infinite Retry Prevention)', async () => {
     const { fileId, attemptId } = await setupFile();
+    const queueJobId = `q4-${attemptId}`;
 
-    await db.update(fileProcessingAttempts).set({ status: 'queued', queueJobId: 'q4', processingAttempts: 5 }).where(eq(fileProcessingAttempts.id, attemptId));
+    await db.update(fileProcessingAttempts).set({ status: 'queued', queueJobId, processingAttempts: 5 }).where(eq(fileProcessingAttempts.id, attemptId));
 
     await processor.handle({
-      jobId: 'q4',
+      jobId: queueJobId,
       payload: { attemptId, fileId }
     } as any);
 

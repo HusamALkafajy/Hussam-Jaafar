@@ -3,7 +3,7 @@ import { FilesProcessor } from '../src/modules/files/files.processor';
 import { FileProcessingStateRepository } from '../src/modules/files/repositories/file-processing-state.repository';
 import { DocumentPersistenceService } from '../src/modules/files/services/document-persistence.service';
 import { PipelineRunner } from '../src/modules/files/services/pipeline/pipeline-runner';
-import { db, files, fileProcessingAttempts, users } from '@studyai/database';
+import { db, eq, files, fileProcessingAttempts, users } from '@studyai/database';
 import { v4 as uuidv4 } from 'uuid';
 import { getToken } from '@willsoto/nestjs-prometheus';
 import { Readable } from 'stream';
@@ -24,6 +24,7 @@ const hangingPipelineRunner = {
 
 describe('FilesProcessor Timeout Integration', () => {
   let processor: FilesProcessor;
+  let testUserId: string | undefined;
 
   beforeAll(async () => {
     
@@ -68,13 +69,20 @@ describe('FilesProcessor Timeout Integration', () => {
     processor = moduleRef.get<FilesProcessor>(FilesProcessor);
   });
 
+  afterAll(async () => {
+    if (testUserId) {
+      await db.delete(users).where(eq(users.id, testUserId));
+    }
+  });
+
 
 
   it('should enforce execution boundary and transition to failed on timeout', async () => {
     const userId = uuidv4();
+    testUserId = userId;
     const fileId = uuidv4();
     const attemptId = uuidv4();
-    const queueJobId = 'job-timeout-test';
+    const queueJobId = `job-timeout-${attemptId}`;
 
     await db.insert(users).values({
       id: userId,
