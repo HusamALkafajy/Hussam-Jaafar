@@ -195,9 +195,9 @@ describe('OriginalPdfReader', () => {
       url: 'blob:studyai-pdf-reader',
       isEvalSupported: false,
     });
-    expect(getPage).toHaveBeenCalledWith(1);
-    expect(getPage).toHaveBeenCalledWith(2);
     await waitFor(() => {
+      expect(getPage).toHaveBeenCalledWith(1);
+      expect(getPage).toHaveBeenCalledWith(2);
       expect(renderPageOne).toHaveBeenCalledTimes(1);
       expect(renderPageTwo).toHaveBeenCalledTimes(1);
     });
