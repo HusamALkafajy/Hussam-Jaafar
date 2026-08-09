@@ -22,9 +22,41 @@ describe('environment validation', () => {
     });
   });
 
+  it('accepts the staging host, port, and password Redis contract', () => {
+    expect(
+      validate({
+        ...REQUIRED_BASE,
+        NODE_ENV: 'production',
+        REDIS_HOST: 'studyai-redis',
+        REDIS_PORT: '6379',
+        REDIS_PASSWORD: ['injected', 'at', 'runtime'].join('-'),
+        FRONTEND_URL: 'https://alpha.example.test',
+        STORAGE_PATH: '/app/apps/api/uploads',
+      }),
+    ).toMatchObject({
+      REDIS_HOST: 'studyai-redis',
+      REDIS_PORT: 6379,
+    });
+  });
+
   it('fails closed when production infrastructure settings are absent', () => {
     expect(() => validate({ ...REQUIRED_BASE, NODE_ENV: 'production' })).toThrow(
-      'REDIS_URL is required in production.',
+      'Production Redis requires REDIS_URL or REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD.',
+    );
+  });
+
+  it('rejects a partial production Redis host contract', () => {
+    expect(() =>
+      validate({
+        ...REQUIRED_BASE,
+        NODE_ENV: 'production',
+        REDIS_HOST: 'studyai-redis',
+        REDIS_PORT: '6379',
+        FRONTEND_URL: 'https://alpha.example.test',
+        STORAGE_PATH: '/app/apps/api/uploads',
+      }),
+    ).toThrow(
+      'Production Redis requires REDIS_URL or REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD.',
     );
   });
 

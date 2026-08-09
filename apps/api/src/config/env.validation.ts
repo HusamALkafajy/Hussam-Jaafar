@@ -44,6 +44,18 @@ class EnvironmentVariables {
   @IsOptional()
   REDIS_URL?: string;
 
+  @IsString()
+  @IsOptional()
+  REDIS_HOST?: string;
+
+  @IsNumber()
+  @IsOptional()
+  REDIS_PORT?: number;
+
+  @IsString()
+  @IsOptional()
+  REDIS_PASSWORD?: string;
+
   @IsUrl({ require_tld: false, protocols: ['http', 'https'] })
   @IsOptional()
   FRONTEND_URL?: string;
@@ -110,7 +122,17 @@ export function validate(config: Record<string, unknown>) {
   const warnings: string[] = [];
 
   if (validatedConfig.NODE_ENV === Environment.Production) {
-    if (!validatedConfig.REDIS_URL) deploymentErrors.push('REDIS_URL is required in production.');
+    const hasRedisUrl = Boolean(validatedConfig.REDIS_URL);
+    const hasRedisHostContract = Boolean(
+      validatedConfig.REDIS_HOST &&
+        validatedConfig.REDIS_PORT &&
+        validatedConfig.REDIS_PASSWORD,
+    );
+    if (!hasRedisUrl && !hasRedisHostContract) {
+      deploymentErrors.push(
+        'Production Redis requires REDIS_URL or REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD.',
+      );
+    }
     if (!validatedConfig.FRONTEND_URL) deploymentErrors.push('FRONTEND_URL is required in production.');
     if (!validatedConfig.STORAGE_PATH) deploymentErrors.push('STORAGE_PATH is required in production.');
   }

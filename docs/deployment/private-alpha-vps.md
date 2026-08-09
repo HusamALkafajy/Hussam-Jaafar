@@ -47,6 +47,13 @@ service receives only `DRIZZLE_DATABASE_URL`; it is a direct, non-pooled
 connection and the service does not receive `DATABASE_URL`. Drizzle remains the
 sole migration authority. Do not run Prisma migration commands.
 
+For Redis, the API accepts either one explicit `REDIS_URL` or the complete
+`REDIS_HOST`, `REDIS_PORT`, and `REDIS_PASSWORD` contract. This Compose baseline
+uses the latter: the service DNS name and port are fixed in Compose, while only
+the password is injected from `.env.staging`. Production startup fails before
+bootstrap when neither contract is complete; it does not silently fall back to
+localhost.
+
 ## Build and migration sequence
 
 Run these commands from the repository root on the VPS. The API is bound only
