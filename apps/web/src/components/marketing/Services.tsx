@@ -71,7 +71,7 @@ const ServicesComponent: React.FC = () => {
     <section id="features" className="flex flex-col gap-12 scroll-mt-20">
       <div className="text-center flex flex-col gap-3">
         <h2 className="text-3xl sm:text-4xl font-bold">{t('landing.featuresTitle')}</h2>
-        <p className="text-slate-400 max-w-xl mx-auto">
+        <p className="text-muted-foreground max-w-xl mx-auto">
           {t('landing.featuresSubtitle')}
         </p>
       </div>
@@ -81,14 +81,14 @@ const ServicesComponent: React.FC = () => {
           const Icon = service.icon;
           return (
             <Link key={index} href={service.href} className="group block h-full">
-              <Card className={`flex flex-col gap-4 h-full p-6 transition-all duration-300 hover:scale-[1.02] bg-slate-900/40 border-slate-800/80 cursor-pointer ${service.glowClass}`}>
+              <Card className={`flex flex-col gap-4 h-full p-6 transition-all duration-300 hover:scale-[1.02] bg-card/80 border-border cursor-pointer ${service.glowClass}`}>
                 <div className={`p-3 rounded-lg self-start transition-colors duration-300 ${service.iconBg}`}>
                   <Icon className="w-6 h-6" />
                 </div>
-                <h3 className="text-lg font-bold text-white group-hover:text-white transition-colors">
+                <h3 className="text-lg font-bold text-card-foreground group-hover:text-foreground transition-colors">
                   {service.title}
                 </h3>
-                <p className="text-sm text-slate-400 leading-relaxed group-hover:text-slate-300 transition-colors">
+                <p className="text-sm text-muted-foreground leading-relaxed group-hover:text-foreground/80 transition-colors">
                   {service.desc}
                 </p>
               </Card>

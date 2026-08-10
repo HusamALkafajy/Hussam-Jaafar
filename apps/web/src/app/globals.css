@@ -6,28 +6,6 @@
 @plugin "@tailwindcss/typography";
 
 @layer base {
-  :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 6%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --radius: 0.75rem;
-  }
   * {
     @apply border-border outline-ring/50;
   }
@@ -237,6 +215,31 @@ body {
   --sidebar-accent-foreground: #0f172a;
   --sidebar-border: #e2e8f0;
   --sidebar-ring: #4f46e5;
+}
+
+.studyai-marketing-theme {
+  --background: #090e1a;
+  --foreground: #f8fafc;
+  --card: #111a2d;
+  --card-foreground: #f8fafc;
+  --popover: #111a2d;
+  --popover-foreground: #f8fafc;
+  --primary: #6d5ef7;
+  --primary-foreground: #ffffff;
+  --secondary: #152139;
+  --secondary-foreground: #f8fafc;
+  --muted: #152139;
+  --muted-foreground: #a5b4c7;
+  --accent: #152139;
+  --accent-foreground: #f8fafc;
+  --border: #26334a;
+  --input: #26334a;
+  --ring: #6d5ef7;
+}
+
+.studyai-marketing-theme .glass {
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
 }
 
 .dark {

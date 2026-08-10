@@ -17,7 +17,7 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full glass backdrop-blur-md border-b border-slate-800/40">
+    <header className="sticky top-0 z-50 w-full glass backdrop-blur-md border-b border-border/70">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
@@ -30,11 +30,11 @@ export const Navbar: React.FC = () => {
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
-          <Link href="#features" className="hover:text-white transition-colors">
+        <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
+          <Link href="#features" className="hover:text-foreground transition-colors">
             {t('landing.featuresTitle')}
           </Link>
-          <Link href="#pricing" className="hover:text-white transition-colors">
+          <Link href="#pricing" className="hover:text-foreground transition-colors">
             {t('landing.pricingTitle')}
           </Link>
         </nav>
@@ -43,7 +43,7 @@ export const Navbar: React.FC = () => {
         <div className="hidden md:flex items-center gap-4">
           <button
             onClick={toggleLanguage}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-secondary text-muted-foreground hover:text-foreground text-sm transition-all"
           >
             <Globe className="w-4 h-4" />
             <span>{t(locale === 'ar' ? 'common.english' : 'common.arabic')}</span>
