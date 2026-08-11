@@ -195,10 +195,6 @@ export default function DashboardLayout({
                 <span className="sr-only">{t('common.search')}</span>
               </Button>
 
-              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase select-none">
-                {user.subscriptionTier}
-              </div>
-
               <div className="w-8 h-8 rounded-full bg-muted border flex items-center justify-center text-muted-foreground select-none uppercase font-bold text-sm overflow-hidden">
                 {user.avatarUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */

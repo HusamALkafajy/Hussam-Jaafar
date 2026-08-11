@@ -59,11 +59,6 @@ export const Footer: React.FC = () => {
                 {t('landing.featuresTitle')}
               </Link>
             </li>
-            <li>
-              <Link href="#pricing" className="hover:text-foreground transition-colors">
-                {t('landing.pricingTitle')}
-              </Link>
-            </li>
           </ul>
         </div>
 
