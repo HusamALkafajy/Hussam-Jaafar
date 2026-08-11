@@ -13,12 +13,15 @@ import {
   FileText,
   Upload,
   Search,
-  BookOpen,
   Trash2,
   FolderOpen,
-  Filter,
   CheckCircle,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  LoaderCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatBytes, formatDate } from '../../../lib/utils';
@@ -60,6 +63,7 @@ export default function FilesPage() {
   const router = useRouter();
   const { t, locale } = useLocale();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [filesList, setFilesList] = useState<any[]>([]);
   const [subjectsList, setSubjectsList] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
@@ -88,7 +92,10 @@ export default function FilesPage() {
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
 
   const loadData = useCallback(async (page = 1, showSpinner = true) => {
-    if (showSpinner) setLoading(true);
+    if (showSpinner) {
+      setLoading(true);
+      setLoadError(false);
+    }
     try {
       const q = [`page=${page}`, `limit=10`];
       if (search) q.push(`search=${encodeURIComponent(search)}`);
@@ -103,8 +110,9 @@ export default function FilesPage() {
       setFilesList(filesRes.data || []);
       setPagination(filesRes.pagination);
       setSubjectsList(subjectsRes || []);
-    } catch (e) {
-      console.error('Failed to load files data', e);
+      setLoadError(false);
+    } catch {
+      if (showSpinner) setLoadError(true);
     } finally {
       if (showSpinner) setLoading(false);
     }
@@ -257,35 +265,52 @@ export default function FilesPage() {
     }
   };
 
+  const hasActiveFilters = Boolean(search || subjectId || fileType);
+
+  const clearFilters = () => {
+    setSearch('');
+    setSubjectId('');
+    setFileType('');
+  };
+
   return (
     <Dialog
       open={uploadOpen}
       onOpenChange={handleUploadOpenChange}
       disablePointerDismissal={uploading}
     >
-      <div className="flex flex-col gap-6 relative">
+      <div className="relative flex flex-col gap-5 px-4 sm:gap-6 sm:px-5 lg:px-6">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-          <FolderOpen className="w-6 h-6 text-indigo-400" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="flex items-center gap-2.5 text-2xl font-bold text-foreground">
+          <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <FolderOpen className="size-5" aria-hidden="true" />
+          </span>
           <span>{t('files.title')}</span>
         </h2>
-        <DialogTrigger render={<Button className="gap-2 font-bold" />}>
-          <Upload className="w-4.5 h-4.5" />
+        <DialogTrigger render={<Button size="lg" className="w-full gap-2 font-bold sm:w-auto" />}>
+          <Upload className="size-4.5" aria-hidden="true" />
           <span>{t('dashboard.uploadNewFile')}</span>
         </DialogTrigger>
       </div>
 
       {/* Filters Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <Card
+        className="grid grid-cols-1 gap-4 bg-card/70 p-4 ring-1 ring-border md:grid-cols-2 lg:grid-cols-4"
+        aria-label={t('files.filtersTitle')}
+      >
         {/* Search */}
-        <div className="md:col-span-2 relative">
+        <div className="flex min-w-0 flex-col gap-1.5 md:col-span-2">
+          <label htmlFor="files-search" className="text-xs font-bold text-muted-foreground">
+            {t('common.search')}
+          </label>
           <Input
-            id="search"
+            id="files-search"
             placeholder={t('files.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            icon={<Search className="w-4.5 h-4.5" />}
+            className="h-10 bg-background/45 px-3.5 py-2.5"
+            icon={<Search className="size-4.5" aria-hidden="true" />}
           />
         </div>
 
@@ -293,7 +318,7 @@ export default function FilesPage() {
         <div className="flex min-w-0 flex-col gap-1.5">
           <span
             id="files-subject-filter-label"
-            className="text-xs font-bold text-slate-400"
+            className="text-xs font-bold text-muted-foreground"
           >
             {t('files.subjectFilter')}
           </span>
@@ -305,7 +330,7 @@ export default function FilesPage() {
           >
             <SelectTrigger
               aria-labelledby="files-subject-filter-label"
-              className="h-10 w-full min-w-0 bg-slate-900/60 px-3.5 py-2.5 text-slate-300"
+              className="h-10 w-full min-w-0 bg-background/45 px-3.5 py-2.5 text-foreground"
             >
               <SelectValue>
                 {subjectId
@@ -331,7 +356,7 @@ export default function FilesPage() {
         <div className="flex min-w-0 flex-col gap-1.5">
           <span
             id="files-type-filter-label"
-            className="text-xs font-bold text-slate-400"
+            className="text-xs font-bold text-muted-foreground"
           >
             {t('files.fileTypeFilter')}
           </span>
@@ -343,7 +368,7 @@ export default function FilesPage() {
           >
             <SelectTrigger
               aria-labelledby="files-type-filter-label"
-              className="h-10 w-full min-w-0 bg-slate-900/60 px-3.5 py-2.5 text-slate-300"
+              className="h-10 w-full min-w-0 bg-background/45 px-3.5 py-2.5 text-foreground"
             >
               <SelectValue>
                 {fileType === 'pdf'
@@ -365,86 +390,176 @@ export default function FilesPage() {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </Card>
 
       {/* Files List / Grid */}
       {loading ? (
-        <div className="h-64 flex items-center justify-center">
-          <Spinner className="w-8 h-8" />
+        <div className="flex min-h-40 items-center justify-center gap-3 text-muted-foreground" role="status">
+          <Spinner className="size-6" aria-hidden="true" />
+          <span className="text-sm font-medium">{t('common.loading')}</span>
         </div>
+      ) : loadError ? (
+        <Card className="mx-auto w-full max-w-xl items-center gap-4 bg-card/70 px-6 py-8 text-center ring-1 ring-border">
+          <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <AlertTriangle className="size-6" aria-hidden="true" />
+          </span>
+          <div className="space-y-1.5">
+            <h3 className="text-base font-bold text-foreground">{t('files.loadErrorTitle')}</h3>
+            <p className="text-sm leading-6 text-muted-foreground">{t('files.loadErrorDescription')}</p>
+          </div>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => loadData(1)}>
+            <RotateCcw className="size-4" aria-hidden="true" />
+            {t('files.retryLoad')}
+          </Button>
+        </Card>
       ) : filesList.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-4 border border-dashed border-slate-800 rounded-xl bg-slate-950/10">
-          <FileText className="w-16 h-16 text-slate-600 animate-pulse" aria-hidden="true" />
-          <p className="text-slate-400 text-center">{t('files.emptyState')}</p>
-          <DialogTrigger
-            render={<Button variant="outline" className="mt-2" />}
-          >
-            {t('dashboard.uploadNewFile')}
-          </DialogTrigger>
-        </div>
+        <Card className="mx-auto w-full max-w-xl items-center gap-4 bg-card/70 px-6 py-9 text-center ring-1 ring-border">
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            {hasActiveFilters ? (
+              <Search className="size-7" aria-hidden="true" />
+            ) : (
+              <FileText className="size-7" aria-hidden="true" />
+            )}
+          </span>
+          <div className="space-y-1.5">
+            <h3 className="text-base font-bold text-foreground">
+              {hasActiveFilters ? t('files.noResultsTitle') : t('files.emptyTitle')}
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {hasActiveFilters ? t('files.noResultsDescription') : t('files.emptyState')}
+            </p>
+          </div>
+          {hasActiveFilters ? (
+            <Button type="button" variant="outline" onClick={clearFilters}>
+              {t('files.clearFilters')}
+            </Button>
+          ) : (
+            <DialogTrigger render={<Button className="gap-2" />}>
+              <Upload className="size-4" aria-hidden="true" />
+              {t('dashboard.uploadNewFile')}
+            </DialogTrigger>
+          )}
+        </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filesList.map((file) => (
-            <Card
-              key={file.id}
-              className="group p-5 flex flex-col justify-between h-48 bg-slate-900/40 border-slate-800/45 relative"
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {filesList.map((file) => {
+              const isCompleted = file.processingStatus === 'completed';
+              const isFailed = file.processingStatus === 'failed';
+              const isPending = file.processingStatus === 'pending';
+
+              return (
+                <Card
+                  key={file.id}
+                  className="group relative min-h-48 justify-between gap-0 bg-card/70 p-0 ring-1 ring-border transition duration-200 hover:-translate-y-0.5 hover:bg-card hover:shadow-lg hover:shadow-black/10"
+                >
+                  <Link
+                    href={`/files/${file.id}`}
+                    className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                    aria-label={t('files.openFile', { fileName: file.originalName })}
+                  />
+
+                  <div className="pointer-events-none relative z-[1] flex items-start justify-between gap-4 p-5">
+                    <div className="flex min-w-0 items-center gap-3.5">
+                      <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-200 group-hover:scale-105">
+                        <FileText className="size-6" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0 space-y-1">
+                        <h3 className="block truncate text-sm font-bold text-foreground">
+                          {file.originalName}
+                        </h3>
+                        <p className="text-xs font-medium text-muted-foreground">
+                          {formatBytes(file.fileSize)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(file)}
+                      className="pointer-events-auto relative z-10 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t('files.deleteFileNamed', { fileName: file.originalName })}
+                    >
+                      <Trash2 className="size-4.5" aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  <div className="pointer-events-none relative z-[1] flex items-end justify-between gap-3 border-t border-border/70 px-5 py-4 text-xs">
+                    <div className="min-w-0 space-y-1">
+                      <span className="block text-muted-foreground">{t('files.date')}</span>
+                      <span className="block truncate font-semibold text-foreground">
+                        {formatDate(file.createdAt, locale)}
+                      </span>
+                    </div>
+
+                    <Badge variant={isCompleted ? 'success' : isFailed ? 'danger' : 'warning'}>
+                      {isCompleted ? (
+                        <CheckCircle aria-hidden="true" />
+                      ) : isFailed ? (
+                        <AlertTriangle aria-hidden="true" />
+                      ) : isPending ? (
+                        <Clock3 aria-hidden="true" />
+                      ) : (
+                        <LoaderCircle className="animate-spin" aria-hidden="true" />
+                      )}
+                      {isCompleted
+                        ? t('files.statusCompleted')
+                        : isFailed
+                          ? t('files.statusFailed')
+                          : isPending
+                            ? t('files.statusPending')
+                            : t('files.statusProcessing')}
+                    </Badge>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          {pagination.totalPages > 1 && (
+            <nav
+              className="flex items-center justify-center gap-3 pt-1"
+              aria-label={t('files.paginationLabel')}
             >
-              <Link
-                href={`/files/${file.id}`}
-                className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                aria-label={t('files.openFile', { fileName: file.originalName })}
-              />
-
-              <div className="relative pointer-events-none flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:scale-105 transition-transform duration-200">
-                    <FileText className="w-6 h-6 animate-pulse-glow" />
-                  </div>
-                  <div className="flex flex-col min-w-0 gap-0.5">
-                    <span className="text-sm font-bold text-slate-200 group-hover:text-white truncate block">
-                      {file.originalName}
-                    </span>
-                    <span className="text-xs text-slate-500">{formatBytes(file.fileSize)}</span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setDeleteTarget(file)}
-                  className="relative pointer-events-auto p-1.5 rounded hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
-                  aria-label={t('files.deleteFileNamed', { fileName: file.originalName })}
-                >
-                  <Trash2 className="w-4.5 h-4.5" aria-hidden="true" />
-                </button>
-              </div>
-
-              <div className="relative pointer-events-none flex items-center justify-between border-t border-slate-800/30 pt-4 mt-4 text-xs">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-slate-500">{t('files.date')}</span>
-                  <span className="text-slate-300 font-semibold">{formatDate(file.createdAt, locale)}</span>
-                </div>
-
-                <Badge
-                  variant={
-                    file.processingStatus === 'completed'
-                      ? 'success'
-                      : file.processingStatus === 'failed'
-                      ? 'danger'
-                      : 'warning'
-                  }
-                >
-                  {file.processingStatus === 'completed'
-                    ? t('files.statusCompleted')
-                    : file.processingStatus === 'failed'
-                    ? t('files.statusFailed')
-                    : file.processingStatus === 'pending'
-                    ? t('files.statusPending')
-                    : t('files.statusProcessing')}
-                </Badge>
-              </div>
-            </Card>
-          ))}
-        </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={pagination.page <= 1}
+                onClick={() => loadData(pagination.page - 1)}
+              >
+                {locale === 'ar' ? (
+                  <ChevronRight className="size-4" aria-hidden="true" />
+                ) : (
+                  <ChevronLeft className="size-4" aria-hidden="true" />
+                )}
+                <span className="hidden sm:inline">{t('files.previousPage')}</span>
+              </Button>
+              <span className="min-w-24 text-center text-xs font-semibold text-muted-foreground" aria-live="polite">
+                {t('files.pageIndicator', {
+                  page: pagination.page,
+                  total: pagination.totalPages,
+                })}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={pagination.page >= pagination.totalPages}
+                onClick={() => loadData(pagination.page + 1)}
+              >
+                <span className="hidden sm:inline">{t('files.nextPage')}</span>
+                {locale === 'ar' ? (
+                  <ChevronLeft className="size-4" aria-hidden="true" />
+                ) : (
+                  <ChevronRight className="size-4" aria-hidden="true" />
+                )}
+              </Button>
+            </nav>
+          )}
+        </>
       )}
 
       </div>
@@ -453,11 +568,13 @@ export default function FilesPage() {
         initialFocus={fileInputRef}
         showCloseButton={!uploading}
         closeLabel={t('common.close')}
-        className="max-w-md glass border border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden p-6 gap-5"
+        className="studyai-dashboard-theme gap-5 overflow-hidden rounded-2xl border border-border bg-card p-6 text-foreground shadow-2xl sm:max-w-lg"
       >
         <DialogHeader>
-          <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
-            <Upload className="w-5 h-5 text-indigo-400" aria-hidden="true" />
+          <DialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Upload className="size-4.5" aria-hidden="true" />
+            </span>
             <span>{t('dashboard.uploadNewFile')}</span>
           </DialogTitle>
           <DialogDescription>
@@ -468,18 +585,18 @@ export default function FilesPage() {
 
         {uploading ? (
           <div
-            className="py-8 flex flex-col items-center justify-center gap-4 text-center"
+            className="flex flex-col items-center justify-center gap-5 py-8 text-center"
             role="status"
             aria-live="polite"
           >
-            <Spinner className="w-10 h-10 text-indigo-400" />
+            <Spinner className="size-9" aria-hidden="true" />
             <div className="w-full flex flex-col gap-2">
-              <div className="flex justify-between text-xs text-slate-400 font-semibold px-1">
+              <div className="flex justify-between gap-3 px-1 text-xs font-semibold text-muted-foreground">
                 <span>{uploadMessage}</span>
                 <span aria-hidden="true">{uploadProgress}%</span>
               </div>
               <div
-                className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800"
+                className="h-2 w-full overflow-hidden rounded-full bg-muted"
                 role="progressbar"
                 aria-label={t('files.uploadProgress')}
                 aria-valuemin={0}
@@ -488,29 +605,29 @@ export default function FilesPage() {
                 aria-valuetext={`${uploadProgress}%`}
               >
                 <div
-                  className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-300 ease-out"
+                  className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
             </div>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               {t('files.uploadKeepOpen')}
             </p>
           </div>
         ) : uploadStatus === 'success' ? (
           <div
-            className="py-8 flex flex-col items-center justify-center gap-3 text-center"
+            className="flex flex-col items-center justify-center gap-3 py-8 text-center"
             role="status"
             aria-live="polite"
           >
             <CheckCircle
-              className="w-16 h-16 text-emerald-500"
+              className="size-14 text-emerald-500"
               aria-hidden="true"
             />
-            <h5 className="text-base font-bold text-white">
+            <h5 className="text-base font-bold text-foreground">
               {t('files.uploadSuccess')}
             </h5>
-            <p className="text-xs text-slate-400 font-medium">
+            <p className="text-xs font-medium text-muted-foreground">
               {t('files.uploadSuccessDescription')}
             </p>
           </div>
@@ -520,7 +637,7 @@ export default function FilesPage() {
               <label
                 id="upload-subject-label"
                 htmlFor="upload-subject"
-                className="text-sm font-medium text-slate-300"
+                className="text-sm font-medium text-foreground"
               >
                 {t('files.subject')}
               </label>
@@ -533,7 +650,7 @@ export default function FilesPage() {
                 <SelectTrigger
                   id="upload-subject"
                   aria-labelledby="upload-subject-label"
-                  className="h-10 w-full min-w-0 bg-slate-900/60 px-3.5 py-2.5 text-slate-300"
+                  className="h-10 w-full min-w-0 bg-background/45 px-3.5 py-2.5 text-foreground"
                 >
                   <SelectValue>
                     {uploadSubjectId
@@ -557,7 +674,7 @@ export default function FilesPage() {
 
             <label
               htmlFor="upload-file"
-              className="border-2 border-dashed border-slate-850 hover:border-indigo-500 bg-slate-950/30 rounded-xl py-8 flex flex-col items-center justify-center gap-3 text-center cursor-pointer hover:bg-slate-950/50 transition-all group focus-within:border-indigo-500"
+              className="group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-background/35 px-5 py-7 text-center transition-colors hover:border-primary/70 hover:bg-background/55 focus-within:border-primary focus-within:ring-2 focus-within:ring-ring/40"
             >
               <input
                 id="upload-file"
@@ -571,16 +688,25 @@ export default function FilesPage() {
                 }`}
                 aria-invalid={uploadStatus === 'error'}
               />
-              <div className="bg-indigo-500/10 p-3 rounded-lg text-indigo-400 group-hover:scale-105 transition-transform duration-200">
-                <Upload className="w-6 h-6" aria-hidden="true" />
-              </div>
+              <span className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-200 group-hover:scale-105">
+                {selectedFile ? (
+                  <FileText className="size-6" aria-hidden="true" />
+                ) : (
+                  <Upload className="size-6" aria-hidden="true" />
+                )}
+              </span>
               <span className="flex flex-col gap-1">
-                <span className="text-sm text-slate-200 font-semibold truncate max-w-[280px]">
+                <span className="max-w-[280px] truncate text-sm font-semibold text-foreground">
                   {selectedFile ? selectedFile.name : t('files.uploadZone')}
                 </span>
+                {selectedFile && (
+                  <span className="text-xs font-semibold text-primary">
+                    {formatBytes(selectedFile.size)}
+                  </span>
+                )}
                 <span
                   id="upload-file-requirements"
-                  className="text-xs text-slate-500"
+                  className="text-xs text-muted-foreground"
                 >
                   {t('files.uploadRequirements')}
                 </span>
@@ -591,7 +717,7 @@ export default function FilesPage() {
               <div
                 id="upload-file-error"
                 role="alert"
-                className="py-4 px-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm flex items-center gap-2.5"
+                className="flex items-center gap-2.5 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3.5 text-sm text-destructive"
               >
                 <AlertTriangle
                   className="w-6 h-6 shrink-0"
