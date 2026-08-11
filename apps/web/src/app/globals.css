@@ -242,6 +242,49 @@ body {
   border-color: color-mix(in srgb, var(--border) 80%, transparent);
 }
 
+.studyai-dashboard-theme {
+  --background: #0b0f19;
+  --foreground: #f8fafc;
+  --card: #1e293b;
+  --card-foreground: #f8fafc;
+  --popover: #1e293b;
+  --popover-foreground: #f8fafc;
+  --primary: #6d5ef7;
+  --primary-foreground: #ffffff;
+  --primary-hover: #4f46e5;
+  --primary-active: #4338ca;
+  --secondary: #111827;
+  --secondary-foreground: #f8fafc;
+  --muted: #111827;
+  --muted-foreground: #94a3b8;
+  --accent: #1e1b4b;
+  --accent-foreground: #f8fafc;
+  --border: #334155;
+  --input: #334155;
+  --ring: #6d5ef7;
+  --destructive: #ef4444;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+  --sidebar: #111827;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #6d5ef7;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1e1b4b;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #334155;
+  --sidebar-ring: #6d5ef7;
+}
+
+.studyai-dashboard-theme [data-slot="button"].bg-primary:hover {
+  background-color: var(--primary-hover);
+}
+
+.studyai-dashboard-theme [data-slot="button"].bg-primary:active {
+  background-color: var(--primary-active);
+}
+
 .dark {
   --background: #020617;
   --foreground: #f8fafc;

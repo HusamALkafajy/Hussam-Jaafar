@@ -54,9 +54,17 @@ import {
   TopNavCenter,
   TopNavEnd,
 } from '../../components/ui/top-nav';
-import { SearchField } from '../../components/ui/search-field';
 import { GlobalCommandPalette } from '../../components/global-command-palette';
 import { Toaster } from '../../components/ui/sonner';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '../../components/ui/sheet';
 
 export default function DashboardLayout({
   children,
@@ -67,6 +75,7 @@ export default function DashboardLayout({
   const { t, locale, setLocale, dir } = useLocale();
   const router = useRouter();
   const pathname = usePathname();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -96,12 +105,23 @@ export default function DashboardLayout({
     setLocale(locale === 'ar' ? 'en' : 'ar');
   };
 
+  const openCommandPalette = () => {
+    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
+    window.setTimeout(() => document.dispatchEvent(event), 0);
+  };
+
+  const isFileDetailRoute = pathname !== '/files' && pathname.startsWith('/files/');
+
   return (
-    <PageLayout variant="dashboard" dir={dir}>
+    <PageLayout
+      variant="dashboard"
+      dir={dir}
+      className={isFileDetailRoute ? undefined : 'studyai-dashboard-theme'}
+    >
       <GlobalCommandPalette />
       <Toaster richColors position={dir === 'rtl' ? 'bottom-left' : 'bottom-right'} />
       <GamificationCelebration />
-      <PageLayoutSidebar className="justify-between">
+      <PageLayoutSidebar className="justify-between border-sidebar-border bg-sidebar text-sidebar-foreground">
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
           {/* Sidebar Header */}
           <div className="h-16 flex items-center px-4 border-b shrink-0">
@@ -128,6 +148,7 @@ export default function DashboardLayout({
                       href={item.href}
                       active={isActive}
                       icon={<Icon />}
+                      className={isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:text-sidebar-primary' : undefined}
                     >
                       {item.label}
                     </SidebarNavItem>
@@ -164,9 +185,103 @@ export default function DashboardLayout({
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <PageLayoutHeader className="bg-background/95 backdrop-blur z-20">
-          <TopNav className="border-0 px-0 h-full">
+        <PageLayoutHeader className="z-20 border-border bg-secondary/95 backdrop-blur">
+          <TopNav className="h-full border-0 bg-transparent px-0">
             <TopNavStart>
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                <SheetTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="md:hidden"
+                      aria-label={t('dashboard.sidebarHome')}
+                    />
+                  }
+                >
+                  <Menu className="w-5 h-5 text-muted-foreground" />
+                  <span className="sr-only">{t('dashboard.sidebarHome')}</span>
+                </SheetTrigger>
+
+                <SheetContent
+                  side={dir === 'rtl' ? 'right' : 'left'}
+                  className="studyai-dashboard-theme w-80 max-w-[85vw] gap-0 border-border bg-secondary p-0 text-foreground md:hidden"
+                >
+                  <SheetHeader className="h-16 flex-row items-center border-b px-4 py-0 pe-14">
+                    <Link
+                      href="/files"
+                      onClick={() => setMobileNavOpen(false)}
+                      className="flex items-center gap-2"
+                    >
+                      <div className="bg-primary/10 text-primary p-2 rounded-lg">
+                        <GraduationCap className="w-5 h-5 shrink-0" />
+                      </div>
+                      <SheetTitle className="text-lg font-bold">
+                        {t('common.appName')}
+                      </SheetTitle>
+                    </Link>
+                    <SheetDescription className="sr-only">
+                      {t('dashboard.sidebarHome')}
+                    </SheetDescription>
+                  </SheetHeader>
+
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+                    <SidebarNav>
+                      <SidebarNavGroup>
+                        {navItems.map((item) => {
+                          const Icon = item.icon;
+                          const isActive = pathname === item.href;
+                          return (
+                            <SidebarNavItem
+                              key={item.href}
+                              href={item.href}
+                              active={isActive}
+                              icon={<Icon />}
+                              className={isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:text-sidebar-primary' : undefined}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setMobileNavOpen(false);
+                                router.push(item.href);
+                              }}
+                            >
+                              {item.label}
+                            </SidebarNavItem>
+                          );
+                        })}
+                      </SidebarNavGroup>
+                    </SidebarNav>
+                  </div>
+
+                  <SheetFooter className="border-t">
+                    <SidebarNav>
+                      <SidebarNavButton
+                        onClick={() => {
+                          toggleLanguage();
+                          setMobileNavOpen(false);
+                        }}
+                        icon={<Globe />}
+                      >
+                        <span className="w-full text-start inline-block">
+                          {t(locale === 'ar' ? 'common.english' : 'common.arabic')}
+                        </span>
+                      </SidebarNavButton>
+                      <SidebarNavButton
+                        onClick={() => {
+                          setMobileNavOpen(false);
+                          void logout();
+                        }}
+                        icon={<LogOut />}
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive w-full text-start"
+                      >
+                        <span className="w-full text-start inline-block">
+                          {t('common.logout')}
+                        </span>
+                      </SidebarNavButton>
+                    </SidebarNav>
+                  </SheetFooter>
+                </SheetContent>
+              </Sheet>
+
               <div className="hidden md:flex">
                 <Breadcrumb>
                   <BreadcrumbList>
@@ -181,17 +296,26 @@ export default function DashboardLayout({
             </TopNavStart>
 
             <TopNavCenter>
-              <div className="hidden md:flex w-full max-w-sm" onClick={() => {
-                const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
-                document.dispatchEvent(event);
-              }}>
-                <SearchField placeholder={t('dashboard.searchWorkspace')} className="w-full bg-muted cursor-text" readOnly />
+              <div className="hidden md:flex w-full max-w-sm">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start bg-muted text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={openCommandPalette}
+                >
+                  <Search className="size-4" />
+                  <span className="truncate">{t('dashboard.searchWorkspace')}</span>
+                </Button>
               </div>
             </TopNavCenter>
 
             <TopNavEnd>
-              <Button variant="ghost" size="icon" className="md:hidden">
-                <Search className="w-5 h-5" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                onClick={openCommandPalette}
+              >
+                <Search className="w-5 h-5 text-muted-foreground" />
                 <span className="sr-only">{t('common.search')}</span>
               </Button>
 

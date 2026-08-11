@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLocale } from '../hooks/use-locale';
 import {
+  Command,
   CommandDialog,
   CommandInput,
   CommandList,
@@ -40,21 +41,24 @@ export function GlobalCommandPalette() {
       onOpenChange={setOpen}
       title={t('dashboard.commandPalette')}
       description={t('dashboard.commandPaletteDescription')}
+      className="studyai-dashboard-theme"
     >
-      <CommandInput placeholder={t('dashboard.commandSearch')} />
-      <CommandList>
-        <CommandEmpty>{t('dashboard.commandNoResults')}</CommandEmpty>
-        <CommandGroup heading={t('dashboard.commandSuggestions')}>
-          <CommandItem onSelect={() => runCommand(() => router.push('/files'))}>
-            <Home className="mr-2 h-4 w-4 rtl:ml-2" />
-            <span>{t('dashboard.commandGoToFiles')}</span>
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/exams'))}>
-            <GraduationCap className="mr-2 h-4 w-4 rtl:ml-2" />
-            <span>{t('dashboard.commandGoToExams')}</span>
-          </CommandItem>
-        </CommandGroup>
-      </CommandList>
+      <Command>
+        <CommandInput placeholder={t('dashboard.commandSearch')} />
+        <CommandList>
+          <CommandEmpty>{t('dashboard.commandNoResults')}</CommandEmpty>
+          <CommandGroup heading={t('dashboard.commandSuggestions')}>
+            <CommandItem onSelect={() => runCommand(() => router.push('/files'))}>
+              <Home className="mr-2 h-4 w-4 rtl:ml-2" />
+              <span>{t('dashboard.commandGoToFiles')}</span>
+            </CommandItem>
+            <CommandItem onSelect={() => runCommand(() => router.push('/exams'))}>
+              <GraduationCap className="mr-2 h-4 w-4 rtl:ml-2" />
+              <span>{t('dashboard.commandGoToExams')}</span>
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </Command>
     </CommandDialog>
   );
 }
