@@ -73,7 +73,6 @@ export const Footer: React.FC = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 border-t border-border/50 mt-8 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
         <p>{t('landing.rightsReserved', { year: new Date().getFullYear() })}</p>
-        <p>{t('landing.poweredBy')}</p>
       </div>
     </footer>
   );
