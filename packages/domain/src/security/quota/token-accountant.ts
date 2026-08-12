@@ -3,6 +3,15 @@ import { IDomainCacheService } from './ports';
 /** Redis key that stores all in-flight pending reservations as a Hash. */
 const PENDING_KEY = 'global:pending_reservations';
 
+/** Retains completed UTC-day buckets long enough for cleanup and late refunds. */
+const DAILY_KEY_RETENTION_SECONDS = 48 * 60 * 60;
+
+const getUtcDayId = (timestamp: number): string =>
+  new Date(timestamp).toISOString().slice(0, 10);
+
+const getDailyConsumedKey = (userId: string, timestamp: number): string =>
+  `user:${userId}:tokens_consumed:${getUtcDayId(timestamp)}`;
+
 /**
  * Payload stored per reqId in PENDING_KEY.
  * Serialised as JSON so it survives as a single Hash field value.
@@ -12,6 +21,8 @@ export interface PendingPayload {
   cost: number;
   /** Unix timestamp (ms) when the reservation was created. */
   timestamp: number;
+  /** Exact UTC-day counter charged by this reservation. */
+  consumedKey?: string;
 }
 
 export class TokenAccountant {
@@ -24,12 +35,13 @@ export class TokenAccountant {
    *  3. INCRBY the user's total counter.
    *  4. HSET the pending payload (reqId → JSON).
    *
-   * KEYS[1] = user:{userId}:tokens_consumed
+   * KEYS[1] = user:{userId}:tokens_consumed:{YYYY-MM-DD}
    * KEYS[2] = global:pending_reservations
    * ARGV[1] = quota (number)
    * ARGV[2] = cost  (number)
    * ARGV[3] = reqId (string)
    * ARGV[4] = JSON-serialised PendingPayload (string)
+   * ARGV[5] = daily key retention in seconds
    *
    * Returns: 1 (admitted) | 0 (quota exceeded)
    */
@@ -40,6 +52,7 @@ export class TokenAccountant {
     local cost        = tonumber(ARGV[2])
     local reqId       = ARGV[3]
     local payload     = ARGV[4]
+    local retention   = tonumber(ARGV[5])
 
     -- Idempotency: already reserved — admit without double-charging
     if redis.call('HEXISTS', pendingKey, reqId) == 1 then
@@ -53,6 +66,7 @@ export class TokenAccountant {
 
     redis.call('INCRBY', consumedKey, cost)
     redis.call('HSET',   pendingKey,  reqId, payload)
+    redis.call('EXPIRE', consumedKey, retention)
     return 1
   `;
 
@@ -77,12 +91,12 @@ export class TokenAccountant {
    * Atomically:
    *  1. HGET the payload. If not found, return 0 (already resolved).
    *  2. HDEL the reqId.
-   *  3. DECRBY the user's total counter by cost.
+   *  3. Refund the original counter without creating a missing or negative key.
    *
    * KEYS[1] = global:pending_reservations
    * ARGV[1] = reqId
    *
-   * Returns: 1 if deleted (refunded), 0 if not found (already resolved)
+   * Returns: 1 if a counter refund was applied, 0 if no refund was possible.
    */
   private static readonly RELEASE_LUA = `
     local pendingKey = KEYS[1]
@@ -102,13 +116,44 @@ export class TokenAccountant {
       return 0
     end
 
-    local cost        = tonumber(payload.cost)
-    local userId      = payload.userId
-    local consumedKey = 'user:' .. userId .. ':tokens_consumed'
+    local cost   = tonumber(payload.cost)
+    local userId = payload.userId
 
+    -- New reservations carry the exact UTC-day counter they charged. Old
+    -- in-flight reservations fall back to the legacy lifetime key so rolling
+    -- deployments can still refund them safely.
+    local consumedKey = payload.consumedKey
+    if not consumedKey or type(consumedKey) ~= 'string' then
+      consumedKey = 'user:' .. userId .. ':tokens_consumed'
+    end
+
+    local consumedStr = redis.call('GET', consumedKey)
     redis.call('HDEL', pendingKey, reqId)
-    redis.call('DECRBY', consumedKey, cost)
-    
+
+    -- The original bucket may have expired before reconciliation. Resolving
+    -- the pending entry is still correct, but DECRBY on a missing key would
+    -- recreate it as a persistent negative counter.
+    if not consumedStr then
+      return 0
+    end
+
+    local consumed = tonumber(consumedStr)
+    if not cost or cost <= 0 or not consumed then
+      return 0
+    end
+
+    -- A valid reservation guarantees consumed >= cost. If external
+    -- corruption leaves less usage than the refund, remove only the available
+    -- amount so the counter reaches zero and keeps its existing TTL.
+    if consumed <= 0 then
+      if consumed < 0 then
+        redis.call('INCRBY', consumedKey, -consumed)
+      end
+      return 0
+    end
+
+    local refund = math.min(consumed, cost)
+    redis.call('DECRBY', consumedKey, refund)
     return 1
   `;
 
@@ -131,13 +176,14 @@ export class TokenAccountant {
     quota: number,
     cost: number,
   ): Promise<boolean> {
-    const consumedKey = `user:${userId}:tokens_consumed`;
-    const payload: PendingPayload = { userId, cost, timestamp: Date.now() };
+    const timestamp = Date.now();
+    const consumedKey = getDailyConsumedKey(userId, timestamp);
+    const payload: PendingPayload = { userId, cost, timestamp, consumedKey };
 
     const result = await this.cache.eval<number>(
       TokenAccountant.RESERVE_LUA,
       [consumedKey, PENDING_KEY],
-      [quota, cost, reqId, JSON.stringify(payload)],
+      [quota, cost, reqId, JSON.stringify(payload), DAILY_KEY_RETENTION_SECONDS],
     );
     return result === 1;
   }
@@ -165,7 +211,8 @@ export class TokenAccountant {
    * Removes the pending entry AND decrements the consumed counter.
    * Safe to call multiple times — subsequent calls are no-ops.
    *
-   * @returns `true` if tokens were refunded, `false` if already resolved.
+   * @returns `true` if tokens were refunded, `false` if already resolved or
+   *          the original consumed counter no longer exists.
    */
   async release(reqId: string): Promise<boolean> {
     const result = await this.cache.eval<number>(
@@ -177,11 +224,12 @@ export class TokenAccountant {
   }
 
   /**
-   * Returns the current consumed token count for a user.
+   * Returns the current UTC calendar day's consumed token count for a user.
+   * Historical daily buckets and the legacy lifetime counter are excluded.
    * Used for health checks and debugging only — not in the hot path.
    */
   async getConsumed(userId: string): Promise<number> {
-    const consumedKey = `user:${userId}:tokens_consumed`;
+    const consumedKey = getDailyConsumedKey(userId, Date.now());
     const val = await this.cache.get(consumedKey);
     return val ? parseInt(val, 10) : 0;
   }
