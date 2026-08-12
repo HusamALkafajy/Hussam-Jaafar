@@ -148,6 +148,13 @@
       "when": 1785190238218,
       "tag": "0022_supreme_texas_twister",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786553880811,
+      "tag": "0024_motionless_lorna_dane",
+      "breakpoints": true
     }
   ]
 }

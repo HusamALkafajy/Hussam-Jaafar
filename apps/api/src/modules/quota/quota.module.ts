@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { makeCounterProvider, makeHistogramProvider } from '@willsoto/nestjs-prometheus';
 import { LeakReconciliationWorker } from './leak-reconciliation.worker';
+import { QuizMonthlyCapacityService } from './quiz-monthly-capacity.service';
 
 @Module({
   imports: [ConfigModule],
   providers: [
     LeakReconciliationWorker,
+    QuizMonthlyCapacityService,
     makeHistogramProvider({
       name: 'studyai_quota_worker_duration_seconds',
       help: 'Duration of leak reconciliation sweep in seconds',
@@ -32,5 +34,6 @@ import { LeakReconciliationWorker } from './leak-reconciliation.worker';
       help: 'Total number of errors during sweep',
     }),
   ],
+  exports: [QuizMonthlyCapacityService],
 })
 export class QuotaModule {}
