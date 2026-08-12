@@ -18,7 +18,6 @@ import {
   AlertTriangle,
   Lightbulb,
   ArrowRight,
-  Sparkles,
   Brain,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -26,6 +25,12 @@ import Link from 'next/link';
 interface PageProps {
   params: Promise<{ id: string }>;
 }
+
+const normalizeReviewText = (value: unknown): string =>
+  typeof value === 'string' ? value : '';
+
+const normalizeReviewKey = (value: unknown): string =>
+  normalizeReviewText(value).trim().toLocaleLowerCase();
 
 export default function ExamPage({ params }: PageProps) {
   const resolvedParams = use(params);
@@ -41,7 +46,6 @@ function ExamSession({ examId }: { examId: string }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [generatingNext, setGeneratingNext] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -163,20 +167,6 @@ function ExamSession({ examId }: { examId: string }) {
 
     return () => clearTimeout(timer);
   }, [timeLeft]);
-
-  const handleNextAdaptiveQuestion = async () => {
-    setGeneratingNext(true);
-    try {
-      const newQuestion = await api.post<any>(`/exams/${examId}/next-question`);
-      // Re-fetch the full exam to get the updated questions list
-      const updatedExam = await api.get<any>(`/exams/${examId}`);
-      setExam(updatedExam);
-    } catch {
-      alert(t('exams.generationFailure'));
-    } finally {
-      setGeneratingNext(false);
-    }
-  };
 
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
@@ -343,34 +333,6 @@ function ExamSession({ examId }: { examId: string }) {
               </Card>
             )}
 
-            {/* Adaptive Mode — Generate Next Question */}
-            {exam.weaknessAnalysis?.weakTopics?.length > 0 && (
-              <Card className="p-5 bg-violet-950/20 border-violet-500/20 flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-violet-400" />
-                  <h4 className="text-sm font-bold text-violet-300">
-                    {t('exams.adaptiveMode')}
-                  </h4>
-                  {exam.adaptiveMode && (
-                    <span className="text-[10px] bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-bold border border-violet-500/20">
-                      {t('exams.active')}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {t('exams.adaptiveDescription')}
-                </p>
-                <Button
-                  onClick={handleNextAdaptiveQuestion}
-                  loading={generatingNext}
-                  className="w-full font-bold flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 border-violet-500"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>{t('exams.generateAdaptive')}</span>
-                </Button>
-              </Card>
-            )}
-
             {/* AI Recommendation plan */}
             {exam.studyPlan && (
               <Card className="p-6 bg-indigo-950/10 border-indigo-500/10 flex flex-col gap-4">
@@ -398,19 +360,37 @@ function ExamSession({ examId }: { examId: string }) {
               {t('exams.detailedReview')}
             </h3>
             {exam.questions.map((q: any, idx: number) => {
-              const isUserCorrect = q.isCorrect;
+              const userAnswer = normalizeReviewText(q.userAnswer);
+              const userAnswerKey = normalizeReviewKey(userAnswer);
+              const correctAnswerKey = normalizeReviewKey(q.correctAnswer);
+              const options = Array.isArray(q.options)
+                ? q.options
+                    .map((option: unknown) => normalizeReviewText(option))
+                    .filter((option: string) => option.trim().length > 0)
+                : [];
+              const explanation = normalizeReviewText(q.explanation);
+              const aiFeedback = normalizeReviewText(q.aiFeedback);
+              const isUnanswered = userAnswerKey.length === 0;
+              const isUserCorrect = !isUnanswered && q.isCorrect === true;
               return (
                 <Card
                   key={q.id}
+                  data-answer-state={
+                    isUnanswered ? 'unanswered' : isUserCorrect ? 'correct' : 'incorrect'
+                  }
                   className={`p-6 bg-slate-900/10 border transition-all ${
-                    isUserCorrect
+                    isUnanswered
+                      ? 'border-slate-700/60 hover:border-slate-600/70 bg-slate-800/10'
+                      : isUserCorrect
                       ? 'border-emerald-500/20 hover:border-emerald-500/30 bg-emerald-500/5'
                       : 'border-rose-500/20 hover:border-rose-500/30 bg-rose-500/5'
                   }`}
                 >
                   <div className="flex items-start gap-4">
                     <div className="mt-0.5 shrink-0">
-                      {isUserCorrect ? (
+                      {isUnanswered ? (
+                        <HelpCircle className="w-5 h-5 text-slate-400" />
+                      ) : isUserCorrect ? (
                         <CheckCircle className="w-5 h-5 text-emerald-500" />
                       ) : (
                         <XCircle className="w-5 h-5 text-rose-500" />
@@ -428,11 +408,14 @@ function ExamSession({ examId }: { examId: string }) {
                       </div>
 
                       {/* Options Grid */}
-                      {q.options && q.options.length > 0 && (
+                      {options.length > 0 && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {q.options.map((opt: string, oIdx: number) => {
-                            const isCorrectOpt = opt.toLowerCase() === q.correctAnswer.toLowerCase();
-                            const isUserOpt = opt.toLowerCase() === q.userAnswer.toLowerCase();
+                          {options.map((opt: string, oIdx: number) => {
+                            const optionKey = normalizeReviewKey(opt);
+                            const isCorrectOpt =
+                              correctAnswerKey.length > 0 && optionKey === correctAnswerKey;
+                            const isUserOpt =
+                              !isUnanswered && optionKey.length > 0 && optionKey === userAnswerKey;
                             return (
                               <div
                                 key={oIdx}
@@ -454,24 +437,24 @@ function ExamSession({ examId }: { examId: string }) {
                       )}
 
                       {/* Explanation box */}
-                      {q.explanation && (
+                      {explanation && (
                         <div className="mt-2 text-xs bg-slate-950/30 border border-slate-900 p-4 rounded-xl leading-relaxed text-slate-350">
                           <span className="font-bold text-indigo-400 block mb-1.5 flex items-center gap-1">
                             <Lightbulb className="w-3.5 h-3.5" />
                             <span>{t('exams.explanation')}</span>
                           </span>
-                          <span>{q.explanation}</span>
+                          <span>{explanation}</span>
                         </div>
                       )}
 
                       {/* AI Personalized Feedback mini-lesson */}
-                      {q.aiFeedback && (
+                      {aiFeedback && (
                         <div className="mt-2 text-xs bg-violet-950/20 border border-violet-500/20 p-4 rounded-xl leading-relaxed text-slate-300">
                           <span className="font-bold text-violet-400 block mb-1.5 flex items-center gap-1">
                             <Brain className="w-3.5 h-3.5" />
                             <span>{t('exams.tutorFeedback')}</span>
                           </span>
-                          <span className="whitespace-pre-line">{q.aiFeedback}</span>
+                          <span className="whitespace-pre-line">{aiFeedback}</span>
                         </div>
                       )}
                     </div>
