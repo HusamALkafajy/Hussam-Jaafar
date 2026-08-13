@@ -113,24 +113,34 @@ export default function ExamsListPage() {
                       {ex.score}%
                     </span>
                   </div>
+                ) : ex.status === 'draft' ? (
+                  <span className="rounded bg-slate-500/10 px-2 py-0.5 text-xs font-bold text-slate-400">
+                    {t('exams.draft')}
+                  </span>
                 ) : (
                   <span className="text-xs font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">
                     {t('exams.inProgress')}
                   </span>
                 )}
 
-                <Button
-                  nativeButton={false}
-                  render={<Link href={`/exams/${ex.id}`} />}
-                  size="sm"
-                  variant={ex.status === 'completed' ? 'secondary' : 'primary'}
-                  className="font-bold flex items-center gap-1"
-                >
-                  <span>
-                    {ex.status === 'completed' ? t('exams.viewResults') : t('exams.start')}
+                {ex.status === 'draft' ? (
+                  <span className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                    {t('exams.draftUnavailableAction')}
                   </span>
-                  <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
-                </Button>
+                ) : (
+                  <Button
+                    nativeButton={false}
+                    render={<Link href={`/exams/${ex.id}`} />}
+                    size="sm"
+                    variant={ex.status === 'completed' ? 'secondary' : 'primary'}
+                    className="font-bold flex items-center gap-1"
+                  >
+                    <span>
+                      {ex.status === 'completed' ? t('exams.viewResults') : t('exams.start')}
+                    </span>
+                    <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
+                  </Button>
+                )}
               </div>
             </Card>
           ))}

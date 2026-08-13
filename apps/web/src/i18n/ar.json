@@ -342,6 +342,7 @@
     "questionTypes": "أنواع الأسئلة",
     "multipleChoice": "اختيار من متعدد",
     "trueFalse": "صح أو خطأ",
+    "mcqOnlyReleaseNote": "أسئلة الاختيار من متعدد متاحة في الإصدار الحالي.",
     "generateExamAction": "توليد الاختبار",
     "previousExams": "الاختبارات السابقة",
     "questions": "{count} سؤال",
@@ -428,6 +429,8 @@
     "weaknesses": "نقاط الضعف",
     "adaptiveMode": "وضع التكيّف الذكي",
     "active": "نشط",
+    "draft": "مسودة",
+    "draftUnavailableAction": "غير متاح بعد",
     "adaptiveDescription": "يمكن للذكاء الاصطناعي توليد أسئلة متابعة تستهدف نقاط ضعفك المحددة.",
     "generateAdaptive": "توليد سؤال تكيّفي جديد",
     "studyPath": "مسار المراجعة المقترح",
@@ -444,7 +447,11 @@
     "submit": "إنهاء الامتحان وتسليمه",
     "notFound": "الامتحان غير موجود أو لا تملك صلاحية الوصول إليه.",
     "submitFailure": "تعذر تسليم الامتحان. حاول مرة أخرى.",
-    "backToExams": "العودة إلى الامتحانات"
+    "backToExams": "العودة إلى الامتحانات",
+    "draftUnavailableTitle": "الاختبار غير متاح بعد",
+    "draftUnavailableMessage": "هذا الاختبار غير متاح للبدء بعد.",
+    "unsupportedFormatTitle": "تنسيق السؤال غير متاح",
+    "unsupportedFormatMessage": "يستخدم هذا الاختبار تنسيق أسئلة غير متاح في الإصدار الحالي."
   },
   "tutor": {
     "busy": "المدرّس الذكي مشغول حالياً. حاول مرة أخرى.",

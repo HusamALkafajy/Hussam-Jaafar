@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import {
   cleanup,
   fireEvent,
@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FilesPage from '../src/app/(dashboard)/files/page';
+import FileDetailPage from '../src/app/(dashboard)/files/[id]/page';
 import { UploadQueue } from '../src/components/upload/upload-queue';
 import { Button } from '../src/components/ui/button';
 import { SidebarNavButton } from '../src/components/ui/sidebar-nav';
@@ -53,6 +54,7 @@ const translations: Record<string, string> = {
   'files.emptyState': 'No files',
   'files.fileTypeFilter': 'File type filter',
   'files.fileTypeImage': 'Image',
+  'files.tabExam': 'Quiz',
   'files.invalidType': 'Choose a PDF, Word document, or image.',
   'files.maxSize': 'The file must be 50MB or smaller.',
   'files.mergingAndAnalyzing': 'Merging and analyzing',
@@ -89,6 +91,17 @@ const translations: Record<string, string> = {
   'uploadQueue.stageIndexing': 'Indexing content',
   'uploadQueue.stageFinalizing': 'Finalizing',
   'uploadQueue.stageCompleted': 'Completed',
+  'workspace.difficulty': 'Difficulty Level',
+  'workspace.easy': 'Easy',
+  'workspace.generateExam': 'Generate Smart Exam',
+  'workspace.generateExamAction': 'Generate Exam',
+  'workspace.hard': 'Hard',
+  'workspace.mcqOnlyReleaseNote': 'Multiple-choice questions are available in the current release.',
+  'workspace.medium': 'Medium',
+  'workspace.multipleChoice': 'Multiple Choice',
+  'workspace.questionCount': 'Questions',
+  'workspace.questionTypes': 'Question Types',
+  'workspace.trueFalse': 'True / False',
 };
 
 const arabicTranslations: Record<string, string> = {
@@ -346,6 +359,54 @@ describe('files and legacy navigation semantics', () => {
     );
     await waitFor(() => expect(document.activeElement).toBe(subjectFilter));
     expect(typeFilter.textContent).toContain('Word');
+  });
+
+  it('exposes only MCQ creation and sends an exact MCQ-only Exam request', async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === '/files/file-1') {
+        return Promise.resolve({
+          ...file,
+          extractedText: 'Course content',
+          fileType: 'docx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+      }
+      if (url === '/exams' || url === '/flashcard-sets') return Promise.resolve([]);
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    mocks.apiPost.mockResolvedValueOnce({ id: 'exam-mcq' });
+    const params = Object.assign(Promise.resolve({ id: 'file-1' }), {
+      status: 'fulfilled',
+      value: { id: 'file-1' },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <Suspense fallback={<div>Loading fixture</div>}>
+        <FileDetailPage params={params} />
+      </Suspense>,
+    );
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Quiz' }));
+
+    expect(screen.getByText('Multiple Choice')).not.toBeNull();
+    expect(
+      screen.getByText('Multiple-choice questions are available in the current release.'),
+    ).not.toBeNull();
+    expect(screen.queryByText('True / False')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Generate Exam' }));
+
+    await waitFor(() =>
+      expect(mocks.apiPost).toHaveBeenCalledWith('/exams', {
+        fileId: 'file-1',
+        difficulty: 'medium',
+        totalQuestions: 10,
+        questionTypes: ['mcq'],
+      }),
+    );
+    expect(mocks.push).toHaveBeenCalledWith('/exams/exam-mcq');
   });
 
   it('renders the files filter popup with explicit Arabic RTL direction', async () => {

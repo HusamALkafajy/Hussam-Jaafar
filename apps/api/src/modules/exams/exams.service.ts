@@ -16,7 +16,12 @@ import { DocumentReadService } from '../document-read/document-read.service';
 import { QuizMonthlyCapacityService } from '../quota/quiz-monthly-capacity.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { SubmitExamDto } from './dto/submit-exam.dto';
-import { ExamStatus } from '@studyai/types';
+import { Difficulty, QuestionType } from '@studyai/types';
+
+const RELEASE_QUESTION_TYPE_MESSAGE =
+  'Only multiple-choice exam questions are supported for the current release.';
+const INVALID_GENERATED_QUESTIONS_MESSAGE =
+  'Generated exam contains unsupported or invalid questions. Try again.';
 
 export class TooManyRequestsException extends HttpException {
   constructor(message: string) {
@@ -43,6 +48,14 @@ export class ExamsService {
       throw new BadRequestException('File extracted text is missing. Re-upload or re-analyze.');
     }
 
+    if (
+      !Array.isArray(dto.questionTypes) ||
+      dto.questionTypes.length === 0 ||
+      dto.questionTypes.some((type) => type !== QuestionType.MCQ)
+    ) {
+      throw new BadRequestException(RELEASE_QUESTION_TYPE_MESSAGE);
+    }
+
     const admission = await this.quizMonthlyCapacityService.tryConsumeQuizCapacity(
       userId,
       dto.totalQuestions,
@@ -59,12 +72,21 @@ export class ExamsService {
       dto.totalQuestions,
     );
 
-    const title = generated.title || `اختبار: ${file.originalName}`;
-    const generatedQuestions = (generated.questions || []).slice(0, dto.totalQuestions);
+    if (!generated || typeof generated !== 'object' || Array.isArray(generated)) {
+      throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+    }
 
-    if (generatedQuestions.length === 0) {
+    if (!Array.isArray(generated.questions)) {
+      throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+    }
+
+    if (generated.questions.length === 0) {
       throw new BadRequestException('Failed to generate questions. Try again.');
     }
+
+    this.validateGeneratedQuestions(generated.questions, dto.difficulty);
+    const title = generated.title || `اختبار: ${file.originalName}`;
+    const generatedQuestions = generated.questions.slice(0, dto.totalQuestions);
 
     // 2. Save Exam
     const examResult = await db
@@ -89,17 +111,82 @@ export class ExamsService {
       examId: exam.id,
       type: q.type,
       questionText: q.questionText,
-      options: q.options || null,
-      correctAnswer: String(q.correctAnswer).trim(),
-      difficulty: q.difficulty || dto.difficulty,
+      options: q.options,
+      correctAnswer: q.correctAnswer.trim(),
+      difficulty: q.difficulty ?? dto.difficulty,
       orderIndex: index,
-      points: q.points || 1,
-      explanation: q.explanation || null,
+      points: q.points ?? 1,
+      explanation: q.explanation ?? null,
     }));
 
     await db.insert(questions).values(questionValues);
 
     return this.findById(exam.id, userId);
+  }
+
+  private validateGeneratedQuestions(generatedQuestions: unknown[], dtoDifficulty: Difficulty): void {
+    for (const candidate of generatedQuestions) {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+      }
+
+      const question = candidate as Record<string, unknown>;
+      if (
+        question.type !== QuestionType.MCQ ||
+        typeof question.questionText !== 'string' ||
+        question.questionText.trim().length === 0 ||
+        !Array.isArray(question.options) ||
+        question.options.length < 2 ||
+        question.options.some(
+          (option) => typeof option !== 'string' || option.trim().length === 0,
+        ) ||
+        typeof question.correctAnswer !== 'string' ||
+        question.correctAnswer.trim().length === 0
+      ) {
+        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+      }
+
+      const normalizedOptions = question.options.map((option) =>
+        (option as string).trim().toLowerCase(),
+      );
+      if (new Set(normalizedOptions).size !== normalizedOptions.length) {
+        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+      }
+
+      const normalizedCorrectAnswer = question.correctAnswer.trim().toLowerCase();
+      if (normalizedOptions.filter((option) => option === normalizedCorrectAnswer).length !== 1) {
+        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+      }
+
+      const difficulty = question.difficulty;
+      if (difficulty === undefined) {
+        if (dtoDifficulty === Difficulty.MIXED) {
+          throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+        }
+      } else if (
+        difficulty !== Difficulty.EASY &&
+        difficulty !== Difficulty.MEDIUM &&
+        difficulty !== Difficulty.HARD
+      ) {
+        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+      }
+
+      if (
+        question.points !== undefined &&
+        question.points !== null &&
+        (!Number.isInteger(question.points) || (question.points as number) <= 0)
+      ) {
+        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+      }
+
+      if (
+        question.explanation !== undefined &&
+        question.explanation !== null &&
+        typeof question.explanation !== 'string'
+      ) {
+        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
+      }
+    }
   }
 
   async findAll(userId: string) {

@@ -342,6 +342,7 @@
     "questionTypes": "Question Types",
     "multipleChoice": "Multiple Choice",
     "trueFalse": "True / False",
+    "mcqOnlyReleaseNote": "Multiple-choice questions are available in the current release.",
     "generateExamAction": "Generate Exam",
     "previousExams": "Previous Exams",
     "questions": "{count} questions",
@@ -428,6 +429,8 @@
     "weaknesses": "Weaknesses",
     "adaptiveMode": "Adaptive Mode",
     "active": "Active",
+    "draft": "Draft",
+    "draftUnavailableAction": "Not available yet",
     "adaptiveDescription": "AI can generate targeted follow-up questions for your identified weak areas.",
     "generateAdaptive": "Generate Next Adaptive Question",
     "studyPath": "Suggested Study Path",
@@ -444,7 +447,11 @@
     "submit": "Finish & Submit Exam",
     "notFound": "Exam not found or access denied.",
     "submitFailure": "Could not submit the exam. Try again.",
-    "backToExams": "Back to Exams"
+    "backToExams": "Back to Exams",
+    "draftUnavailableTitle": "Quiz not available yet",
+    "draftUnavailableMessage": "This quiz is not available to start yet.",
+    "unsupportedFormatTitle": "Question format unavailable",
+    "unsupportedFormatMessage": "This quiz uses a question format that is not available in the current release."
   },
   "tutor": {
     "busy": "The AI Tutor is currently busy. Try again.",

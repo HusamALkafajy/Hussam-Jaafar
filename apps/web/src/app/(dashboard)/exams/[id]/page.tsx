@@ -32,6 +32,47 @@ const normalizeReviewText = (value: unknown): string =>
 const normalizeReviewKey = (value: unknown): string =>
   normalizeReviewText(value).trim().toLocaleLowerCase();
 
+const normalizeAttemptOption = (value: string): string =>
+  value.trim().toLowerCase();
+
+const isReleaseSafeAttempt = (candidate: unknown): boolean => {
+  if (!candidate || typeof candidate !== 'object') return false;
+
+  const examCandidate = candidate as Record<string, unknown>;
+  if (examCandidate.status !== 'active' || !Array.isArray(examCandidate.questions)) {
+    return false;
+  }
+  if (examCandidate.questions.length === 0) return false;
+
+  return examCandidate.questions.every((questionCandidate) => {
+    if (!questionCandidate || typeof questionCandidate !== 'object') return false;
+
+    const question = questionCandidate as Record<string, unknown>;
+    if (
+      question.type !== 'mcq' ||
+      typeof question.questionText !== 'string' ||
+      question.questionText.trim().length === 0 ||
+      !Array.isArray(question.options) ||
+      question.options.length < 2 ||
+      question.options.some(
+        (option) => typeof option !== 'string' || option.trim().length === 0,
+      ) ||
+      typeof question.correctAnswer !== 'string' ||
+      question.correctAnswer.trim().length === 0
+    ) {
+      return false;
+    }
+
+    const normalizedOptions = question.options.map((option) =>
+      normalizeAttemptOption(option as string),
+    );
+    if (new Set(normalizedOptions).size !== normalizedOptions.length) return false;
+
+    const normalizedCorrectAnswer = normalizeAttemptOption(question.correctAnswer);
+    return normalizedOptions.filter((option) => option === normalizedCorrectAnswer).length === 1;
+  });
+};
+
 export default function ExamPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const examId = resolvedParams.id;
@@ -46,6 +87,7 @@ function ExamSession({ examId }: { examId: string }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const attemptIsReleaseSafe = isReleaseSafeAttempt(exam);
 
   useEffect(() => {
     let ignore = false;
@@ -58,7 +100,7 @@ function ExamSession({ examId }: { examId: string }) {
           setExam(data);
 
           // Initialize timer if exam is active and has a time limit
-          if (data.status === 'active' && data.timeLimitMinutes) {
+          if (isReleaseSafeAttempt(data) && data.timeLimitMinutes) {
             // Simple mock countdown matching time limit
             setTimeLeft(data.timeLimitMinutes * 60);
           }
@@ -100,7 +142,7 @@ function ExamSession({ examId }: { examId: string }) {
 
   const handleSubmitExam = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!exam || exam.status === 'completed' || submitting || submissionStartedRef.current) return;
+    if (!isReleaseSafeAttempt(exam) || submitting || submissionStartedRef.current) return;
 
     submissionStartedRef.current = true;
     setSubmitting(true);
@@ -147,15 +189,27 @@ function ExamSession({ examId }: { examId: string }) {
   // TODO: Future migration path - extract this pattern into a shared 
   // `useLatest` or `useInterval` hook for standardizing safe timers.
   // ============================================================================
-  const latestState = React.useRef({ handleSubmitExam, status: exam?.status });
+  const latestState = React.useRef({
+    attemptIsReleaseSafe,
+    handleSubmitExam,
+    status: exam?.status,
+  });
   useEffect(() => {
-    latestState.current = { handleSubmitExam, status: exam?.status };
+    latestState.current = {
+      attemptIsReleaseSafe,
+      handleSubmitExam,
+      status: exam?.status,
+    };
   });
 
   // Countdown timer effect
   useEffect(() => {
     if (timeLeft === null || timeLeft <= 0) {
-      if (timeLeft === 0 && latestState.current.status === 'active') {
+      if (
+        timeLeft === 0 &&
+        latestState.current.status === 'active' &&
+        latestState.current.attemptIsReleaseSafe
+      ) {
         latestState.current.handleSubmitExam();
       }
       return;
@@ -194,6 +248,7 @@ function ExamSession({ examId }: { examId: string }) {
   }
 
   const isCompleted = exam.status === 'completed';
+  const isDraft = exam.status === 'draft';
 
   return (
     <div className="flex flex-col gap-6">
@@ -221,7 +276,7 @@ function ExamSession({ examId }: { examId: string }) {
         </div>
 
         {/* Timer or Status badge */}
-        {!isCompleted && timeLeft !== null && (
+        {!isCompleted && attemptIsReleaseSafe && timeLeft !== null && (
           <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 font-mono text-lg font-bold self-start md:self-center">
             <Clock className="w-5 h-5 animate-pulse" />
             <span>{formatTime(timeLeft)}</span>
@@ -464,7 +519,7 @@ function ExamSession({ examId }: { examId: string }) {
             })}
           </div>
         </div>
-      ) : (
+      ) : attemptIsReleaseSafe ? (
         /* ================= TAKING QUIZ VIEW ================= */
         <form onSubmit={handleSubmitExam} className="flex flex-col gap-8 max-w-3xl mx-auto w-full">
           <div className="flex flex-col gap-6">
@@ -546,6 +601,26 @@ function ExamSession({ examId }: { examId: string }) {
             </Button>
           </div>
         </form>
+      ) : (
+        <Card
+          role="status"
+          className="mx-auto flex w-full max-w-2xl flex-col items-center gap-5 border-amber-500/20 bg-amber-500/5 p-8 text-center"
+        >
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/25 bg-amber-500/10">
+            <AlertTriangle className="h-7 w-7 text-amber-400" aria-hidden="true" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-lg font-bold text-white">
+              {t(isDraft ? 'exams.draftUnavailableTitle' : 'exams.unsupportedFormatTitle')}
+            </h3>
+            <p className="text-sm leading-relaxed text-slate-400">
+              {t(isDraft ? 'exams.draftUnavailableMessage' : 'exams.unsupportedFormatMessage')}
+            </p>
+          </div>
+          <Button nativeButton={false} render={<Link href="/exams" />} variant="secondary">
+            {t('exams.backToExams')}
+          </Button>
+        </Card>
       )}
     </div>
   );

@@ -61,6 +61,39 @@ describe('ExamsService.create monthly Quiz capacity contract', () => {
     }));
   }
 
+  async function expectRequestTypeRejected(questionTypes: QuestionType[]) {
+    const error = await service
+      .create(userId, { ...baseDto, questionTypes })
+      .catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error.getStatus()).toBe(400);
+    expect(error.message).toBe(
+      'Only multiple-choice exam questions are supported for the current release.',
+    );
+    expect(quotaService.tryConsumeQuizCapacity).not.toHaveBeenCalled();
+    expect(aiService.generateExam).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  }
+
+  async function expectProviderOutputRejected(output: unknown) {
+    aiService.generateExam.mockResolvedValueOnce(output);
+
+    const error = await service.create(userId, baseDto).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error.getStatus()).toBe(400);
+    expect(error.message).toBe(
+      'Generated exam contains unsupported or invalid questions. Try again.',
+    );
+    expect(quotaService.tryConsumeQuizCapacity).toHaveBeenCalledWith(userId, 5);
+    expect(aiService.generateExam).toHaveBeenCalledTimes(1);
+    expect(quotaService.refund).not.toHaveBeenCalled();
+    expect(quotaService.release).not.toHaveBeenCalled();
+    expect(quotaService.decrement).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     events = [];
@@ -151,6 +184,17 @@ describe('ExamsService.create monthly Quiz capacity contract', () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['an empty request', []],
+    ['true/false', [QuestionType.TRUE_FALSE]],
+    ['fill-in-the-blank', [QuestionType.FILL_BLANK]],
+    ['essay', [QuestionType.ESSAY]],
+    ['short answer', [QuestionType.SHORT]],
+    ['a mixed MCQ and true/false request', [QuestionType.MCQ, QuestionType.TRUE_FALSE]],
+  ] as Array<[string, QuestionType[]]>)('rejects %s before monthly admission', async (_label, types) => {
+    await expectRequestTypeRejected(types);
+  });
+
   it('rejects denied admission with the stable 429 contract before AI or persistence', async () => {
     quotaService.tryConsumeQuizCapacity.mockResolvedValueOnce({
       admitted: false,
@@ -192,6 +236,111 @@ describe('ExamsService.create monthly Quiz capacity contract', () => {
     expect(quotaService.release).not.toHaveBeenCalled();
     expect(quotaService.decrement).not.toHaveBeenCalled();
     expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a null envelope', null],
+    ['a non-object envelope', 'invalid'],
+    ['an array envelope', []],
+    ['a missing questions collection', { title: 'Generated exam' }],
+    ['a non-array questions collection', { title: 'Generated exam', questions: {} }],
+  ])('rejects %s after admission and before persistence', async (_label, output) => {
+    await expectProviderOutputRejected(output);
+  });
+
+  it.each([
+    ['a non-object question', null],
+    ['an unsupported canonical type', { ...providerQuestions(1)[0], type: 'fill_blank' }],
+    ['an unknown type', { ...providerQuestions(1)[0], type: 'matching' }],
+    ['an empty question text', { ...providerQuestions(1)[0], questionText: '   ' }],
+    ['missing options', { ...providerQuestions(1)[0], options: undefined }],
+    ['non-array options', { ...providerQuestions(1)[0], options: 'A, B' }],
+    ['fewer than two options', { ...providerQuestions(1)[0], options: ['A'] }],
+    ['an empty option', { ...providerQuestions(1)[0], options: ['A', '  '] }],
+    ['normalized duplicate options', { ...providerQuestions(1)[0], options: ['A', ' a '] }],
+    ['an empty correct answer', { ...providerQuestions(1)[0], correctAnswer: '  ' }],
+    ['a correct answer outside the options', { ...providerQuestions(1)[0], correctAnswer: 'C' }],
+    ['an invalid difficulty', { ...providerQuestions(1)[0], difficulty: 'mixed' }],
+    ['zero points', { ...providerQuestions(1)[0], points: 0 }],
+    ['negative points', { ...providerQuestions(1)[0], points: -1 }],
+    ['fractional points', { ...providerQuestions(1)[0], points: 1.5 }],
+    ['non-numeric points', { ...providerQuestions(1)[0], points: '1' }],
+    ['a non-string explanation', { ...providerQuestions(1)[0], explanation: 42 }],
+  ])('rejects MCQ provider output containing %s', async (_label, invalidQuestion) => {
+    await expectProviderOutputRejected({
+      title: 'Generated exam',
+      questions: [invalidQuestion],
+    });
+  });
+
+  it('validates the complete provider batch before applying the count clamp', async () => {
+    await expectProviderOutputRejected({
+      title: 'Generated exam',
+      questions: [
+        ...providerQuestions(5),
+        { ...providerQuestions(1)[0], type: 'essay' },
+      ],
+    });
+  });
+
+  it('rejects mixed difficulty when a provider question omits its difficulty', async () => {
+    const question = providerQuestions(1)[0];
+    delete (question as Partial<typeof question>).difficulty;
+    aiService.generateExam.mockResolvedValueOnce({
+      title: 'Generated exam',
+      questions: [question],
+    });
+
+    const error = await service
+      .create(userId, { ...baseDto, difficulty: Difficulty.MIXED })
+      .catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error.message).toBe(
+      'Generated exam contains unsupported or invalid questions. Try again.',
+    );
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('persists mixed difficulty when every provider question supplies a valid difficulty', async () => {
+    const questionsByDifficulty = providerQuestions(3).map((question, index) => ({
+      ...question,
+      difficulty: [Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD][index],
+    }));
+    aiService.generateExam.mockResolvedValueOnce({
+      title: 'Generated exam',
+      questions: questionsByDifficulty,
+    });
+
+    await service.create(userId, {
+      ...baseDto,
+      difficulty: Difficulty.MIXED,
+    });
+
+    expect(persistedQuestions?.map((question) => question.difficulty)).toEqual([
+      Difficulty.EASY,
+      Difficulty.MEDIUM,
+      Difficulty.HARD,
+    ]);
+  });
+
+  it('preserves allowed defaults after provider validation', async () => {
+    const question = providerQuestions(1)[0];
+    delete (question as Partial<typeof question>).difficulty;
+    delete (question as Partial<typeof question>).points;
+    delete (question as Partial<typeof question>).explanation;
+    aiService.generateExam.mockResolvedValueOnce({
+      title: 'Generated exam',
+      questions: [question],
+    });
+
+    await service.create(userId, baseDto);
+
+    expect(persistedQuestions?.[0]).toMatchObject({
+      difficulty: Difficulty.MEDIUM,
+      points: 1,
+      explanation: null,
+    });
   });
 
   it('clamps excess provider output to requested capacity and preserves order', async () => {

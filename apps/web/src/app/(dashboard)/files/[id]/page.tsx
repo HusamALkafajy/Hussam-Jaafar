@@ -22,7 +22,7 @@ import {
   FileText, Brain, ListRestart, HelpCircle, MessageSquare, Sparkles,
   ArrowLeft, Calendar, Layers, FileCheck, Send, BookOpen, AlertTriangle,
   RefreshCw, CheckCircle2, XCircle, Clock, Zap, Target, BarChart3,
-  ChevronRight, Star, Check,
+  ChevronRight, Star,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -432,7 +432,6 @@ export default function FileDetailPage({ params }: PageProps) {
   // Exam
   const [examDifficulty, setExamDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [examTotalQuestions, setExamTotalQuestions] = useState(10);
-  const [examQuestionTypes, setExamQuestionTypes] = useState<string[]>(['mcq', 'true_false']);
   const [generatingExam, setGeneratingExam] = useState(false);
   const [previousExams, setPreviousExams] = useState<any[]>([]);
 
@@ -549,7 +548,12 @@ export default function FileDetailPage({ params }: PageProps) {
   const handleGenerateExam = async () => {
     setGeneratingExam(true);
     try {
-      const exam = await api.post<any>('/exams', { fileId, difficulty: examDifficulty, totalQuestions: examTotalQuestions, questionTypes: examQuestionTypes });
+      const exam = await api.post<any>('/exams', {
+        fileId,
+        difficulty: examDifficulty,
+        totalQuestions: examTotalQuestions,
+        questionTypes: ['mcq'],
+      });
       router.push(`/exams/${exam.id}`);
     } catch { alert(t('workspace.examGenerationFailure')); }
     finally { setGeneratingExam(false); }
@@ -845,25 +849,13 @@ export default function FileDetailPage({ params }: PageProps) {
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                       {t('workspace.questionTypes')}
                     </label>
-                    <div className="flex flex-col gap-2">
-                      {[
-                        { id: 'mcq', label: t('workspace.multipleChoice') },
-                        { id: 'true_false', label: t('workspace.trueFalse') },
-                      ].map((type) => (
-                        <label key={type.id} className="flex items-center gap-2.5 text-sm text-slate-300 cursor-pointer select-none group">
-                          <div
-                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
-                              examQuestionTypes.includes(type.id)
-                                ? 'bg-indigo-600 border-indigo-600'
-                                : 'border-slate-600 group-hover:border-slate-400'
-                            }`}
-                            onClick={() => setExamQuestionTypes(prev => prev.includes(type.id) ? prev.filter(t => t !== type.id) : [...prev, type.id])}
-                          >
-                            {examQuestionTypes.includes(type.id) && <Check className="w-3 h-3 text-white" />}
-                          </div>
-                          <span>{type.label}</span>
-                        </label>
-                      ))}
+                    <div className="flex flex-col gap-1.5">
+                      <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-sm font-semibold text-indigo-300">
+                        {t('workspace.multipleChoice')}
+                      </div>
+                      <p className="text-xs leading-relaxed text-slate-500">
+                        {t('workspace.mcqOnlyReleaseNote')}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -872,7 +864,7 @@ export default function FileDetailPage({ params }: PageProps) {
                   <Button
                     onClick={handleGenerateExam}
                     loading={generatingExam}
-                    disabled={examQuestionTypes.length === 0 || examTotalQuestions < 5}
+                    disabled={examTotalQuestions < 5}
                     className="font-bold px-6"
                   >
                     <Sparkles className="w-4 h-4 mr-2" />
