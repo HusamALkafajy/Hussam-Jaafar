@@ -371,7 +371,9 @@ describe('Prisma-to-Drizzle ownership transfer', () => {
 
   it('keeps the generated migration metadata tied to the transfer migration', () => {
     expect(migrationSnapshot.prevId).toBe(previousSnapshot.id);
-    expect(migrationJournal.entries.at(-1)).toMatchObject({
+    const historicalEntries = migrationJournal.entries.filter(e => e.tag === '0022_supreme_texas_twister');
+    expect(historicalEntries).toHaveLength(1);
+    expect(historicalEntries[0]).toMatchObject({
       idx: 22,
       tag: '0022_supreme_texas_twister',
     });

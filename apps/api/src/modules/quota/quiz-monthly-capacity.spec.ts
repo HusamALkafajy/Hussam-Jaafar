@@ -6,14 +6,19 @@
  *   Uses real concurrent inserts to prove atomic admission.
  */
 
-// Inject the test DB URL before any @studyai/database import resolves its client.
-process.env.DATABASE_URL = 'postgresql://studyai_test:dummydummy@localhost:5434/studyai_test';
+if (process.env.TEST_DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+}
+
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL or TEST_DATABASE_URL must be supplied through the environment for this test.');
+}
 
 import {
   QuizMonthlyCapacityService,
   FREE_QUIZ_QUESTIONS_PER_MONTH,
 } from './quiz-monthly-capacity.service';
-import { db, quizMonthlyUsage, users, eq } from '@studyai/database';
+import { client, db, quizMonthlyUsage, users, eq } from '@studyai/database';
 
 jest.setTimeout(30000);
 
@@ -55,6 +60,7 @@ afterAll(async () => {
     await db.delete(quizMonthlyUsage).where(eq(quizMonthlyUsage.userId, userId));
     await db.delete(users).where(eq(users.id, userId));
   }
+  await client.end();
 });
 
 beforeEach(async () => {
