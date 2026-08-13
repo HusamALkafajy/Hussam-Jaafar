@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Logger,
 } from '@nestjs/common';
 import { db, exams, questions, files, eq, and, or, desc, sql, isNull, lt } from '@studyai/database';
@@ -11,9 +13,16 @@ import { FilesService } from '../files/files.service';
 import { RagService } from '../rag/rag.service';
 import { GamificationService } from '../study-coach/gamification.service';
 import { DocumentReadService } from '../document-read/document-read.service';
+import { QuizMonthlyCapacityService } from '../quota/quiz-monthly-capacity.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { SubmitExamDto } from './dto/submit-exam.dto';
 import { ExamStatus } from '@studyai/types';
+
+export class TooManyRequestsException extends HttpException {
+  constructor(message: string) {
+    super(message, HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
 
 @Injectable()
 export class ExamsService {
@@ -25,12 +34,21 @@ export class ExamsService {
     private readonly ragService: RagService,
     private readonly gamificationService: GamificationService,
     private readonly documentReadService: DocumentReadService,
+    private readonly quizMonthlyCapacityService: QuizMonthlyCapacityService,
   ) {}
 
   async create(userId: string, dto: CreateExamDto) {
     const file = await this.filesService.findById(dto.fileId, userId);
     if (!file.extractedText) {
       throw new BadRequestException('File extracted text is missing. Re-upload or re-analyze.');
+    }
+
+    const admission = await this.quizMonthlyCapacityService.tryConsumeQuizCapacity(
+      userId,
+      dto.totalQuestions,
+    );
+    if (!admission.admitted) {
+      throw new TooManyRequestsException('Monthly quiz question limit exceeded.');
     }
 
     // 1. Generate questions using the configured AI provider
@@ -42,7 +60,7 @@ export class ExamsService {
     );
 
     const title = generated.title || `اختبار: ${file.originalName}`;
-    const generatedQuestions = generated.questions || [];
+    const generatedQuestions = (generated.questions || []).slice(0, dto.totalQuestions);
 
     if (generatedQuestions.length === 0) {
       throw new BadRequestException('Failed to generate questions. Try again.');
