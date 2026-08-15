@@ -42,6 +42,16 @@ import { QuizzesModule } from './modules/quizzes/quizzes.module';
 import { TutorModule } from './modules/tutor/tutor.module';
 import { AdaptiveLearningModule } from './modules/adaptive-learning/adaptive-learning.module';
 
+export const createThrottlerOptions = (configService: ConfigService) => ({
+  throttlers: [
+    {
+      limit: configService.getOrThrow<number>('app.throttleLimit'),
+      ttl: configService.getOrThrow<number>('app.throttleTtl'),
+    },
+  ],
+  setHeaders: true,
+});
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -52,19 +62,11 @@ import { AdaptiveLearningModule } from './modules/adaptive-learning/adaptive-lea
     }),
     InfrastructureModule,
     ScheduleModule.forRoot(),
-    // Use static throttler config to avoid runtime init ordering issues, but retrieve via config factory
+    // Resolve the validated, registered values only after ConfigModule has initialized.
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        throttlers: [
-          {
-            limit: configService.get<number>('app.throttleLimit') || 100,
-            ttl: configService.get<number>('app.throttleTtl') || 60,
-          },
-        ],
-        setHeaders: true,
-      }),
+      useFactory: createThrottlerOptions,
     }),
     AuthModule,
     UsersModule,

@@ -84,14 +84,35 @@ export const getAccessToken = (): string | undefined => {
  * receive a Response rather than JSON, while credentials and the in-memory
  * bearer token stay off URLs and out of component state.
  */
-export const authenticatedFetch = async (endpoint: string, init: RequestInit = {}): Promise<Response> => {
+export const authenticatedFetch = async (
+  endpoint: string,
+  init: RequestInit = {},
+  isRetry = false,
+): Promise<Response> => {
   const headers = new Headers(init.headers || {});
   if (_accessToken) headers.set('Authorization', `Bearer ${_accessToken}`);
-  return fetch(`${BASE_URL}/api${endpoint}`, {
+  const response = await fetch(`${BASE_URL}/api${endpoint}`, {
     ...init,
     headers,
     credentials: 'include',
   });
+
+  if (
+    response.status !== 401 ||
+    isRetry ||
+    AUTH_ENDPOINTS.has(endpoint) ||
+    init.signal?.aborted
+  ) {
+    return response;
+  }
+
+  await refreshAccessToken();
+
+  // Do not turn a completed unauthorized response into a new request after the
+  // caller has cancelled it while the shared refresh was in flight.
+  if (init.signal?.aborted) return response;
+
+  return authenticatedFetch(endpoint, init, true);
 };
 
 // ─── Auth-Expired Pub/Sub ─────────────────────────────────────────────────────
@@ -131,6 +152,41 @@ const readCsrfToken = (): string | undefined => {
   } catch {
     return undefined;
   }
+};
+
+const refreshAccessToken = async (): Promise<void> => {
+  if (!_refreshPromise) {
+    _refreshPromise = (async () => {
+      try {
+        const refreshHeaders = new Headers({ 'Content-Type': 'application/json' });
+        const refreshCsrfToken = readCsrfToken();
+        if (refreshCsrfToken) refreshHeaders.set('X-CSRF-Token', refreshCsrfToken);
+        const refreshResp = await fetch(`${BASE_URL}/api/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: refreshHeaders,
+        });
+
+        if (!refreshResp.ok) {
+          throw new AuthExpiredError();
+        }
+
+        // Response is wrapped by the NestJS global ApiResponse wrapper.
+        const body = await refreshResp.json();
+        const newToken: string = body?.data?.accessToken;
+        if (!newToken) throw new AuthExpiredError();
+        _accessToken = newToken;
+      } catch (err) {
+        _accessToken = undefined;
+        _notifyAuthExpired();
+        throw err;
+      } finally {
+        _refreshPromise = null;
+      }
+    })();
+  }
+
+  return _refreshPromise;
 };
 
 // ─── Core Request ─────────────────────────────────────────────────────────────
@@ -198,41 +254,9 @@ async function request<T>(
       !isRetry &&
       !AUTH_ENDPOINTS.has(endpoint)
     ) {
-      // Deduplicate: at most one concurrent refresh
-      if (!_refreshPromise) {
-        _refreshPromise = (async () => {
-          try {
-            const refreshHeaders = new Headers({ 'Content-Type': 'application/json' });
-            const refreshCsrfToken = readCsrfToken();
-            if (refreshCsrfToken) refreshHeaders.set('X-CSRF-Token', refreshCsrfToken);
-            const refreshResp = await fetch(`${BASE_URL}/api/auth/refresh`, {
-              method: 'POST',
-              credentials: 'include',
-              headers: refreshHeaders,
-            });
-
-            if (!refreshResp.ok) {
-              throw new AuthExpiredError();
-            }
-
-            // Response is wrapped by the NestJS global ApiResponse wrapper
-            const body = await refreshResp.json();
-            const newToken: string = body?.data?.accessToken;
-            if (!newToken) throw new AuthExpiredError();
-            _accessToken = newToken;
-          } catch (err) {
-            _accessToken = undefined;
-            _notifyAuthExpired();
-            throw err;
-          } finally {
-            _refreshPromise = null;
-          }
-        })();
-      }
-
       // All concurrent 401s wait for the shared promise
       try {
-        await _refreshPromise;
+        await refreshAccessToken();
       } catch {
         // Refresh failed — re-throw as AuthExpiredError so callers can handle
         throw new AuthExpiredError();

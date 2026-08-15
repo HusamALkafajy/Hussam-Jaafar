@@ -382,3 +382,188 @@ describe('api-client — structured failure contract', () => {
     expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer memory-token');
   });
 });
+
+describe('api-client binary 401 recovery', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+    document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([200, 206])('returns binary %i responses without refreshing', async (status) => {
+    const response = new Response(new Uint8Array([1, 2, 3]), { status });
+    fetchSpy.mockResolvedValue(response);
+    const { authenticatedFetch } = await import('../src/lib/api-client');
+
+    await expect(authenticatedFetch('/files/original')).resolves.toBe(response);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes once and retries a binary request without changing its bytes', async () => {
+    document.cookie = 'csrf_token=binary-csrf; path=/';
+    const bytes = new Uint8Array([37, 80, 68, 70, 45]);
+    let originalCalls = 0;
+    fetchSpy.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/refresh')) {
+        expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('binary-csrf');
+        expect(init?.credentials).toBe('include');
+        return refreshSuccessResponse('fresh-binary-token');
+      }
+      originalCalls += 1;
+      return originalCalls === 1
+        ? unauthorizedResponse()
+        : new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/pdf' } });
+    });
+    const { authenticatedFetch, setAccessToken } = await import('../src/lib/api-client');
+    setAccessToken('expired-binary-token');
+
+    const response = await authenticatedFetch('/files/file-id/original');
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(originalCalls).toBe(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('preserves range and conditional headers across a refreshed 206 retry', async () => {
+    let originalCalls = 0;
+    fetchSpy.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/refresh')) return refreshSuccessResponse();
+      originalCalls += 1;
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Range')).toBe('bytes=10-19');
+      expect(headers.get('If-Range')).toBe('etag-1');
+      expect(headers.get('Accept')).toBe('application/pdf');
+      expect(init?.credentials).toBe('include');
+      return originalCalls === 1
+        ? unauthorizedResponse()
+        : new Response(new Uint8Array([10, 11]), {
+            status: 206,
+            headers: { 'Content-Range': 'bytes 10-11/20' },
+          });
+    });
+    const { authenticatedFetch } = await import('../src/lib/api-client');
+
+    const response = await authenticatedFetch('/files/file-id/original', {
+      headers: { Range: 'bytes=10-19', 'If-Range': 'etag-1', Accept: 'application/pdf' },
+      cache: 'no-store',
+    });
+    expect(response.status).toBe(206);
+    expect(originalCalls).toBe(2);
+  });
+
+  it('shares one refresh between concurrent JSON and binary 401 responses', async () => {
+    let refreshCalls = 0;
+    const calls = new Map<string, number>();
+    fetchSpy.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/refresh')) {
+        refreshCalls += 1;
+        return refreshSuccessResponse();
+      }
+      const count = (calls.get(url) ?? 0) + 1;
+      calls.set(url, count);
+      if (count === 1) return unauthorizedResponse();
+      return url.includes('/binary')
+        ? new Response(new Uint8Array([1]), { status: 200 })
+        : successResponse({ ok: true });
+    });
+    const { api, authenticatedFetch } = await import('../src/lib/api-client');
+
+    const [json, binary] = await Promise.all([api.get('/json'), authenticatedFetch('/binary')]);
+    expect(json).toEqual({ ok: true });
+    expect(binary.status).toBe(200);
+    expect(refreshCalls).toBe(1);
+  });
+
+  it('shares one refresh between concurrent binary 401 responses', async () => {
+    let refreshCalls = 0;
+    const calls = new Map<string, number>();
+    fetchSpy.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/refresh')) {
+        refreshCalls += 1;
+        return refreshSuccessResponse();
+      }
+      const count = (calls.get(url) ?? 0) + 1;
+      calls.set(url, count);
+      return count === 1 ? unauthorizedResponse() : new Response(new Uint8Array([1]), { status: 200 });
+    });
+    const { authenticatedFetch } = await import('../src/lib/api-client');
+
+    await Promise.all([authenticatedFetch('/binary-a'), authenticatedFetch('/binary-b')]);
+    expect(refreshCalls).toBe(1);
+  });
+
+  it('uses the existing expiration path when binary refresh fails', async () => {
+    const { authenticatedFetch, onAuthExpired, AuthExpiredError } = await import('../src/lib/api-client');
+    const expired = vi.fn();
+    const unsubscribe = onAuthExpired(expired);
+    fetchSpy.mockImplementation(async (input) =>
+      String(input).endsWith('/api/auth/refresh') ? refreshFailResponse() : unauthorizedResponse(),
+    );
+
+    await expect(authenticatedFetch('/binary')).rejects.toBeInstanceOf(AuthExpiredError);
+    expect(expired).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it('does not refresh again when the binary retry is still unauthorized', async () => {
+    let refreshCalls = 0;
+    fetchSpy.mockImplementation(async (input) => {
+      if (String(input).endsWith('/api/auth/refresh')) {
+        refreshCalls += 1;
+        return refreshSuccessResponse();
+      }
+      return unauthorizedResponse();
+    });
+    const { authenticatedFetch } = await import('../src/lib/api-client');
+
+    await expect(authenticatedFetch('/binary')).resolves.toMatchObject({ status: 401 });
+    expect(refreshCalls).toBe(1);
+  });
+
+  it.each([403, 404, 413, 429, 500])('does not refresh binary HTTP %i responses', async (status) => {
+    fetchSpy.mockResolvedValue(new Response(null, { status }));
+    const { authenticatedFetch } = await import('../src/lib/api-client');
+
+    await expect(authenticatedFetch('/binary')).resolves.toMatchObject({ status });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refresh or retry an aborted binary request after a 401', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    fetchSpy.mockResolvedValue(unauthorizedResponse());
+    const { authenticatedFetch } = await import('../src/lib/api-client');
+
+    await expect(authenticatedFetch('/binary', { signal: controller.signal })).resolves.toMatchObject({
+      status: 401,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry after the caller aborts while refresh is in flight', async () => {
+    const controller = new AbortController();
+    let originalCalls = 0;
+    fetchSpy.mockImplementation(async (input) => {
+      if (String(input).endsWith('/api/auth/refresh')) {
+        controller.abort();
+        return refreshSuccessResponse();
+      }
+      originalCalls += 1;
+      return unauthorizedResponse();
+    });
+    const { authenticatedFetch } = await import('../src/lib/api-client');
+
+    await expect(authenticatedFetch('/binary', { signal: controller.signal })).resolves.toMatchObject({
+      status: 401,
+    });
+    expect(originalCalls).toBe(1);
+  });
+});

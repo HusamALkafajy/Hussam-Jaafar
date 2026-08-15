@@ -1,6 +1,9 @@
 import { plainToInstance } from 'class-transformer';
 import {
   IsEnum,
+  IsInt,
+  Max,
+  Min,
   IsNumber,
   IsOptional,
   IsString,
@@ -16,6 +19,37 @@ enum Environment {
   Test = 'test',
 }
 
+export const DEFAULT_THROTTLE_LIMIT = 100;
+export const DEFAULT_THROTTLE_TTL_MS = 60_000;
+
+// @nestjs/throttler 6.5.0 passes ttl directly to setTimeout. Node.js timers
+// clamp delays above this signed 32-bit value, so larger values are unsafe.
+export const MAX_THROTTLE_TTL_MS = 2_147_483_647;
+
+const POSITIVE_BASE_10_INTEGER = /^[1-9]\d*$/;
+
+function normalizeThrottleValue(
+  config: Record<string, unknown>,
+  name: 'THROTTLE_LIMIT' | 'THROTTLE_TTL',
+  maximum: number,
+): string | undefined {
+  if (!Object.prototype.hasOwnProperty.call(config, name)) return undefined;
+
+  const raw = config[name];
+  const value = typeof raw === 'number' ? String(raw) : raw;
+  if (typeof value !== 'string' || !POSITIVE_BASE_10_INTEGER.test(value)) {
+    return `${name} must be a base-10 positive integer.`;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > maximum) {
+    return `${name} must be a safe positive integer no greater than ${maximum}.`;
+  }
+
+  config[name] = parsed;
+  return undefined;
+}
+
 class EnvironmentVariables {
   @IsEnum(Environment)
   @IsOptional()
@@ -28,6 +62,18 @@ class EnvironmentVariables {
   @IsNumber()
   @IsOptional()
   APP_PORT?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  @IsOptional()
+  THROTTLE_LIMIT?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(MAX_THROTTLE_TTL_MS)
+  @IsOptional()
+  THROTTLE_TTL?: number;
 
   @IsString()
   @MinLength(32, { message: 'JWT_SECRET must be at least 32 characters long' })
@@ -102,6 +148,17 @@ class EnvironmentVariables {
 }
 
 export function validate(config: Record<string, unknown>) {
+  const throttleErrors = [
+    normalizeThrottleValue(config, 'THROTTLE_LIMIT', Number.MAX_SAFE_INTEGER),
+    normalizeThrottleValue(config, 'THROTTLE_TTL', MAX_THROTTLE_TTL_MS),
+  ].filter((message): message is string => Boolean(message));
+
+  if (throttleErrors.length > 0) {
+    throw new Error(
+      `Configuration validation failed:\n- ${throttleErrors.join('\n- ')}\n\nPlease check your environment.`,
+    );
+  }
+
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
