@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -96,12 +97,18 @@ const translations: Record<string, string> = {
   'workspace.generateExam': 'Generate Smart Exam',
   'workspace.generateExamAction': 'Generate Exam',
   'workspace.hard': 'Hard',
+  'workspace.inProgress': 'In progress',
   'workspace.mcqOnlyReleaseNote': 'Multiple-choice questions are available in the current release.',
   'workspace.medium': 'Medium',
   'workspace.multipleChoice': 'Multiple Choice',
+  'workspace.previousExams': 'Previous quizzes',
   'workspace.questionCount': 'Questions',
+  'workspace.questions': '{count} questions',
   'workspace.questionTypes': 'Question Types',
+  'workspace.takeExam': 'Take quiz',
   'workspace.trueFalse': 'True / False',
+  'workspace.viewResults': 'View results',
+  'exams.draftUnavailableAction': 'Not available yet',
 };
 
 const arabicTranslations: Record<string, string> = {
@@ -407,6 +414,96 @@ describe('files and legacy navigation semantics', () => {
       }),
     );
     expect(mocks.push).toHaveBeenCalledWith('/exams/exam-mcq');
+  });
+
+  it('exposes file-history actions only for eligible active and completed exams', async () => {
+    const examFixture = {
+      fileId: 'file-1',
+      difficulty: 'medium',
+      totalQuestions: 1,
+      createdAt: '2026-08-14T00:00:00.000Z',
+      status: 'active',
+      attemptEligible: false,
+    };
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === '/files/file-1') {
+        return Promise.resolve({
+          ...file,
+          extractedText: 'Course content',
+          fileType: 'docx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+      }
+      if (url === '/flashcard-sets') return Promise.resolve([]);
+      if (url === '/exams') {
+        return Promise.resolve([
+          {
+            ...examFixture,
+            id: 'exam-eligible',
+            title: 'Eligible active quiz',
+            attemptEligible: true,
+          },
+          {
+            ...examFixture,
+            id: 'exam-completed',
+            title: 'Completed quiz',
+            status: 'completed',
+            score: '80.00',
+          },
+          { ...examFixture, id: 'exam-draft', title: 'Draft quiz', status: 'draft' },
+          { ...examFixture, id: 'exam-unsupported', title: 'Unsupported quiz' },
+          { ...examFixture, id: 'exam-mixed', title: 'Mixed quiz' },
+          { ...examFixture, id: 'exam-unknown', title: 'Unknown quiz' },
+          { ...examFixture, id: 'exam-malformed', title: 'Malformed quiz' },
+          {
+            ...examFixture,
+            id: 'exam-invalid-status',
+            title: 'Invalid-status quiz',
+            status: 'archived',
+          },
+        ]);
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    const params = Object.assign(Promise.resolve({ id: 'file-1' }), {
+      status: 'fulfilled',
+      value: { id: 'file-1' },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <Suspense fallback={<div>Loading fixture</div>}>
+        <FileDetailPage params={params} />
+      </Suspense>,
+    );
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Quiz' }));
+
+    const eligibleCard = screen.getByText('Eligible active quiz').closest('.rounded-2xl');
+    const completedCard = screen.getByText('Completed quiz').closest('.rounded-2xl');
+    expect(eligibleCard).not.toBeNull();
+    expect(completedCard).not.toBeNull();
+    expect(within(eligibleCard!).getByText('Take quiz').closest('a')?.getAttribute('href')).toBe(
+      '/exams/exam-eligible',
+    );
+    expect(within(completedCard!).getByText('View results').closest('a')?.getAttribute('href')).toBe(
+      '/exams/exam-completed',
+    );
+
+    for (const title of [
+      'Draft quiz',
+      'Unsupported quiz',
+      'Mixed quiz',
+      'Unknown quiz',
+      'Malformed quiz',
+      'Invalid-status quiz',
+    ]) {
+      const blockedCard = screen.getByText(title).closest('.rounded-2xl');
+      expect(blockedCard).not.toBeNull();
+      expect(within(blockedCard!).getByText('Not available yet')).not.toBeNull();
+      expect(blockedCard!.querySelector('a')).toBeNull();
+    }
   });
 
   it('renders the files filter popup with explicit Arabic RTL direction', async () => {

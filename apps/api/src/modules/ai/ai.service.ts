@@ -837,26 +837,21 @@ export class AiService {
     if (this.isMockMode()) {
       return {
         title: 'Mock Learning Assessment',
-        questions: [
-          {
+        questions: Array.from({ length: count }, (_, index) => {
+          const questionNumber = index + 1;
+          return {
             type: 'mcq',
-            questionText: 'Which platform allows students to study using AI?',
-            options: ['StudyAI', 'LegacyBooks', 'ManualQuiz', 'None'],
+            questionText: `Mock multiple-choice question ${questionNumber}`,
+            options: ['StudyAI', `Alternative ${questionNumber}`],
             correctAnswer: 'StudyAI',
-            explanation: 'StudyAI is the AI-powered SaaS described in the document.',
-            difficulty: 'easy',
+            explanation: `Mock explanation ${questionNumber}`,
+            difficulty:
+              difficulty === 'mixed'
+                ? ['easy', 'medium', 'hard'][index % 3]
+                : difficulty,
             points: 1,
-          },
-          {
-            type: 'true_false',
-            questionText: 'OpenRouter API supports PDF document processing natively.',
-            options: null,
-            correctAnswer: 'true',
-            explanation: 'OpenRouter supports multimodal input files up to limits of the underlying model.',
-            difficulty: 'easy',
-            points: 1,
-          },
-        ],
+          };
+        }),
       };
     }
 

@@ -123,23 +123,32 @@ export default function ExamsListPage() {
                   </span>
                 )}
 
-                {ex.status === 'draft' ? (
-                  <span className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-xs font-semibold text-slate-500">
-                    {t('exams.draftUnavailableAction')}
-                  </span>
-                ) : (
+                {ex.status === 'completed' ? (
                   <Button
                     nativeButton={false}
                     render={<Link href={`/exams/${ex.id}`} />}
                     size="sm"
-                    variant={ex.status === 'completed' ? 'secondary' : 'primary'}
+                    variant="secondary"
                     className="font-bold flex items-center gap-1"
                   >
-                    <span>
-                      {ex.status === 'completed' ? t('exams.viewResults') : t('exams.start')}
-                    </span>
+                    <span>{t('exams.viewResults')}</span>
                     <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
                   </Button>
+                ) : ex.status === 'active' && ex.attemptEligible === true ? (
+                  <Button
+                    nativeButton={false}
+                    render={<Link href={`/exams/${ex.id}`} />}
+                    size="sm"
+                    variant="primary"
+                    className="font-bold flex items-center gap-1"
+                  >
+                    <span>{t('exams.start')}</span>
+                    <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
+                  </Button>
+                ) : (
+                  <span className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                    {t('exams.draftUnavailableAction')}
+                  </span>
                 )}
               </div>
             </Card>

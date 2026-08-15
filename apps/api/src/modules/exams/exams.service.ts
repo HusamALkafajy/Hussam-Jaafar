@@ -7,7 +7,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { db, exams, questions, files, eq, and, or, desc, sql, isNull, lt } from '@studyai/database';
+import { db, exams, questions, files, eq, and, or, desc, sql, isNull, lt, inArray } from '@studyai/database';
 import { AiService } from '../ai/ai.service';
 import { FilesService } from '../files/files.service';
 import { RagService } from '../rag/rag.service';
@@ -17,9 +17,13 @@ import { QuizMonthlyCapacityService } from '../quota/quiz-monthly-capacity.servi
 import { CreateExamDto } from './dto/create-exam.dto';
 import { SubmitExamDto } from './dto/submit-exam.dto';
 import { Difficulty, QuestionType } from '@studyai/types';
+import {
+  evaluateReleaseAttemptEligibility,
+  INVALID_RELEASE_EXAM_MESSAGE,
+  isGeneratedReleaseMcqQuestion,
+  RELEASE_QUESTION_TYPE_MESSAGE,
+} from './exam-release-eligibility';
 
-const RELEASE_QUESTION_TYPE_MESSAGE =
-  'Only multiple-choice exam questions are supported for the current release.';
 const INVALID_GENERATED_QUESTIONS_MESSAGE =
   'Generated exam contains unsupported or invalid questions. Try again.';
 
@@ -126,75 +130,50 @@ export class ExamsService {
 
   private validateGeneratedQuestions(generatedQuestions: unknown[], dtoDifficulty: Difficulty): void {
     for (const candidate of generatedQuestions) {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
-      }
-
-      const question = candidate as Record<string, unknown>;
-      if (
-        question.type !== QuestionType.MCQ ||
-        typeof question.questionText !== 'string' ||
-        question.questionText.trim().length === 0 ||
-        !Array.isArray(question.options) ||
-        question.options.length < 2 ||
-        question.options.some(
-          (option) => typeof option !== 'string' || option.trim().length === 0,
-        ) ||
-        typeof question.correctAnswer !== 'string' ||
-        question.correctAnswer.trim().length === 0
-      ) {
-        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
-      }
-
-      const normalizedOptions = question.options.map((option) =>
-        (option as string).trim().toLowerCase(),
-      );
-      if (new Set(normalizedOptions).size !== normalizedOptions.length) {
-        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
-      }
-
-      const normalizedCorrectAnswer = question.correctAnswer.trim().toLowerCase();
-      if (normalizedOptions.filter((option) => option === normalizedCorrectAnswer).length !== 1) {
-        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
-      }
-
-      const difficulty = question.difficulty;
-      if (difficulty === undefined) {
-        if (dtoDifficulty === Difficulty.MIXED) {
-          throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
-        }
-      } else if (
-        difficulty !== Difficulty.EASY &&
-        difficulty !== Difficulty.MEDIUM &&
-        difficulty !== Difficulty.HARD
-      ) {
-        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
-      }
-
-      if (
-        question.points !== undefined &&
-        question.points !== null &&
-        (!Number.isInteger(question.points) || (question.points as number) <= 0)
-      ) {
-        throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
-      }
-
-      if (
-        question.explanation !== undefined &&
-        question.explanation !== null &&
-        typeof question.explanation !== 'string'
-      ) {
+      if (!isGeneratedReleaseMcqQuestion(candidate, dtoDifficulty)) {
         throw new BadRequestException(INVALID_GENERATED_QUESTIONS_MESSAGE);
       }
     }
   }
 
   async findAll(userId: string) {
-    return db
+    const userExams = await db
       .select()
       .from(exams)
       .where(eq(exams.userId, userId))
       .orderBy(desc(exams.createdAt));
+
+    if (userExams.length === 0) {
+      return [];
+    }
+
+    const eligibilityQuestions = await db
+      .select({
+        examId: questions.examId,
+        type: questions.type,
+        questionText: questions.questionText,
+        options: questions.options,
+        correctAnswer: questions.correctAnswer,
+        difficulty: questions.difficulty,
+        points: questions.points,
+      })
+      .from(questions)
+      .where(inArray(questions.examId, userExams.map((exam) => exam.id)));
+
+    const questionsByExam = new Map<string, typeof eligibilityQuestions>();
+    for (const question of eligibilityQuestions) {
+      const examQuestions = questionsByExam.get(question.examId) ?? [];
+      examQuestions.push(question);
+      questionsByExam.set(question.examId, examQuestions);
+    }
+
+    return userExams.map((exam) => ({
+      ...exam,
+      attemptEligible: evaluateReleaseAttemptEligibility({
+        status: exam.status,
+        questions: questionsByExam.get(exam.id) ?? [],
+      }).eligible,
+    }));
   }
 
   async findById(id: string, userId: string) {
@@ -219,6 +198,10 @@ export class ExamsService {
     return {
       ...exam,
       questions: examQuestions,
+      attemptEligible: evaluateReleaseAttemptEligibility({
+        status: exam.status,
+        questions: examQuestions,
+      }).eligible,
     };
   }
 
@@ -257,6 +240,46 @@ export class ExamsService {
     let claimedVersion: number;
     try {
       claimedVersion = await db.transaction(async (tx) => {
+        // Lock the exact rows used for eligibility and answer persistence so a
+        // direct API submission cannot race the release-contract decision.
+        const lockedExamResult = await tx
+          .select()
+          .from(exams)
+          .where(and(eq(exams.id, id), eq(exams.userId, userId)))
+          .for('update')
+          .limit(1);
+
+        if (lockedExamResult.length === 0) {
+          throw new NotFoundException('Exam not found');
+        }
+
+        const lockedExam = lockedExamResult[0];
+        if (lockedExam.status === 'completed') {
+          throw new BadRequestException('Exam has already been submitted');
+        }
+        if (lockedExam.status !== 'active') {
+          throw new BadRequestException('Exam is not active');
+        }
+
+        const lockedQuestions = await tx
+          .select()
+          .from(questions)
+          .where(eq(questions.examId, id))
+          .orderBy(questions.orderIndex)
+          .for('update');
+
+        const eligibility = evaluateReleaseAttemptEligibility({
+          status: lockedExam.status,
+          questions: lockedQuestions,
+        });
+        if (!eligibility.eligible) {
+          throw new BadRequestException(
+            eligibility.reason === 'UNSUPPORTED_QUESTION_TYPE'
+              ? RELEASE_QUESTION_TYPE_MESSAGE
+              : INVALID_RELEASE_EXAM_MESSAGE,
+          );
+        }
+
         // ── Step 1: Conditional atomic claim ──────────────────────────────────
         // This single UPDATE is the authoritative eligibility and ownership gate.
         // It succeeds only if:
@@ -302,7 +325,7 @@ export class ExamsService {
         // no concurrent request can claim the evaluation (and thus no other
         // request can write answers). Answers become immutable for the duration
         // of the evaluation lease.
-        for (const q of examData.questions) {
+        for (const q of lockedQuestions) {
           const submission = dto.answers.find((a) => a.questionId === q.id);
           const userAnswer = submission ? submission.userAnswer.trim() : '';
 

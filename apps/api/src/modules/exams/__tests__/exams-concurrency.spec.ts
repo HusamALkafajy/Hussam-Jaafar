@@ -13,6 +13,11 @@ import { AppModule } from '../../../app.module';
 import { db, users, files, exams, questions, eq } from '@studyai/database';
 import { JwtService } from '@nestjs/jwt';
 import { AiService } from '../../ai/ai.service';
+import { GamificationService } from '../../study-coach/gamification.service';
+import {
+  INVALID_RELEASE_EXAM_MESSAGE,
+  RELEASE_QUESTION_TYPE_MESSAGE,
+} from '../exam-release-eligibility';
 import { v4 as uuidv4 } from 'uuid';
 
 describe('Exams Submission Concurrency (e2e)', () => {
@@ -31,16 +36,19 @@ describe('Exams Submission Concurrency (e2e)', () => {
   let resolveAi: (val: any) => void = () => {};
   let aiStarted: Promise<void> = Promise.resolve();
   let signalAiStarted: () => void = () => {};
+  let generateExamFeedback: jest.Mock;
+  const updateChallengeProgress = jest.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
+    generateExamFeedback = jest.fn().mockImplementation(() => {
+      const pendingAi = new Promise((resolve) => {
+        resolveAi = resolve;
+      });
+      signalAiStarted();
+      return pendingAi;
+    });
     const mockAiService = {
-      generateExamFeedback: jest.fn().mockImplementation(() => {
-        const pendingAi = new Promise((resolve) => {
-          resolveAi = resolve;
-        });
-        signalAiStarted();
-        return pendingAi;
-      }),
+      generateExamFeedback,
       // other methods can just resolve
       generateExam: jest.fn().mockResolvedValue({}),
       generateAdaptiveQuestion: jest.fn().mockResolvedValue({}),
@@ -53,6 +61,8 @@ describe('Exams Submission Concurrency (e2e)', () => {
     })
       .overrideProvider(AiService)
       .useValue(mockAiService)
+      .overrideProvider(GamificationService)
+      .useValue({ updateChallengeProgress })
       .overrideProvider('IWorkerRuntimeEngine')
       .useValue({ start: jest.fn(), stop: jest.fn(), pause: jest.fn(), resume: jest.fn() })
       .compile();
@@ -121,10 +131,205 @@ describe('Exams Submission Concurrency (e2e)', () => {
     return { examId, questionId };
   };
 
+  type SeedQuestion = {
+    type: 'mcq' | 'true_false' | 'fill_blank' | 'essay' | 'short';
+    questionText?: string;
+    options?: string[] | null;
+    correctAnswer?: string;
+    difficulty?: 'easy' | 'medium' | 'hard';
+    points?: number;
+  };
+
+  const createExamWithQuestions = async (seedQuestions: SeedQuestion[]) => {
+    const examId = uuidv4();
+    await db.insert(exams).values({
+      id: examId,
+      fileId,
+      userId: testUserId,
+      title: 'Release Contract Test Exam',
+      difficulty: 'medium',
+      totalQuestions: seedQuestions.length,
+      status: 'active',
+      evaluationVersion: 0,
+    });
+
+    const insertedQuestions: Array<{ id: string }> = [];
+    for (const [index, seed] of seedQuestions.entries()) {
+      const questionId = uuidv4();
+      await db.insert(questions).values({
+        id: questionId,
+        examId,
+        type: seed.type,
+        questionText: seed.questionText ?? `Question ${index + 1}`,
+        options: seed.options === undefined ? ['Alpha', 'Beta'] : seed.options,
+        correctAnswer: seed.correctAnswer ?? 'Alpha',
+        difficulty: seed.difficulty ?? 'medium',
+        orderIndex: index,
+        points: seed.points ?? 1,
+      });
+      insertedQuestions.push({ id: questionId });
+    }
+
+    return { examId, insertedQuestions };
+  };
+
+  const expectReleaseRejectionWithoutMutation = async (
+    seedQuestions: SeedQuestion[],
+    expectedMessage: string,
+  ) => {
+    const { examId, insertedQuestions } = await createExamWithQuestions(seedQuestions);
+    const url = await app.getUrl();
+    const answers = insertedQuestions.map(({ id }) => ({
+      questionId: id,
+      userAnswer: 'attempted answer',
+    }));
+
+    const response = await fetch(`${url}/exams/${examId}/submit`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ message: expectedMessage });
+
+    const [storedExam] = await db.select().from(exams).where(eq(exams.id, examId));
+    expect(storedExam).toMatchObject({
+      status: 'active',
+      score: null,
+      evaluationLockedAt: null,
+      evaluationVersion: 0,
+    });
+
+    const storedQuestions = await db
+      .select()
+      .from(questions)
+      .where(eq(questions.examId, examId));
+    for (const storedQuestion of storedQuestions) {
+      expect(storedQuestion.userAnswer).toBeNull();
+      expect(storedQuestion.isCorrect).toBeNull();
+      expect(storedQuestion.answeredAt).toBeNull();
+    }
+
+    const listResponse = await fetch(`${url}/exams`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listResponse.status).toBe(200);
+    const examList = (await listResponse.json()) as Array<{
+      id: string;
+      attemptEligible: boolean;
+    }>;
+    expect(examList.find((exam) => exam.id === examId)?.attemptEligible).toBe(false);
+    expect(generateExamFeedback).not.toHaveBeenCalled();
+    expect(updateChallengeProgress).not.toHaveBeenCalled();
+  };
+
   beforeEach(() => {
+    generateExamFeedback.mockClear();
+    updateChallengeProgress.mockClear();
     resolveAi = () => {};
     aiStarted = new Promise(resolve => {
       signalAiStarted = resolve;
+    });
+  });
+
+  describe('Release question-type containment', () => {
+    it.each([
+      ['true_false', RELEASE_QUESTION_TYPE_MESSAGE],
+      ['fill_blank', RELEASE_QUESTION_TYPE_MESSAGE],
+      ['essay', RELEASE_QUESTION_TYPE_MESSAGE],
+      ['short', RELEASE_QUESTION_TYPE_MESSAGE],
+    ] as const)(
+      'rejects a direct %s submission before any authoritative mutation',
+      async (type, expectedMessage) => {
+        await expectReleaseRejectionWithoutMutation(
+          [{ type, options: type === 'true_false' ? ['true', 'false'] : null }],
+          expectedMessage,
+        );
+      },
+    );
+
+    it('rejects a direct mixed-format submission before any authoritative mutation', async () => {
+      await expectReleaseRejectionWithoutMutation(
+        [
+          { type: 'mcq' },
+          { type: 'true_false', options: ['true', 'false'], correctAnswer: 'true' },
+        ],
+        RELEASE_QUESTION_TYPE_MESSAGE,
+      );
+    });
+
+    it('rejects a direct empty-exam submission before any authoritative mutation', async () => {
+      await expectReleaseRejectionWithoutMutation([], INVALID_RELEASE_EXAM_MESSAGE);
+    });
+
+    it.each([
+      { seedQuestions: [{ type: 'mcq', questionText: '   ' }] },
+      { seedQuestions: [{ type: 'mcq', options: ['Same', ' same '] }] },
+      { seedQuestions: [{ type: 'mcq', correctAnswer: 'Missing' }] },
+      { seedQuestions: [{ type: 'mcq', points: 0 }] },
+    ] as Array<{ seedQuestions: SeedQuestion[] }>)(
+      'rejects malformed persisted MCQ state before any authoritative mutation',
+      async ({ seedQuestions }) => {
+        await expectReleaseRejectionWithoutMutation(
+          seedQuestions,
+          INVALID_RELEASE_EXAM_MESSAGE,
+        );
+      },
+    );
+
+    it('preserves the valid active MCQ submit and completed-result path', async () => {
+      const { examId, questionId } = await createExam();
+      const url = await app.getUrl();
+      const listResponse = await fetch(`${url}/exams`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(listResponse.status).toBe(200);
+      const examList = (await listResponse.json()) as Array<{
+        id: string;
+        attemptEligible: boolean;
+      }>;
+      expect(examList.find((exam) => exam.id === examId)?.attemptEligible).toBe(true);
+
+      const submitPromise = fetch(`${url}/exams/${examId}/submit`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          answers: [{ questionId, userAnswer: '2' }],
+        }),
+      });
+
+      await aiStarted;
+      resolveAi({
+        strengthAnalysis: { topics: [], description: 'OK' },
+        weaknessAnalysis: { topics: [], weakTopics: [], description: 'OK' },
+        studyPlan: { steps: [], recommendations: [] },
+        perQuestionFeedback: [],
+      });
+
+      const submitResponse = await submitPromise;
+      expect(submitResponse.status).toBe(201);
+      expect(await submitResponse.json()).toMatchObject({
+        id: examId,
+        status: 'completed',
+        attemptEligible: false,
+      });
+
+      const resultResponse = await fetch(`${url}/exams/${examId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(resultResponse.status).toBe(200);
+      expect(await resultResponse.json()).toMatchObject({
+        id: examId,
+        status: 'completed',
+        questions: [
+          expect.objectContaining({
+            id: questionId,
+            userAnswer: '2',
+            isCorrect: true,
+          }),
+        ],
+      });
     });
   });
 

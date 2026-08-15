@@ -32,45 +32,11 @@ const normalizeReviewText = (value: unknown): string =>
 const normalizeReviewKey = (value: unknown): string =>
   normalizeReviewText(value).trim().toLocaleLowerCase();
 
-const normalizeAttemptOption = (value: string): string =>
-  value.trim().toLowerCase();
-
 const isReleaseSafeAttempt = (candidate: unknown): boolean => {
   if (!candidate || typeof candidate !== 'object') return false;
 
   const examCandidate = candidate as Record<string, unknown>;
-  if (examCandidate.status !== 'active' || !Array.isArray(examCandidate.questions)) {
-    return false;
-  }
-  if (examCandidate.questions.length === 0) return false;
-
-  return examCandidate.questions.every((questionCandidate) => {
-    if (!questionCandidate || typeof questionCandidate !== 'object') return false;
-
-    const question = questionCandidate as Record<string, unknown>;
-    if (
-      question.type !== 'mcq' ||
-      typeof question.questionText !== 'string' ||
-      question.questionText.trim().length === 0 ||
-      !Array.isArray(question.options) ||
-      question.options.length < 2 ||
-      question.options.some(
-        (option) => typeof option !== 'string' || option.trim().length === 0,
-      ) ||
-      typeof question.correctAnswer !== 'string' ||
-      question.correctAnswer.trim().length === 0
-    ) {
-      return false;
-    }
-
-    const normalizedOptions = question.options.map((option) =>
-      normalizeAttemptOption(option as string),
-    );
-    if (new Set(normalizedOptions).size !== normalizedOptions.length) return false;
-
-    const normalizedCorrectAnswer = normalizeAttemptOption(question.correctAnswer);
-    return normalizedOptions.filter((option) => option === normalizedCorrectAnswer).length === 1;
-  });
+  return examCandidate.status === 'active' && examCandidate.attemptEligible === true;
 };
 
 export default function ExamPage({ params }: PageProps) {

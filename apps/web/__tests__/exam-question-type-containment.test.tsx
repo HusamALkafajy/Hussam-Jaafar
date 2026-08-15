@@ -87,6 +87,7 @@ const activeExam = {
   difficulty: 'medium',
   totalQuestions: 1,
   status: 'active',
+  attemptEligible: true,
   timeLimitMinutes: 1,
   createdAt: '2026-08-14T00:00:00.000Z',
   questions: [mcqQuestion],
@@ -148,6 +149,7 @@ describe('exam question-type release containment', () => {
         ...activeExam,
         id: `exam-${type}`,
         title: `${type} quiz`,
+        attemptEligible: false,
         questions: [{ ...mcqQuestion, type }],
       });
 
@@ -167,6 +169,7 @@ describe('exam question-type release containment', () => {
       ...activeExam,
       id: 'exam-malformed-mcq',
       title: 'Malformed MCQ quiz',
+      attemptEligible: false,
       questions: [{ ...mcqQuestion, options: ['Same', ' same '] }],
     });
 
@@ -180,6 +183,7 @@ describe('exam question-type release containment', () => {
       ...activeExam,
       id: 'exam-empty',
       title: 'Empty quiz',
+      attemptEligible: false,
       questions: [],
     });
 
@@ -189,14 +193,20 @@ describe('exam question-type release containment', () => {
   });
 
   it('keeps draft exams unavailable and does not start a timer or submit automatically', async () => {
-    renderExam({ ...activeExam, id: 'exam-draft', title: 'Draft quiz', status: 'draft' });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderExam({
+      ...activeExam,
+      id: 'exam-draft',
+      title: 'Draft quiz',
+      status: 'draft',
+      attemptEligible: false,
+    });
 
     expect(await screen.findByText('Quiz not ready')).toBeTruthy();
     expect(screen.getByText('This quiz is not available to start yet.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Submit quiz' })).toBeNull();
     expect(screen.queryByText('1:00')).toBeNull();
 
-    vi.useFakeTimers();
     act(() => {
       vi.advanceTimersByTime(120_000);
     });
@@ -204,7 +214,7 @@ describe('exam question-type release containment', () => {
     expect(apiPost).not.toHaveBeenCalled();
   });
 
-  it('gives draft cards distinct non-clickable semantics while preserving active and completed actions', async () => {
+  it('exposes actions only for eligible active and completed cards in the general list', async () => {
     apiGet.mockResolvedValueOnce([
       { ...activeExam, id: 'exam-list-active', title: 'List active quiz' },
       {
@@ -214,7 +224,44 @@ describe('exam question-type release containment', () => {
         status: 'completed',
         score: '80.00',
       },
-      { ...activeExam, id: 'exam-list-draft', title: 'List draft quiz', status: 'draft' },
+      {
+        ...activeExam,
+        id: 'exam-list-draft',
+        title: 'List draft quiz',
+        status: 'draft',
+        attemptEligible: false,
+      },
+      {
+        ...activeExam,
+        id: 'exam-list-unsupported',
+        title: 'List unsupported quiz',
+        attemptEligible: false,
+      },
+      {
+        ...activeExam,
+        id: 'exam-list-mixed',
+        title: 'List mixed quiz',
+        attemptEligible: false,
+      },
+      {
+        ...activeExam,
+        id: 'exam-list-unknown',
+        title: 'List unknown quiz',
+        attemptEligible: false,
+      },
+      {
+        ...activeExam,
+        id: 'exam-list-malformed',
+        title: 'List malformed quiz',
+        attemptEligible: false,
+      },
+      {
+        ...activeExam,
+        id: 'exam-list-invalid-status',
+        title: 'List invalid-status quiz',
+        status: 'archived',
+        attemptEligible: false,
+      },
     ]);
 
     render(<ExamsPage />);
@@ -238,5 +285,44 @@ describe('exam question-type release containment', () => {
     expect(within(draftCard!).getByText('Draft')).toBeTruthy();
     expect(within(draftCard!).getByText('Not available yet')).toBeTruthy();
     expect(draftCard!.querySelector('a')).toBeNull();
+
+    for (const title of [
+      'List unsupported quiz',
+      'List mixed quiz',
+      'List unknown quiz',
+      'List malformed quiz',
+      'List invalid-status quiz',
+    ]) {
+      const blockedCard = screen.getByText(title).closest('[data-slot="card"]');
+      expect(blockedCard).not.toBeNull();
+      expect(within(blockedCard!).getByText('Not available yet')).toBeTruthy();
+      expect(blockedCard!.querySelector('a')).toBeNull();
+    }
   });
+
+  it.each([
+    ['unsupported', [{ ...mcqQuestion, type: 'true_false' }]],
+    ['mixed', [mcqQuestion, { ...mcqQuestion, id: 'question-2', type: 'fill_blank' }]],
+    ['unknown', [{ ...mcqQuestion, type: 'unknown' }]],
+    ['malformed', [{ ...mcqQuestion, options: ['Same', ' same '] }]],
+  ])(
+    'does not start a timer or submit an active %s exam rejected by the server contract',
+    async (label, examQuestions) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      renderExam({
+        ...activeExam,
+        id: `exam-timer-${label}`,
+        title: `${label} timer quiz`,
+        attemptEligible: false,
+        questions: examQuestions,
+      });
+
+      expect(await screen.findByText('Quiz format unavailable')).toBeTruthy();
+      expect(screen.queryByText('1:00')).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(120_000);
+      });
+      expect(apiPost).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { db, exams, questions } from '@studyai/database';
 import { Difficulty, QuestionType } from '@studyai/types';
+import { AiService } from '../ai/ai.service';
 import { ExamsService, TooManyRequestsException } from './exams.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 
@@ -407,5 +408,35 @@ describe('ExamsService.create monthly Quiz capacity contract', () => {
 
     expect(aiService.generateExam).toHaveBeenCalledTimes(1);
     expect(persistedQuestions).toHaveLength(5);
+  });
+
+  it('creates the requested MCQ count through the real supported mock-mode generator', async () => {
+    const mockModeAiService = new AiService({
+      get: jest.fn().mockReturnValue(undefined),
+    } as any);
+    const mockModeService = new ExamsService(
+      filesService as any,
+      mockModeAiService,
+      {} as any,
+      {} as any,
+      {} as any,
+      quotaService as any,
+    );
+    jest
+      .spyOn(mockModeService, 'findById')
+      .mockResolvedValue({ id: 'exam-1', questions: [] } as any);
+
+    await expect(mockModeService.create(userId, baseDto)).resolves.toEqual({
+      id: 'exam-1',
+      questions: [],
+    });
+
+    expect(quotaService.tryConsumeQuizCapacity).toHaveBeenCalledTimes(1);
+    expect(quotaService.tryConsumeQuizCapacity).toHaveBeenCalledWith(userId, 5);
+    expect(persistedExam?.totalQuestions).toBe(5);
+    expect(persistedQuestions).toHaveLength(5);
+    expect(persistedQuestions?.every((question) => question.type === QuestionType.MCQ)).toBe(
+      true,
+    );
   });
 });

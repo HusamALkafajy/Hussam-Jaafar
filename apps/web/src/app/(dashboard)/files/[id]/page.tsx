@@ -909,16 +909,29 @@ export default function FileDetailPage({ params }: PageProps) {
                             {t('workspace.inProgress')}
                           </span>
                         )}
-                        <Button
-                          nativeButton={false}
-                          render={<Link href={`/exams/${ex.id}`} />}
-                          size="sm"
-                          variant={ex.status === 'completed' ? 'secondary' : 'primary'}
-                        >
-                          {ex.status === 'completed'
-                            ? t('workspace.viewResults')
-                            : t('workspace.takeExam')}
-                        </Button>
+                        {ex.status === 'completed' ? (
+                          <Button
+                            nativeButton={false}
+                            render={<Link href={`/exams/${ex.id}`} />}
+                            size="sm"
+                            variant="secondary"
+                          >
+                            {t('workspace.viewResults')}
+                          </Button>
+                        ) : ex.status === 'active' && ex.attemptEligible === true ? (
+                          <Button
+                            nativeButton={false}
+                            render={<Link href={`/exams/${ex.id}`} />}
+                            size="sm"
+                            variant="primary"
+                          >
+                            {t('workspace.takeExam')}
+                          </Button>
+                        ) : (
+                          <span className="rounded-lg border border-white/5 bg-slate-950/30 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                            {t('exams.draftUnavailableAction')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
