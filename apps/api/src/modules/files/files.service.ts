@@ -15,12 +15,35 @@ import { DocumentReadService } from '../document-read/document-read.service';
 import { FileQueryDto } from './dto/file-query.dto';
 
 import * as fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import * as path from 'path';
 import * as mammoth from 'mammoth';
 import { ConfigService } from '@nestjs/config';
 import { IStorageProvider } from '@studyai/infrastructure';
-import { Readable } from 'stream';
 import { randomUUID } from 'crypto';
+import {
+  assertUploadSize,
+  MAX_UPLOAD_CHUNKS,
+  UPLOAD_CHUNK_BYTES,
+  UploadErrorCode,
+  UploadException,
+  validateUploadHeader,
+  validateUploadPath,
+} from '../../common/files/upload-contract';
+import {
+  createInitialDocumentTitle,
+  getStoredDocumentTitle,
+} from './utils/document-title.util';
+
+interface ChunkUploadManifest {
+  userId: string;
+  filename: string;
+  fileSize: number;
+  mimeType: string;
+  totalChunks: number;
+  subjectId?: string;
+  title?: string;
+}
 
 export class UnsatisfiableByteRangeException extends HttpException {
   constructor(
@@ -122,124 +145,21 @@ export class FilesService {
     userId: string,
     expressFile: Express.Multer.File,
     subjectId?: string,
+    title?: string,
   ) {
-    const bypassQuota = await this.isSuperAdmin(userId);
-
-    // Check subscription monthly upload quota
-    const sub = !bypassQuota
-      ? await db
-          .select()
-          .from(subscriptions)
-          .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
-          .limit(1)
-      : [];
-
-    if (sub.length > 0) {
-      const subscription = sub[0];
-      if (subscription.filesUsedThisMonth >= subscription.monthlyFileLimit) {
-        throw new ForbiddenException('Monthly file upload limit exceeded (SaaS Quota)');
-      }
-    }
-
-    // 1. Determine file type
-    const mime = expressFile.mimetype;
-    const fileType = CANONICAL_UPLOAD_FORMATS[mime];
-
-    if (!fileType) {
-      throw new BadRequestException('Unsupported file type');
-    }
-
-    // Validate subject if provided
-    if (subjectId) {
-      const subject = await db
-        .select()
-        .from(subjects)
-        .where(and(eq(subjects.id, subjectId), eq(subjects.userId, userId)))
-        .limit(1);
-      if (subject.length === 0) {
-        throw new NotFoundException('Subject not found');
-      }
-    }
-
-    // 2. Persist the original through the configured storage boundary. The key
-    // is stable and opaque; it is neither a public URL nor a filesystem path.
-    const storageKey = this.createStorageKey(userId, expressFile.originalname);
-    await this.storageProvider.upload(
-      this.storageBucket,
-      storageKey,
-      Readable.from(expressFile.buffer),
-      { contentType: mime, contentLength: expressFile.size },
-    );
-    const storageUrl = 'private://document';
-
-    // 4. Create database record as PENDING
-    let result;
+    let fileRecord;
     try {
-      result = await db
-        .insert(files)
-        .values({
-          userId,
-          subjectId: subjectId || null,
-          originalName: expressFile.originalname,
-          storageKey,
-          storageUrl,
-          fileType,
-          mimeType: mime,
-          fileSize: expressFile.size,
-          processingStatus: ProcessingStatus.PENDING,
-        })
-        .returning();
-    } catch (error) {
-      await this.storageProvider.delete(this.storageBucket, storageKey).catch(() => undefined);
-      throw error;
-    }
-
-    const fileRecord = result[0];
-
-    // Increment upload count inside subscription
-    if (sub.length > 0) {
-      await db
-        .update(subscriptions)
-        .set({ filesUsedThisMonth: sql`${subscriptions.filesUsedThisMonth} + 1` })
-        .where(eq(subscriptions.id, sub[0].id));
-    }
-
-
-    // 5. Trigger background processing
-    if (USE_BULLMQ_PROCESSING) {
-      const attemptResult = await db
-        .insert(fileProcessingAttempts)
-        .values({
-          fileId: fileRecord.id,
-          queueJobId: `file-processing_${fileRecord.id}`, // temporarily using fileId for predictable format until attempt uuid is generated
-        })
-        .returning({ id: fileProcessingAttempts.id });
-
-      const attemptId = attemptResult[0].id;
-      const queueJobId = `file-processing_${attemptId}`;
-      await db.update(fileProcessingAttempts).set({ queueJobId }).where(eq(fileProcessingAttempts.id, attemptId));
-
-      this.dispatcherService.dispatchAttempt(attemptId).catch((err) => {
-        this.logger.error(`Failed to dispatch attempt ${attemptId}`, err);
-      });
-    } else {
-      // (fire-and-forget with explicit error handling)
-      this.processFileBackground(fileRecord.id, path.join(this.uploadDir, this.storageBucket, storageKey), fileType, mime)
-        .catch((err) => {
-          this.logger.error(
-            `[FilesService] Unhandled top-level error in processFileBackground for file ${fileRecord.id}. ` +
-            `Marking as FAILED. Error: ${err?.message || err}`,
-          );
-          db.update(files)
-            .set({
-              processingStatus: ProcessingStatus.FAILED,
-              processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
-            })
-            .where(eq(files.id, fileRecord.id))
-            .catch((dbErr) =>
-              this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
-            );
-        });
+      fileRecord = await this.registerAndProcessFile(
+        userId,
+        expressFile.path,
+        expressFile.originalname,
+        expressFile.mimetype,
+        expressFile.size,
+        subjectId,
+        title,
+      );
+    } finally {
+      await fs.unlink(expressFile.path).catch(() => undefined);
     }
 
     // Award gamification challenge progress for file upload (fire-and-forget)
@@ -247,7 +167,7 @@ export class FilesService {
       .updateChallengeProgress(userId, 'upload', 1)
       .catch((err) => this.logger.warn('Challenge progress update failed:', err));
 
-    return this.toPublicFile(fileRecord);
+    return fileRecord;
   }
 
   /**
@@ -395,7 +315,10 @@ export class FilesService {
       conditions.push(eq(files.fileType, query.fileType));
     }
     if (query.search) {
-      conditions.push(sql`${files.originalName} ILIKE ${`%${query.search}%`}`);
+      conditions.push(or(
+        sql`${files.originalName} ILIKE ${`%${query.search}%`}`,
+        sql`${files.metadata}->>'documentTitle' ILIKE ${`%${query.search}%`}`,
+      )!);
     }
 
     const whereClause = and(...conditions);
@@ -465,10 +388,11 @@ export class FilesService {
 
   async search(userId: string, q: string) {
     if (!q) return [];
-    return db
+    const results = await db
       .select({
         id: files.id,
         originalName: files.originalName,
+        metadata: files.metadata,
         fileType: files.fileType,
         createdAt: files.createdAt,
       })
@@ -478,11 +402,16 @@ export class FilesService {
           eq(files.userId, userId),
           or(
             sql`${files.originalName} ILIKE ${`%${q}%`}`,
+            sql`${files.metadata}->>'documentTitle' ILIKE ${`%${q}%`}`,
             sql`${files.extractedText} ILIKE ${`%${q}%`}`,
           ),
         ),
       )
       .limit(20);
+    return results.map(({ metadata, ...file }) => ({
+      ...file,
+      title: getStoredDocumentTitle(metadata, file.originalName),
+    }));
   }
 
   async deleteFile(id: string, userId: string) {
@@ -624,70 +553,114 @@ export class FilesService {
     chunkIndex: number,
     totalChunks: number,
     filename: string,
+    fileSize: number,
+    mimeType: string,
     subjectId?: string,
+    title?: string,
   ) {
+    assertUploadSize(fileSize);
+    const safeUploadId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadId);
+    const safeFilename = typeof filename === 'string' &&
+      path.basename(filename) === filename &&
+      filename.length > 0 &&
+      filename.length <= 255;
+    const safeMimeType = typeof mimeType === 'string' && mimeType.length > 0 && mimeType.length <= 100;
+    const safeSubjectId = subjectId === undefined ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subjectId);
+    const normalizedTitle = typeof title === 'string' ? title.trim() : title;
+    const safeTitle = normalizedTitle === undefined ||
+      (typeof normalizedTitle === 'string' && normalizedTitle.length <= 255);
+    const expectedTotalChunks = Math.ceil(fileSize / UPLOAD_CHUNK_BYTES);
+    if (
+      !safeUploadId ||
+      !safeFilename ||
+      !safeMimeType ||
+      !safeSubjectId ||
+      !safeTitle ||
+      !Number.isInteger(chunkIndex) ||
+      !Number.isInteger(totalChunks) ||
+      totalChunks !== expectedTotalChunks ||
+      totalChunks < 1 ||
+      totalChunks > MAX_UPLOAD_CHUNKS ||
+      chunkIndex < 0 ||
+      chunkIndex >= totalChunks
+    ) {
+      throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Invalid chunk upload metadata.');
+    }
+
+    const expectedChunkSize = chunkIndex === totalChunks - 1
+      ? fileSize - chunkIndex * UPLOAD_CHUNK_BYTES
+      : UPLOAD_CHUNK_BYTES;
+    if (chunkBuffer.length !== expectedChunkSize) {
+      throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Chunk size does not match the upload contract.');
+    }
+
     const tempDir = path.join(this.uploadDir, 'temp', uploadId);
-    await fs.mkdir(tempDir, { recursive: true });
+    const manifestPath = path.join(tempDir, 'manifest.json');
+    const manifest: ChunkUploadManifest = {
+      userId,
+      filename,
+      fileSize,
+      mimeType,
+      totalChunks,
+      subjectId,
+      title: normalizedTitle,
+    };
+    let finalPath: string | undefined;
 
-    const chunkPath = path.join(tempDir, `chunk_${chunkIndex}`);
-    await fs.writeFile(chunkPath, chunkBuffer);
-
-    // If it is the last chunk, merge all of them sequentially
-    if (chunkIndex === totalChunks - 1) {
-      const ext = path.extname(filename);
-      const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-      const finalPath = path.join(this.uploadDir, uniqueFilename);
-
-      // Create empty file
-      await fs.writeFile(finalPath, '');
-
-      // Append chunks sequentially to preserve order
-      for (let i = 0; i < totalChunks; i++) {
-        const currentChunkPath = path.join(tempDir, `chunk_${i}`);
-        try {
-          const chunkData = await fs.readFile(currentChunkPath);
-          await fs.appendFile(finalPath, chunkData);
-        } catch (err) {
-          throw new BadRequestException(`Failed to merge chunk ${i}: ${err.message}`);
+    try {
+      if (chunkIndex === 0) {
+        validateUploadHeader(chunkBuffer, mimeType, filename);
+        await fs.mkdir(path.dirname(tempDir), { recursive: true });
+        await fs.mkdir(tempDir, { recursive: false });
+        await fs.writeFile(manifestPath, JSON.stringify(manifest), { flag: 'wx' });
+      } else {
+        const existing = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as ChunkUploadManifest;
+        if (JSON.stringify(existing) !== JSON.stringify(manifest)) {
+          throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Chunk upload metadata changed during transfer.');
         }
       }
 
-      // Clean up temp directory
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.writeFile(path.join(tempDir, `chunk_${chunkIndex}`), chunkBuffer, { flag: 'wx' });
+      if (chunkIndex !== totalChunks - 1) {
+        return { success: true, message: `Chunk ${chunkIndex + 1}/${totalChunks} uploaded` };
+      }
 
-      // Register file in database and start AI processing
-      const mime = this.getMimeTypeFromExtension(ext);
+      finalPath = path.join(this.uploadDir, `${randomUUID()}${path.extname(filename).toLowerCase()}`);
+      const output = await fs.open(finalPath, 'wx');
+      try {
+        for (let i = 0; i < totalChunks; i += 1) {
+          for await (const bytes of createReadStream(path.join(tempDir, `chunk_${i}`))) {
+            await output.write(bytes as Buffer);
+          }
+        }
+      } finally {
+        await output.close();
+      }
+
       const finalSize = (await fs.stat(finalPath)).size;
-
-      return this.registerAndProcessFile(
+      if (finalSize !== fileSize) {
+        await fs.unlink(finalPath).catch(() => undefined);
+        throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Assembled file size does not match the upload contract.');
+      }
+      const detectedMime = await validateUploadPath(finalPath, mimeType, filename, finalSize);
+      return await this.registerAndProcessFile(
         userId,
         finalPath,
         filename,
-        mime,
+        detectedMime,
         finalSize,
         subjectId,
+        normalizedTitle,
       );
-    }
-
-    return { success: true, message: `Chunk ${chunkIndex + 1}/${totalChunks} uploaded` };
-  }
-
-  private getMimeTypeFromExtension(ext: string): string {
-    switch (ext.toLowerCase()) {
-      case '.pdf':
-        return 'application/pdf';
-      case '.docx':
-        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
-      case '.png':
-        return 'image/png';
-      case '.jpg':
-      case '.jpeg':
-        return 'image/jpeg';
-      case '.webp':
-        return 'image/webp';
-      default:
-        return 'application/octet-stream';
+    } catch (error) {
+      if (finalPath) await fs.unlink(finalPath).catch(() => undefined);
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    } finally {
+      if (chunkIndex === totalChunks - 1) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
   }
 
@@ -698,7 +671,9 @@ export class FilesService {
     mime: string,
     size: number,
     subjectId?: string,
+    title?: string,
   ) {
+    assertUploadSize(size);
     const bypassQuota = await this.isSuperAdmin(userId);
 
     // Check subscription monthly upload quota
@@ -713,17 +688,24 @@ export class FilesService {
     if (sub.length > 0) {
       const subscription = sub[0];
       if (subscription.filesUsedThisMonth >= subscription.monthlyFileLimit) {
-        // Clean up the merged file
-        await fs.unlink(filePath).catch(() => {});
-        throw new ForbiddenException('Monthly file upload limit exceeded (SaaS Quota)');
+        throw new UploadException(
+          UploadErrorCode.QUOTA_EXCEEDED,
+          'Monthly file upload limit exceeded.',
+          HttpStatus.FORBIDDEN,
+          {
+            limitType: 'files',
+            used: subscription.filesUsedThisMonth,
+            limit: subscription.monthlyFileLimit,
+            tier: subscription.plan,
+          },
+        );
       }
     }
 
     // Determine file type
     const fileType = CANONICAL_UPLOAD_FORMATS[mime];
     if (!fileType) {
-      await fs.unlink(filePath).catch(() => {});
-      throw new BadRequestException('Unsupported file type');
+      throw new UploadException(UploadErrorCode.UNSUPPORTED_FILE_TYPE, 'Unsupported file type.');
     }
 
     // Validate subject if provided
@@ -734,93 +716,99 @@ export class FilesService {
         .where(and(eq(subjects.id, subjectId), eq(subjects.userId, userId)))
         .limit(1);
       if (subject.length === 0) {
-        await fs.unlink(filePath).catch(() => {});
         throw new NotFoundException('Subject not found');
       }
     }
 
     const storageKey = this.createStorageKey(userId, originalname);
     const storageUrl = 'private://document';
-    const fileBuffer = await fs.readFile(filePath);
-    await this.storageProvider.upload(
-      this.storageBucket,
-      storageKey,
-      Readable.from(fileBuffer),
-      { contentType: mime, contentLength: size },
-    );
-    await fs.unlink(filePath).catch(() => undefined);
-
-    // Create database record as PENDING
-    let result;
     try {
-      result = await db
-        .insert(files)
-        .values({
-          userId,
-          subjectId: subjectId || null,
-          originalName: originalname,
-          storageKey,
-          storageUrl,
-          fileType,
-          mimeType: mime,
-          fileSize: size,
-          processingStatus: ProcessingStatus.PENDING,
-        })
-        .returning();
+      await this.storageProvider.upload(
+        this.storageBucket,
+        storageKey,
+        createReadStream(filePath),
+        { contentType: mime, contentLength: size },
+      );
+    } catch {
+      await fs.unlink(filePath).catch(() => undefined);
+      throw new UploadException(
+        UploadErrorCode.STORAGE_FAILED,
+        'The file could not be stored.',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    const initialMetadata = createInitialDocumentTitle(originalname, title);
+    const attemptId = randomUUID();
+    let fileRecord: typeof files.$inferSelect;
+    try {
+      fileRecord = await db.transaction(async (tx) => {
+        const lockedSub = !bypassQuota
+          ? await tx
+              .select()
+              .from(subscriptions)
+              .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
+              .limit(1)
+              .for('update')
+          : [];
+        if (lockedSub[0] && lockedSub[0].filesUsedThisMonth >= lockedSub[0].monthlyFileLimit) {
+          throw new UploadException(
+            UploadErrorCode.QUOTA_EXCEEDED,
+            'Monthly file upload limit exceeded.',
+            HttpStatus.FORBIDDEN,
+            {
+              limitType: 'files',
+              used: lockedSub[0].filesUsedThisMonth,
+              limit: lockedSub[0].monthlyFileLimit,
+              tier: lockedSub[0].plan,
+            },
+          );
+        }
+        if (subjectId) {
+          const ownedSubject = await tx
+            .select({ id: subjects.id })
+            .from(subjects)
+            .where(and(eq(subjects.id, subjectId), eq(subjects.userId, userId)))
+            .limit(1);
+          if (ownedSubject.length === 0) throw new NotFoundException('Subject not found');
+        }
+        const [createdFile] = await tx
+          .insert(files)
+          .values({
+            userId,
+            subjectId: subjectId || null,
+            originalName: originalname,
+            storageKey,
+            storageUrl,
+            fileType,
+            mimeType: mime,
+            fileSize: size,
+            metadata: initialMetadata,
+            processingStatus: ProcessingStatus.PENDING,
+          })
+          .returning();
+        if (lockedSub[0]) {
+          await tx
+            .update(subscriptions)
+            .set({ filesUsedThisMonth: sql`${subscriptions.filesUsedThisMonth} + 1` })
+            .where(eq(subscriptions.id, lockedSub[0].id));
+        }
+        await tx.insert(fileProcessingAttempts).values({
+          id: attemptId,
+          fileId: createdFile.id,
+          queueJobId: `file-processing_${attemptId}`,
+        });
+        return createdFile;
+      });
     } catch (error) {
       await this.storageProvider.delete(this.storageBucket, storageKey).catch(() => undefined);
       throw error;
+    } finally {
+      await fs.unlink(filePath).catch(() => undefined);
     }
-
-    const fileRecord = result[0];
-
-    // Increment upload count inside subscription
-    if (sub.length > 0) {
-      await db
-        .update(subscriptions)
-        .set({ filesUsedThisMonth: sql`${subscriptions.filesUsedThisMonth} + 1` })
-        .where(eq(subscriptions.id, sub[0].id));
-    }
-
-    if (USE_BULLMQ_PROCESSING) {
-      // Create file processing attempt
-      const attemptResult = await db
-        .insert(fileProcessingAttempts)
-        .values({
-          fileId: fileRecord.id,
-          queueJobId: `file-processing_${fileRecord.id}`, // temporarily using fileId for predictable format until attempt uuid is generated, actually we can generate attemptId first
-        })
-        .returning({ id: fileProcessingAttempts.id });
-
-      const attemptId = attemptResult[0].id;
-      // Re-update queueJobId to include attemptId
-      const queueJobId = `file-processing_${attemptId}`;
-      await db.update(fileProcessingAttempts).set({ queueJobId }).where(eq(fileProcessingAttempts.id, attemptId));
-
-      // Trigger dispatcher
-      this.dispatcherService.dispatchAttempt(attemptId).catch((err) => {
-        this.logger.error(`Failed to dispatch attempt ${attemptId}`, err);
-      });
-    } else {
-      // Trigger background processing (fire-and-forget with explicit error handling)
-      this.processFileBackground(fileRecord.id, path.join(this.uploadDir, this.storageBucket, storageKey), fileType, mime)
-        .catch((err) => {
-          this.logger.error(
-            `[FilesService] Unhandled top-level error in processFileBackground (chunked) for file ${fileRecord.id}. ` +
-            `Marking as FAILED. Error: ${err?.message || err}`,
-          );
-          db.update(files)
-            .set({
-              processingStatus: ProcessingStatus.FAILED,
-              processingError: `Internal processing error: ${err?.message || 'Unknown'}`,
-            })
-            .where(eq(files.id, fileRecord.id))
-            .catch((dbErr) =>
-              this.logger.error(`Failed to write FAILED status for file ${fileRecord.id}:`, dbErr),
-            );
-        });
-    }
-
+    await this.dispatcherService.dispatchAttempt(attemptId).catch((error) => {
+      this.logger.error(`Failed to dispatch attempt ${attemptId}`, error);
+    });
     return this.toPublicFile(fileRecord);
   }
 
@@ -884,9 +872,17 @@ export class FilesService {
       ? (metadata as Record<string, unknown>).extractionStatus
       : undefined;
     const synthetic = this.isSyntheticExtraction(extractedText);
+    const fallbackTitle = createInitialDocumentTitle(file.originalName);
+    const title = getStoredDocumentTitle(metadata, file.originalName);
+    const titleMetadata = metadata && typeof metadata === 'object'
+      ? metadata as Record<string, unknown>
+      : {};
 
     return {
       ...publicFile,
+      title,
+      titleSource: titleMetadata.documentTitleSource ?? fallbackTitle.documentTitleSource,
+      titleConfirmed: titleMetadata.titleConfirmed === true,
       extractedText: synthetic ? null : extractedText,
       processingStatus: extractionStatus === 'ocr_required'
         ? ProcessingStatus.OCR_REQUIRED

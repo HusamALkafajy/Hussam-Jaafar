@@ -12,6 +12,7 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
   let stateRepository: FileProcessingStateRepository;
   let documentPersistenceService: DocumentPersistenceService;
   let pipelineRunner: { execute: jest.Mock };
+  let storageProvider: { download: jest.Mock };
   
   let ragService: {
     generateChunkValues: jest.Mock;
@@ -51,7 +52,7 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
       }),
     };
 
-    const storageProvider = {
+    storageProvider = {
       download: jest.fn().mockResolvedValue(Readable.from(Buffer.from('pdf fixture'))),
     };
 
@@ -107,6 +108,7 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
       extractedDocument: {
         fullText: 'test canonical text',
         blocks: [{ type: 'paragraph', text: 'test canonical text', metadata: {} }],
+        metadata: { title: 'Integration PDF Title' },
       },
       chunks: [{
         plainText: 'test canonical text',
@@ -129,10 +131,12 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
       expect.objectContaining({
         fileId,
         mimeType: 'application/pdf',
-        fileData: expect.any(Buffer),
+        filePath: expect.any(String),
       }),
       expect.objectContaining({ attemptId, fileId }),
     );
+    expect(pipelineRunner.execute.mock.calls[0][0]).not.toHaveProperty('fileData');
+    expect(storageProvider.download).toHaveBeenCalledWith('documents', `test/${fileId}.pdf`);
     
     // Verify attempt completed
     const attempt = await db.query.fileProcessingAttempts.findFirst({
@@ -146,6 +150,11 @@ describe('FilesProcessor (Integration with PostgreSQL)', () => {
       where: eq(files.id, fileId)
     });
     expect(file?.processingStatus).toBe('completed');
+    expect(file?.metadata).toMatchObject({
+      documentTitle: 'Integration PDF Title',
+      documentTitleSource: 'metadata',
+      titleConfirmed: false,
+    });
 
     // Verify document versions
     const versions = await db.query.documentVersions.findMany({

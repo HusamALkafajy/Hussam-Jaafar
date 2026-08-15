@@ -22,6 +22,7 @@ import { DocumentReadService } from '../document-read/document-read.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { buildRagContext } from '../ai/prompts/chat.prompts';
+import { getStoredDocumentTitle } from '../files/utils/document-title.util';
 
 /** How many recent messages to include as conversation history */
 const HISTORY_WINDOW = 10;
@@ -77,7 +78,7 @@ export class ChatService {
       .values({
         fileId: dto.fileId,
         userId,
-        title: `محادثة: ${file.originalName}`,
+        title: `محادثة: ${getStoredDocumentTitle(file.metadata, file.originalName)}`,
         messageCount: 0,
       })
       .returning();

@@ -122,7 +122,9 @@ function FileHeader({
         {/* Title & meta */}
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold text-white truncate max-w-[500px] mb-3">
-            {file.originalName}
+            {file.titleSource === 'fallback'
+              ? t('files.untitledDocument')
+              : file.title ?? file.originalName}
           </h1>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
             <span className="flex items-center gap-1.5">
@@ -616,7 +618,9 @@ export default function FileDetailPage({ params }: PageProps) {
           file.fileType === 'pdf' ? (
             <OriginalPdfReader
               fileId={fileId}
-              label={t('files.tabOriginal')}
+              label={file.titleSource === 'fallback'
+                ? t('files.untitledDocument')
+                : file.title ?? file.originalName}
               labels={{
                 loading: t('files.pdfLoading'),
                 failed: t('files.pdfLoadFailed'),

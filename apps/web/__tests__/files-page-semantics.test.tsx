@@ -57,7 +57,11 @@ const translations: Record<string, string> = {
   'files.fileTypeImage': 'Image',
   'files.tabExam': 'Quiz',
   'files.invalidType': 'Choose a PDF, Word document, or image.',
-  'files.maxSize': 'The file must be 50MB or smaller.',
+  'files.maxSize': 'The file must be 50 MiB or smaller.',
+  'files.documentTitle': 'Document title (optional)',
+  'files.documentTitlePlaceholder': 'Enter the book or document title',
+  'files.documentTitleHelp': 'Metadata or filename fallback.',
+  'files.untitledDocument': 'Untitled document',
   'files.mergingAndAnalyzing': 'Merging and analyzing',
   'files.noSubject': 'No Subject',
   'files.openFile': 'Open {fileName}',
@@ -292,7 +296,7 @@ describe('files and legacy navigation semantics', () => {
 
     const fileInput = screen.getByLabelText(/Choose a file/);
     expect(document.activeElement).toBe(fileInput);
-    expect(fileInput.getAttribute('accept')).toBe('.pdf,.docx,image/*');
+    expect(fileInput.getAttribute('accept')).toBe('.pdf,.docx,.jpg,.jpeg,.png,.webp');
     expect(accessibleDescription(fileInput)).toBe('PDF, Word, or image');
     expect(screen.getByRole('button', { name: 'Close' })).not.toBeNull();
     expect(
@@ -578,8 +582,79 @@ describe('files and legacy navigation semantics', () => {
 
     expect(await screen.findByRole('alert')).toHaveProperty(
       'textContent',
-      expect.stringContaining('The file must be 50MB or smaller.'),
+      expect.stringContaining('The file must be 50 MiB or smaller.'),
     );
+  });
+
+  it('sends the confirmed title and authoritative upload contract with every chunk', async () => {
+    mocks.apiPost.mockResolvedValue({ id: 'new-file' });
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.type(screen.getByLabelText('Document title (optional)'), 'كتاب الفيزياء');
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    const form = mocks.apiPost.mock.calls[0][1] as FormData;
+    expect(form.get('title')).toBe('كتاب الفيزياء');
+    expect(form.get('fileSize')).toBe('4');
+    expect(form.get('mimeType')).toBe('application/pdf');
+  });
+
+  it('uses a valid UUID upload identifier when randomUUID is unavailable', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(17);
+        return bytes;
+      },
+    });
+    mocks.apiPost.mockResolvedValue({ id: 'new-file' });
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    const form = mocks.apiPost.mock.calls[0][1] as FormData;
+    expect(form.get('uploadId')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('uses the persisted document title consistently on card and detail surfaces', async () => {
+    const titledFile = { ...file, title: 'Physics Foundations', titleSource: 'metadata' };
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) return Promise.resolve({ data: [titledFile], pagination: { limit: 10, page: 1, total: 1, totalPages: 1 } });
+      if (url === '/subjects') return Promise.resolve([]);
+      if (url === '/files/file-1') return Promise.resolve(titledFile);
+      if (url === '/exams/file/file-1') return Promise.resolve([]);
+      if (url === '/flashcards/file/file-1') return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+    const { unmount } = render(<FilesPage />);
+    expect(await screen.findByText('Physics Foundations')).not.toBeNull();
+    unmount();
+
+    const params = Object.assign(Promise.resolve({ id: 'file-1' }), {
+      status: 'fulfilled',
+      value: { id: 'file-1' },
+    });
+    render(
+      <Suspense fallback={<div>Loading fixture</div>}>
+        <FileDetailPage params={params} />
+      </Suspense>,
+    );
+    expect(await screen.findByText('Physics Foundations')).not.toBeNull();
   });
 
   it('announces upload progress with meaningful accessible values', async () => {

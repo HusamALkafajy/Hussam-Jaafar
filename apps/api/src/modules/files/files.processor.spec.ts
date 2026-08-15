@@ -8,9 +8,19 @@ import { FileProcessingStateRepository } from './repositories/file-processing-st
 import { processingCheckpoints, processingSessions, documentChunks } from '@studyai/database';
 
 jest.mock('@studyai/database', () => {
-  const original = jest.requireActual('@studyai/database');
   return {
-    ...original,
+    eq: jest.fn(),
+    and: jest.fn(),
+    sql: jest.fn(),
+    fileProcessingAttempts: {
+      id: 'id', fileId: 'fileId', queueJobId: 'queueJobId', status: 'status',
+      processingAttempts: 'processingAttempts', nextRetryAt: 'nextRetryAt',
+    },
+    files: { id: 'id', processingStatus: 'processingStatus' },
+    subjects: { id: 'id', fileCount: 'fileCount' },
+    documentChunks: {},
+    processingCheckpoints: {},
+    processingSessions: {},
     db: {
       update: jest.fn().mockReturnValue({
         set: jest.fn().mockReturnValue({
@@ -41,6 +51,7 @@ jest.mock('@studyai/database', () => {
         files: {
           findFirst: jest.fn().mockResolvedValue({
             id: 'file-123',
+            originalName: 'test.pdf',
             storageKey: 'test.pdf',
             fileType: 'pdf',
             mimeType: 'application/pdf',
@@ -67,12 +78,16 @@ describe('FilesProcessor', () => {
   let stateRepository: jest.Mocked<FileProcessingStateRepository>;
   let documentPersistenceService: any;
   let pipelineRunner: any;
+  let storageProvider: { download: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
 
     mockExtractor = {
       extract: jest.fn().mockResolvedValue({ fullText: 'extracted text', blocks: [] }),
+    };
+    storageProvider = {
+      download: jest.fn().mockResolvedValue([Buffer.from('dummy')]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -84,7 +99,7 @@ describe('FilesProcessor', () => {
         },
         {
           provide: 'IStorageProvider',
-          useValue: { upload: jest.fn(), download: jest.fn().mockResolvedValue([Buffer.from('dummy')]), delete: jest.fn() },
+          useValue: storageProvider,
         },
         {
           provide: ExtractorRegistry,
@@ -197,15 +212,46 @@ describe('FilesProcessor', () => {
     );
   });
 
-  it('should pass storageProvider downloaded Buffer to context.data instead of local path', async () => {
+  it('should pass a disposable storage-provider download path to the pipeline', async () => {
     const context: any = { payload: { attemptId: 'att-1', fileId: 'file-1' }, jobId: 'job-1' };
     await processor.handle(context);
     expect(pipelineRunner.execute).toHaveBeenCalled();
     const executeArgs = pipelineRunner.execute.mock.calls[0][0];
-    expect(executeArgs.fileData).toBeInstanceOf(Buffer);
-    expect(executeArgs.fileData.toString()).toBe('dummy');
     expect(executeArgs.filePath).toBeDefined();
+    expect(executeArgs.fileData).toBeUndefined();
     expect(executeArgs.fileId).toBe('file-1');
+  });
+
+  it.each([
+    ['pdf', 'application/pdf', 'test.pdf'],
+    ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'test.docx'],
+    ['image', 'image/jpeg', 'test.jpg'],
+    ['image', 'image/png', 'test.png'],
+    ['image', 'image/webp', 'test.webp'],
+  ])('downloads supported %s/%s input through the configured storage provider', async (
+    fileType,
+    mimeType,
+    originalName,
+  ) => {
+    (db.query.files.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'file-123',
+      userId: 'user-1',
+      originalName,
+      storageKey: `user-1/${originalName}`,
+      fileType,
+      mimeType,
+    });
+
+    await processor.handle({
+      payload: { attemptId: 'att-1', fileId: 'file-1' },
+      jobId: 'job-1',
+    });
+
+    expect(storageProvider.download).toHaveBeenCalledWith('documents', `user-1/${originalName}`);
+    expect(pipelineRunner.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ fileType, mimeType, filePath: expect.any(String) }),
+      expect.any(Object),
+    );
   });
 
   it('should handle failure atomically', async () => {

@@ -2,7 +2,12 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { db, eq, and, sql } from '@studyai/database';
 import { fileProcessingAttempts, files, subjects, documentChunks } from '@studyai/database';
 import { RagService } from '../rag/rag.service';
-import { join } from 'path';
+import { extname, join } from 'path';
+import { tmpdir } from 'os';
+import { createWriteStream } from 'fs';
+import { mkdtemp, rm } from 'fs/promises';
+import { pipeline } from 'stream/promises';
+import { randomUUID } from 'crypto';
 import { ExtractorRegistry } from './services/extractor.registry';
 import { DocumentExtractionContext } from './contracts/document-extractor';
 import { ErrorClassifier, ClassificationResult } from './utils/error-classifier.util';
@@ -127,10 +132,11 @@ export class FilesProcessor {
       return;
     }
 
-    // Legacy non-PDF extractors still consume a local path. The local storage
-    // adapter maps it beneath the configured documents bucket; PDFs use the
-    // storage stream above and never depend on this path.
-    const filePath = join(process.cwd(), 'apps', 'api', 'uploads', 'documents', fileRecord.storageKey);
+    // Every extractor receives a disposable local copy downloaded through the
+    // configured storage boundary. No supported type may reconstruct a path
+    // beneath a particular storage-provider implementation.
+    let processingTempDir: string | undefined;
+    let filePath: string | undefined;
 
     // 3. Generic Pipeline Boundary with Execution Hard Bound (5 minutes)
     const abortController = new AbortController();
@@ -156,24 +162,18 @@ export class FilesProcessor {
 
     const initialInput: Record<string, unknown> = {
       fileId,
-      filePath,
       mimeType: fileRecord.mimeType || 'application/octet-stream',
       fileType: fileRecord.fileType as any,
     };
 
     let finalState;
     try {
-      // Original PDF bytes are read through the storage boundary. This keeps
-      // the native extractor independent of a temporary filesystem path and
-      // makes persistent-volume storage replaceable by an object-storage
-      // adapter.
-      if (fileRecord.mimeType === 'application/pdf') {
-        if (!this.storageProvider) throw new Error('Document storage provider is unavailable.');
-        const stream = await this.storageProvider.download('documents', fileRecord.storageKey);
-        const chunks: Buffer[] = [];
-        for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-        initialInput.fileData = Buffer.concat(chunks);
-      }
+      if (!this.storageProvider) throw new Error('Document storage provider is unavailable.');
+      processingTempDir = await mkdtemp(join(tmpdir(), 'studyai-processing-'));
+      filePath = join(processingTempDir, `${randomUUID()}${extname(fileRecord.originalName).toLowerCase()}`);
+      const stream = await this.storageProvider.download('documents', fileRecord.storageKey);
+      await pipeline(stream, createWriteStream(filePath, { flags: 'wx' }));
+      initialInput.filePath = filePath;
       finalState = await this.pipelineRunner.execute(initialInput, pipelineContext);
     } catch (error: any) {
       this.logger.error('FilesProcessor pipeline failed', error);
@@ -186,6 +186,9 @@ export class FilesProcessor {
       return;
     } finally {
       clearTimeout(timeoutId);
+      if (processingTempDir) {
+        await rm(processingTempDir, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
 
     const { extractedDocument, chunks } = finalState;

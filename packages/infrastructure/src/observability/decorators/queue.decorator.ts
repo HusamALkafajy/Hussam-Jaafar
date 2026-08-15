@@ -1,5 +1,5 @@
 import { ILogger, IMetrics, ITracer } from '../contracts';
-import { IQueue, IJob } from '../../queues/contracts';
+import { IQueue, IJob, QueueEnqueueOptions } from '../../queues/contracts';
 
 export class ObservedQueue implements IQueue {
   constructor(
@@ -10,7 +10,7 @@ export class ObservedQueue implements IQueue {
     private readonly tracer: ITracer
   ) {}
 
-  async enqueue(job: IJob, options?: { delay?: number }): Promise<void> {
+  async enqueue(job: IJob, options?: QueueEnqueueOptions): Promise<void> {
     const span = this.tracer.startSpan(`Queue.enqueue`, {
       attributes: { 'queue.name': this.queueName, 'job.type': job.jobType, 'job.id': job.jobId }
     });

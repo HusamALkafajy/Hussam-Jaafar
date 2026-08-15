@@ -1,105 +1,81 @@
-import { BadRequestException } from '@nestjs/common';
 import { FileMagicValidationPipe } from './file-magic-validation.pipe';
+import { MAX_UPLOAD_BYTES } from '../files/upload-contract';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 describe('FileMagicValidationPipe', () => {
-  let pipe: FileMagicValidationPipe;
+  const pipe = new FileMagicValidationPipe();
 
-  beforeEach(() => {
-    pipe = new FileMagicValidationPipe();
-  });
-
-  const createMockFile = (
+  const file = (
     mimetype: string,
     buffer: Buffer,
-    originalname: string = 'file.tmp',
-    size: number = 1024,
-  ): Express.Multer.File => {
-    return {
-      fieldname: 'file',
-      originalname,
-      encoding: '7bit',
-      mimetype,
-      size,
-      buffer,
-      stream: null as any,
-      destination: '',
-      filename: '',
-      path: '',
-    };
-  };
-
-  // Magic Byte Buffers
-  const validPdfBytes = Buffer.concat([Buffer.from([0x25, 0x50, 0x44, 0x46]), Buffer.alloc(10)]);
-  const validJpegBytes = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(10)]);
-  const validPngBytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(10)]);
-  const validZipBytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(10)]);
-  
-  const legacyDocBytes = Buffer.concat([Buffer.from([0xd0, 0xcf, 0x11, 0xe0]), Buffer.alloc(10)]);
-  const randomBytes = Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05]);
-
-  it('1. genuine PDF bytes + PDF MIME -> accepted', () => {
-    const file = createMockFile('application/pdf', validPdfBytes, 'test.pdf');
-    const result = pipe.transform(file);
-    expect(result.mimetype).toBe('application/pdf');
+    originalname: string,
+    size = buffer.length,
+  ): Express.Multer.File => ({
+    fieldname: 'file',
+    originalname,
+    encoding: '7bit',
+    mimetype,
+    size,
+    buffer,
+    stream: null as any,
+    destination: '',
+    filename: '',
+    path: '',
   });
 
-  it('2. arbitrary bytes + PDF MIME -> rejected', () => {
-    const file = createMockFile('application/pdf', randomBytes, 'test.pdf');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-    expect(() => pipe.transform(file)).toThrow('Unrecognized file signature');
+  const pdf = Buffer.concat([Buffer.from('%PDF'), Buffer.alloc(12)]);
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]);
+  const webp = Buffer.from('RIFF0000WEBP', 'ascii');
+  const zip = Buffer.concat([
+    Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    Buffer.from('[Content_Types].xml word/document.xml'),
+  ]);
+
+  it.each([
+    ['application/pdf', pdf, 'book.pdf', 'application/pdf'],
+    ['image/jpeg', jpeg, 'page.jpg', 'image/jpeg'],
+    ['image/png', png, 'page.png', 'image/png'],
+    ['image/webp', webp, 'page.webp', 'image/webp'],
+    ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', zip, 'book.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ])('accepts canonical %s content', async (declared, bytes, name, expected) => {
+    await expect(pipe.transform(file(declared, bytes, name))).resolves.toMatchObject({ mimetype: expected });
   });
 
-  it('3. arbitrary bytes + .pdf + PDF MIME -> rejected', () => {
-    const file = createMockFile('application/pdf', randomBytes, 'test.pdf');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
+  it('accepts exactly 50 MiB', async () => {
+    await expect(pipe.transform(file('application/pdf', pdf, 'book.pdf', MAX_UPLOAD_BYTES))).resolves.toBeDefined();
   });
 
-  it('4. legacy DOC -> rejected', () => {
-    const file = createMockFile('application/msword', legacyDocBytes, 'test.doc');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
+  it('rejects one byte over 50 MiB with a stable code', async () => {
+    await expect(pipe.transform(file('application/pdf', pdf, 'book.pdf', MAX_UPLOAD_BYTES + 1)))
+      .rejects.toMatchObject({ response: expect.objectContaining({ errorCode: 'FILE_TOO_LARGE' }) });
   });
 
-  it('5. DOCX/ZIP bytes -> rejected while DOCX canonical support is absent', () => {
-    const file = createMockFile('application/vnd.openxmlformats-officedocument.wordprocessingml.document', validZipBytes, 'test.docx');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-    expect(() => pipe.transform(file)).toThrow('Unrecognized file signature');
+  it.each([
+    ['arbitrary PDF bytes', 'application/pdf', Buffer.from('not-pdf'), 'book.pdf'],
+    ['generic ZIP', 'application/zip', zip, 'archive.zip'],
+    ['extension mismatch', 'image/png', png, 'page.pdf'],
+    ['declared MIME mismatch', 'image/jpeg', png, 'page.png'],
+  ])('rejects %s', async (_case, declared, bytes, name) => {
+    await expect(pipe.transform(file(declared, bytes, name)))
+      .rejects.toMatchObject({ response: expect.objectContaining({ errorCode: 'UNSUPPORTED_FILE_TYPE' }) });
   });
 
-  it('6. generic ZIP -> rejected', () => {
-    const file = createMockFile('application/zip', validZipBytes, 'test.zip');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-  });
-
-  it('7. APK/JAR-like ZIP container -> rejected', () => {
-    const file = createMockFile('application/vnd.android.package-archive', validZipBytes, 'app.apk');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-  });
-
-  it('8. JPEG -> rejected while image canonical support is absent', () => {
-    const file = createMockFile('image/jpeg', validJpegBytes, 'test.jpeg');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-    expect(() => pipe.transform(file)).toThrow('Unsupported file format detected: image/jpeg');
-  });
-
-  it('9. image/jpg -> rejected', () => {
-    const file = createMockFile('image/jpg', validJpegBytes, 'test.jpg');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-    expect(() => pipe.transform(file)).toThrow('Unsupported file format detected: image/jpeg');
-  });
-
-  it('10. PNG -> rejected', () => {
-    const file = createMockFile('image/png', validPngBytes, 'test.png');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-    expect(() => pipe.transform(file)).toThrow('Unsupported file format detected: image/png');
-  });
-
-  it('11. arbitrary binary -> rejected', () => {
-    const file = createMockFile('application/octet-stream', randomBytes, 'malware.exe');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
-  });
-
-  it('12. unsupported application/octet-stream -> rejected', () => {
-    const file = createMockFile('application/octet-stream', validJpegBytes, 'test.jpg');
-    expect(() => pipe.transform(file)).toThrow(BadRequestException);
+  it('rejects a forged DOCX whose ZIP header only contains expected filenames', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studyai-forged-docx-'));
+    const filePath = join(root, 'forged.docx');
+    await writeFile(filePath, zip);
+    try {
+      await expect(pipe.transform({
+        ...file('application/vnd.openxmlformats-officedocument.wordprocessingml.document', zip, 'forged.docx'),
+        path: filePath,
+      })).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'UNSUPPORTED_FILE_TYPE' }),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

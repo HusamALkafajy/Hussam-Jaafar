@@ -14,6 +14,7 @@ import { ExtractedDocumentFactory } from './extracted-document.factory';
 import { HtmlAstBuilder } from './html-mapper/html-ast.builder';
 import { HtmlAstVisitor } from './html-mapper/html-ast.visitor';
 import { CheerioHtmlNode } from './html-mapper/cheerio-html-node';
+import { extractDocxTitle } from '../../utils/docx-title.util';
 
 export class MammothDocxExtractor implements DocumentExtractor {
   async extract(context: DocumentExtractionContext): Promise<ExtractedDocument> {
@@ -75,7 +76,8 @@ export class MammothDocxExtractor implements DocumentExtractor {
     }
 
     const metadata = {
-      warnings: result.messages.map((m: any) => m.message)
+      warnings: result.messages.map((m: any) => m.message),
+      title: extractDocxTitle(rawData),
     };
 
     return ExtractedDocumentFactory.fromBlocks(blocks, metadata);

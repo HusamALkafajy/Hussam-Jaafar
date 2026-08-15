@@ -23,6 +23,7 @@ import {
 import { CreateGroupDto } from './dto/create-group.dto';
 import { SendGroupMessageDto } from './dto/send-group-message.dto';
 import * as crypto from 'crypto';
+import { getStoredDocumentTitle } from '../files/utils/document-title.util';
 
 @Injectable()
 export class StudyGroupsService {
@@ -182,6 +183,7 @@ export class StudyGroupsService {
         sharedAt: groupSharedFiles.sharedAt,
         sharedByUserId: groupSharedFiles.sharedByUserId,
         originalName: files.originalName,
+        metadata: files.metadata,
         mimeType: files.mimeType,
         fileSize: files.fileSize,
         processingStatus: files.processingStatus,
@@ -191,7 +193,15 @@ export class StudyGroupsService {
       .where(eq(groupSharedFiles.groupId, groupId))
       .orderBy(desc(groupSharedFiles.sharedAt));
 
-    return { ...group, myRole, members, sharedFiles };
+    return {
+      ...group,
+      myRole,
+      members,
+      sharedFiles: sharedFiles.map(({ metadata, ...file }) => ({
+        ...file,
+        title: getStoredDocumentTitle(metadata, file.originalName),
+      })),
+    };
   }
 
   // ── Messaging (REST — used for history fetch; realtime via Gateway) ────────

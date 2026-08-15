@@ -1,6 +1,6 @@
 import { Queue, Job } from 'bullmq';
 import Redis from 'ioredis';
-import { IQueue, IJob } from '../contracts';
+import { IQueue, IJob, QueueEnqueueOptions } from '../contracts';
 
 export class BullQueueAdapter implements IQueue {
   private queue: Queue;
@@ -12,11 +12,14 @@ export class BullQueueAdapter implements IQueue {
     this.queue = new Queue(this.queueName, { connection: this.redis as any });
   }
 
-  async enqueue(job: IJob, options?: { delay?: number }): Promise<void> {
+  async enqueue(job: IJob, options?: QueueEnqueueOptions): Promise<void> {
     await this.queue.add(job.jobType, job, {
       jobId: job.jobId,
       delay: options?.delay,
       priority: job.priority > 0 ? job.priority : undefined,
+      attempts: options?.attempts,
+      removeOnComplete: options?.removeOnComplete,
+      removeOnFail: options?.removeOnFail,
     });
   }
 

@@ -116,6 +116,15 @@ export class NativePdfExtractor implements DocumentExtractor {
     }
 
     const blocks: StructuralBlock[] = [];
+    let title: string | undefined;
+    try {
+      const pdfMetadata = await doc.getMetadata();
+      title = typeof pdfMetadata?.info?.Title === 'string'
+        ? pdfMetadata.info.Title
+        : undefined;
+    } catch {
+      // Metadata is optional and must never block extraction.
+    }
     let totalTextItems = 0;
     let hasVisualContent = false;
 
@@ -188,6 +197,6 @@ export class NativePdfExtractor implements DocumentExtractor {
       throw new EmptyDocumentError('PDF text extraction yielded no usable text.');
     }
 
-    return ExtractedDocumentFactory.fromBlocks(blocks, { pageCount: numPages });
+    return ExtractedDocumentFactory.fromBlocks(blocks, { pageCount: numPages, title });
   }
 }

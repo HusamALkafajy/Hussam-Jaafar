@@ -10,8 +10,15 @@ export interface IJob<TPayload = any> {
   payload: TPayload;
 }
 
+export interface QueueEnqueueOptions {
+  delay?: number;
+  attempts?: number;
+  removeOnComplete?: boolean;
+  removeOnFail?: boolean;
+}
+
 export interface IQueue {
-  enqueue(job: IJob, options?: { delay?: number }): Promise<void>;
+  enqueue(job: IJob, options?: QueueEnqueueOptions): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   close(): Promise<void>;

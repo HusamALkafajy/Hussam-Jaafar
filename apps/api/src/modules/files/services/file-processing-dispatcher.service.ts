@@ -76,7 +76,7 @@ export class FileProcessingDispatcherService {
         jobType: 'process-file',
         priority: 0,
         payload: { attemptId: attempt.id, fileId: attempt.fileId, traceId },
-      });
+      }, jobOptions);
       
       this.logger.log(`Successfully dispatched attempt ${attemptId}`);
     } catch (error) {

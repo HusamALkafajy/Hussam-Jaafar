@@ -22,6 +22,7 @@ interface ChatSession {
 interface FileItem {
   id: string;
   originalName: string;
+  title?: string;
   status: string;
 }
 
@@ -149,7 +150,7 @@ export default function ChatSessionsPage() {
                     className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900/40 border border-slate-800 hover:border-violet-500/40 hover:bg-violet-500/5 text-left transition-all group"
                   >
                     <FolderOpen className="w-4 h-4 text-slate-500 group-hover:text-violet-400 shrink-0" />
-                    <span className="text-sm text-slate-200 font-medium truncate">{file.originalName}</span>
+                    <span className="text-sm text-slate-200 font-medium truncate">{file.title ?? file.originalName}</span>
                   </button>
                 ))}
               </div>

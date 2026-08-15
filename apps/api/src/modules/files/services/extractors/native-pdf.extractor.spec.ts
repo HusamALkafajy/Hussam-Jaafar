@@ -75,6 +75,7 @@ describe('NativePdfExtractor', () => {
       getDocument: jest.fn().mockReturnValue({
         promise: Promise.resolve({
           numPages: 2,
+          getMetadata: jest.fn().mockResolvedValue({ info: { Title: 'فيزياء الحركة' } }),
           getPage: jest.fn()
             .mockResolvedValueOnce({ getTextContent: jest.fn().mockResolvedValue({ items: [{ str: 'Page One' }] }) })
             .mockResolvedValueOnce({ getTextContent: jest.fn().mockResolvedValue({ items: [{ str: 'Page Two' }] }) }),
@@ -92,6 +93,7 @@ describe('NativePdfExtractor', () => {
     });
 
     expect(result.metadata?.pageCount).toBe(2);
+    expect(result.metadata?.title).toBe('فيزياء الحركة');
     expect(result.blocks[0].metadata).toMatchObject({ generatedRoot: true, pageCount: 2 });
     expect(result.blocks[1].metadata?.sourcePage).toBe(1);
     expect(result.blocks[2].metadata?.sourcePage).toBe(2);

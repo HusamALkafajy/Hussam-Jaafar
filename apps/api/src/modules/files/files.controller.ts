@@ -14,6 +14,10 @@ import {
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { mkdirSync } from 'fs';
+import { randomUUID } from 'crypto';
+import { extname, resolve } from 'path';
 import { FilesService, UnsatisfiableByteRangeException } from './files.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -22,6 +26,33 @@ import { UploadFileDto } from './dto/upload-file.dto';
 import { CreateSubjectDto, UpdateSubjectDto, AssignSubjectDto } from '@studyai/types';
 import { FileMagicValidationPipe } from '../../common/pipes/file-magic-validation.pipe';
 import { Response } from 'express';
+import {
+  MAX_UPLOAD_BYTES,
+  UPLOAD_CHUNK_BYTES,
+  UploadErrorCode,
+  UploadException,
+} from '../../common/files/upload-contract';
+
+const directUploadDirectory = resolve(process.cwd(), 'apps/api/uploads/temp/direct');
+const directUploadOptions = {
+  storage: diskStorage({
+    destination: (_request, _file, callback) => {
+      mkdirSync(directUploadDirectory, { recursive: true });
+      callback(null, directUploadDirectory);
+    },
+    filename: (_request, file, callback) => {
+      callback(null, `${randomUUID()}${extname(file.originalname).toLowerCase()}`);
+    },
+  }),
+  // Multer emits LIMIT_FILE_SIZE when the stream reaches its configured
+  // boundary. Give transport parsing one byte of headroom; the upload
+  // contract performs the authoritative inclusive 50 MiB check.
+  limits: { fileSize: MAX_UPLOAD_BYTES + 1, files: 1 },
+};
+
+const chunkUploadOptions = {
+  limits: { fileSize: UPLOAD_CHUNK_BYTES + 1, files: 1 },
+};
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -31,18 +62,18 @@ export class FilesController {
   // ── Files Endpoints ──
 
   @Post('files/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', directUploadOptions))
   async uploadFile(
     @CurrentUser('sub') userId: string,
     @UploadedFile(new FileMagicValidationPipe())
     file: Express.Multer.File,
     @Body() dto: UploadFileDto,
   ) {
-    return this.filesService.createFile(userId, file, dto.subjectId);
+    return this.filesService.createFile(userId, file, dto.subjectId, dto.title);
   }
 
   @Post('files/upload/chunk')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', chunkUploadOptions))
   async uploadChunk(
     @CurrentUser('sub') userId: string,
     @UploadedFile()
@@ -51,8 +82,14 @@ export class FilesController {
     @Body('chunkIndex') chunkIndex: string,
     @Body('totalChunks') totalChunks: string,
     @Body('filename') filename: string,
+    @Body('fileSize') fileSize: string,
+    @Body('mimeType') mimeType: string,
+    @Body('title') title?: string,
     @Body('subjectId') subjectId?: string,
   ) {
+    if (!file?.buffer) {
+      throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'No upload chunk was provided.');
+    }
     return this.filesService.handleChunkUpload(
       userId,
       file.buffer,
@@ -60,7 +97,10 @@ export class FilesController {
       parseInt(chunkIndex, 10),
       parseInt(totalChunks, 10),
       filename,
+      Number(fileSize),
+      mimeType,
       subjectId,
+      title,
     );
   }
 

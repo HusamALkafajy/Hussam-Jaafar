@@ -32,6 +32,7 @@ interface SharedFile {
   id: string;
   fileId: string;
   originalName: string;
+  title?: string;
   mimeType: string;
   fileSize: number;
   processingStatus: string;
@@ -158,7 +159,7 @@ function ShareFileModal({
                   className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900/40 border border-slate-800 hover:border-violet-500/40 hover:bg-violet-500/5 text-left transition-all group w-full disabled:opacity-60"
                 >
                   <FileText className="w-4 h-4 text-slate-500 group-hover:text-violet-400 shrink-0" />
-                  <span className="text-sm text-slate-200 font-medium truncate flex-1">{file.originalName}</span>
+                  <span className="text-sm text-slate-200 font-medium truncate flex-1">{file.title ?? file.originalName}</span>
                   {sharing === file.id && <Spinner className="w-4 h-4" />}
                 </button>
               ))}
@@ -474,7 +475,7 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
                     <div className="flex items-start gap-2 min-w-0">
                       <FileText className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
                       <span className="text-xs font-medium text-slate-200 truncate flex-1 leading-tight">
-                        {file.originalName}
+                        {file.title ?? file.originalName}
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-500">{formatFileSize(file.fileSize)}</span>

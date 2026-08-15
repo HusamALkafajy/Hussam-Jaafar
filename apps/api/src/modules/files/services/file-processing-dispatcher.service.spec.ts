@@ -79,12 +79,15 @@ describe('FileProcessingDispatcherService', () => {
 
       await service.dispatchAttempt(attemptId);
 
-      expect(queue.enqueue).toHaveBeenCalledWith({
-        jobId: expectedJobId,
-        jobType: 'process-file',
-        priority: 0,
-        payload: { attemptId, fileId: 'file-123', traceId: expect.any(String) },
-      });
+      expect(queue.enqueue).toHaveBeenCalledWith(
+        {
+          jobId: expectedJobId,
+          jobType: 'process-file',
+          priority: 0,
+          payload: { attemptId, fileId: 'file-123', traceId: expect.any(String) },
+        },
+        { jobId: expectedJobId, removeOnComplete: true, removeOnFail: false, attempts: 1 },
+      );
     });
 
     it('should handle V1 dispatching for non-PDFs even when ENABLE_V2_PIPELINE=true', async () => {
@@ -105,12 +108,15 @@ describe('FileProcessingDispatcherService', () => {
 
       await service.dispatchAttempt(attemptId);
 
-      expect(queue.enqueue).toHaveBeenCalledWith({
-        jobId: expectedJobId,
-        jobType: 'process-file',
-        priority: 0,
-        payload: { attemptId, fileId: 'file-123', traceId: expect.any(String) },
-      });
+      expect(queue.enqueue).toHaveBeenCalledWith(
+        {
+          jobId: expectedJobId,
+          jobType: 'process-file',
+          priority: 0,
+          payload: { attemptId, fileId: 'file-123', traceId: expect.any(String) },
+        },
+        { jobId: expectedJobId, removeOnComplete: true, removeOnFail: false, attempts: 1 },
+      );
     });
   });
 });

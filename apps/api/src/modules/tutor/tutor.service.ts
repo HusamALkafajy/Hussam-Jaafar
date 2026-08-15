@@ -4,6 +4,7 @@ import { AiService } from '../ai/ai.service';
 import { DocumentReadService } from '../document-read/document-read.service';
 import { RetrievalOrchestrator } from './retrieval.orchestrator';
 import { PedagogicalContextBuilder } from './pedagogical-context.builder';
+import { getStoredDocumentTitle } from '../files/utils/document-title.util';
 
 @Injectable()
 export class TutorService {
@@ -27,7 +28,7 @@ export class TutorService {
        throw new NotFoundException('Document not found');
     }
 
-    const tutorSessionTitle = `AI Tutor: ${fileResult[0].originalName}`;
+    const tutorSessionTitle = `AI Tutor: ${getStoredDocumentTitle(fileResult[0].metadata, fileResult[0].originalName)}`;
 
     // Look for an existing tutor session
     const existingSessions = await db.select()

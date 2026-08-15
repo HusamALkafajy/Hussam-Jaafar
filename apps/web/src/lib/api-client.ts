@@ -36,6 +36,7 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly kind: ApiErrorKind = 'http',
+    public readonly errorCode?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -123,6 +124,15 @@ const AUTH_ENDPOINTS = new Set([
 
 const BASE_URL = '';  // Client: empty string → relative, proxied by Next.js → api
 
+const readCsrfToken = (): string | undefined => {
+  try {
+    const match = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 // ─── Core Request ─────────────────────────────────────────────────────────────
 
 type ExtendedRequestInit = RequestInit & {
@@ -141,16 +151,10 @@ async function request<T>(
 
   // Cookies (refresh_token, csrf_token) are always included automatically
   // CSRF double-submit for state-changing requests
-  try {
-    const method = (options.method || 'GET').toUpperCase();
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-      const match = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/);
-      if (match && match[1]) {
-        headers.set('X-CSRF-Token', decodeURIComponent(match[1]));
-      }
-    }
-  } catch {
-    // Non-browser context guard; should not happen given 'use client'
+  const method = (options.method || 'GET').toUpperCase();
+  const csrfToken = readCsrfToken();
+  if (csrfToken && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    headers.set('X-CSRF-Token', csrfToken);
   }
 
   // Bearer token from memory (never from cookie/storage)
@@ -198,10 +202,13 @@ async function request<T>(
       if (!_refreshPromise) {
         _refreshPromise = (async () => {
           try {
+            const refreshHeaders = new Headers({ 'Content-Type': 'application/json' });
+            const refreshCsrfToken = readCsrfToken();
+            if (refreshCsrfToken) refreshHeaders.set('X-CSRF-Token', refreshCsrfToken);
             const refreshResp = await fetch(`${BASE_URL}/api/auth/refresh`, {
               method: 'POST',
               credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
+              headers: refreshHeaders,
             });
 
             if (!refreshResp.ok) {
@@ -255,7 +262,12 @@ async function request<T>(
         );
       }
 
-      throw new ApiError(safeHttpErrorMessage(response.status), response.status);
+      throw new ApiError(
+        safeHttpErrorMessage(response.status),
+        response.status,
+        'http',
+        typeof errorData.errorCode === 'string' ? errorData.errorCode : undefined,
+      );
     }
 
     if (response.status === 204) return undefined as T;

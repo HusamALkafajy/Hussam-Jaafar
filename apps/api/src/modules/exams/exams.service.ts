@@ -10,6 +10,7 @@ import {
 import { db, exams, questions, files, eq, and, or, desc, sql, isNull, lt, inArray } from '@studyai/database';
 import { AiService } from '../ai/ai.service';
 import { FilesService } from '../files/files.service';
+import { getStoredDocumentTitle } from '../files/utils/document-title.util';
 import { RagService } from '../rag/rag.service';
 import { GamificationService } from '../study-coach/gamification.service';
 import { DocumentReadService } from '../document-read/document-read.service';
@@ -89,7 +90,7 @@ export class ExamsService {
     }
 
     this.validateGeneratedQuestions(generated.questions, dto.difficulty);
-    const title = generated.title || `اختبار: ${file.originalName}`;
+    const title = generated.title || `اختبار: ${getStoredDocumentTitle(file.metadata, file.originalName)}`;
     const generatedQuestions = generated.questions.slice(0, dto.totalQuestions);
 
     // 2. Save Exam

@@ -8,6 +8,7 @@ import { DocumentRepository } from '@studyai/database';
 import { RagService } from '../../rag/rag.service';
 import { LostProcessingOwnershipError } from '../utils/domain.exceptions';
 import { ExtractionMetadata } from '../contracts/extracted-document';
+import { resolvePublishedDocumentTitle } from '../utils/document-title.util';
 
 export interface PublicationPayload {
   token: WorkerExecutionToken;
@@ -153,24 +154,27 @@ export class DocumentPersistenceService {
       }
 
       // 9. Transition file to completed
+      const titleMetadata = resolvePublishedDocumentTitle(
+        lockedFile.metadata,
+        lockedFile.originalName,
+        extractionMetadata?.title,
+      );
+      const mergedMetadata = {
+        ...(lockedFile.metadata && typeof lockedFile.metadata === 'object'
+          ? lockedFile.metadata
+          : {}),
+        ...(extractionMetadata ?? {}),
+        ...titleMetadata,
+        ...(pageCount === undefined ? {} : { pageCount }),
+      };
       await tx
         .update(files)
         .set({
           processingStatus: 'completed',
           processedAt: new Date(),
           ...(extractedText ? { extractedText } : {}),
-          ...(pageCount === undefined
-            ? {}
-            : {
-                pageCount,
-                metadata: {
-                  ...(lockedFile.metadata && typeof lockedFile.metadata === 'object'
-                    ? lockedFile.metadata
-                    : {}),
-                  ...extractionMetadata,
-                  pageCount,
-                },
-              }),
+          ...(pageCount === undefined ? {} : { pageCount }),
+          metadata: mergedMetadata,
         })
         .where(eq(files.id, fileId));
 

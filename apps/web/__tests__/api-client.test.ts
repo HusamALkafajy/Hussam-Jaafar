@@ -327,7 +327,10 @@ describe('api-client — structured failure contract', () => {
     let protectedCalls = 0;
     fetchSpy.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : (input as Request).url;
-      if (url.endsWith('/api/auth/refresh')) return refreshSuccessResponse('refreshed-token');
+      if (url.endsWith('/api/auth/refresh')) {
+        expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('csrf-value');
+        return refreshSuccessResponse('refreshed-token');
+      }
       protectedCalls += 1;
       expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('csrf-value');
       return protectedCalls === 1 ? unauthorizedResponse() : successResponse({ ok: true });
@@ -337,6 +340,28 @@ describe('api-client — structured failure contract', () => {
 
     await expect(api.post('/protected', { value: 1 })).resolves.toEqual({ ok: true });
     expect(protectedCalls).toBe(2);
+  });
+
+  it('retries a FormData upload after refresh without losing its body', async () => {
+    document.cookie = 'csrf_token=upload-csrf; path=/';
+    const upload = new FormData();
+    upload.append('fileSize', '1024');
+    let uploadCalls = 0;
+    fetchSpy.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url;
+      if (url.endsWith('/api/auth/refresh')) {
+        expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('upload-csrf');
+        return refreshSuccessResponse('fresh-upload-token');
+      }
+      uploadCalls += 1;
+      expect(init?.body).toBe(upload);
+      return uploadCalls === 1 ? unauthorizedResponse() : successResponse({ id: 'file-1' });
+    });
+    const { api, setAccessToken } = await import('../src/lib/api-client');
+    setAccessToken('expired-upload-token');
+
+    await expect(api.post('/files/upload/chunk', upload)).resolves.toEqual({ id: 'file-1' });
+    expect(uploadCalls).toBe(2);
   });
 
   it('keeps authenticated binary delivery outside JSON parsing', async () => {

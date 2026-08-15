@@ -26,6 +26,7 @@ import {
 import { toast } from 'sonner';
 import { formatBytes, formatDate } from '../../../lib/utils';
 import { MAX_FILE_SIZE } from '../../../lib/constants';
+import { uploadErrorMessageKey } from '../../../lib/upload-error';
 import { useRouter } from 'next/navigation';
 import {
   AlertDialog,
@@ -59,6 +60,24 @@ const ALL_SUBJECTS_VALUE = '__all-subjects__';
 const ALL_FILE_TYPES_VALUE = '__all-file-types__';
 const NO_SUBJECT_VALUE = '__no-subject__';
 
+const createUploadId = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 export default function FilesPage() {
   const router = useRouter();
   const { t, locale } = useLocale();
@@ -78,6 +97,7 @@ export default function FilesPage() {
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadSubjectId, setUploadSubjectId] = useState('');
+  const [uploadTitle, setUploadTitle] = useState('');
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [uploadError, setUploadError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -150,15 +170,13 @@ export default function FilesPage() {
 
     const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks
     const totalChunks = Math.ceil(selectedFile.size / CHUNK_SIZE);
-    const uploadId = typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `upload-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    const uploadId = createUploadId();
 
     try {
       for (let i = 0; i < totalChunks; i++) {
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, selectedFile.size);
-        const chunk = selectedFile.slice(start, end);
+        const chunk = selectedFile.slice(start, end, selectedFile.type);
 
         const chunkFormData = new FormData();
         chunkFormData.append('file', chunk, selectedFile.name);
@@ -166,6 +184,11 @@ export default function FilesPage() {
         chunkFormData.append('chunkIndex', i.toString());
         chunkFormData.append('totalChunks', totalChunks.toString());
         chunkFormData.append('filename', selectedFile.name);
+        chunkFormData.append('fileSize', selectedFile.size.toString());
+        chunkFormData.append('mimeType', selectedFile.type || 'application/octet-stream');
+        if (uploadTitle.trim()) {
+          chunkFormData.append('title', uploadTitle.trim());
+        }
         if (uploadSubjectId) {
           chunkFormData.append('subjectId', uploadSubjectId);
         }
@@ -186,18 +209,14 @@ export default function FilesPage() {
           setUploadStatus('success');
           setSelectedFile(null);
           setUploadSubjectId('');
+          setUploadTitle('');
           router.push(`/files/${newFileId}`);
           return;
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setUploadStatus('error');
-      
-      if (err.name === 'QuotaError' || err.errorCode === 'QUOTA_EXCEEDED') {
-        setUploadError(t('files.quotaExceeded'));
-      } else {
-        setUploadError(t('files.uploadNetworkFailure'));
-      }
+      setUploadError(t(uploadErrorMessageKey(err)));
     } finally {
       setUploading(false);
     }
@@ -206,6 +225,7 @@ export default function FilesPage() {
   const resetUploadState = () => {
     setUploadStatus('idle');
     setSelectedFile(null);
+    setUploadTitle('');
     setUploadProgress(0);
     setUploadMessage('');
     setUploadError('');
@@ -230,7 +250,7 @@ export default function FilesPage() {
       file.type === 'application/pdf' ||
       file.type ===
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      file.type.startsWith('image/') ||
+      ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
       fileName.endsWith('.pdf') ||
       fileName.endsWith('.docx');
 
@@ -456,7 +476,11 @@ export default function FilesPage() {
                   <Link
                     href={`/files/${file.id}`}
                     className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-                    aria-label={t('files.openFile', { fileName: file.originalName })}
+                    aria-label={t('files.openFile', {
+                      fileName: file.titleSource === 'fallback'
+                        ? t('files.untitledDocument')
+                        : file.title ?? file.originalName,
+                    })}
                   />
 
                   <div className="pointer-events-none relative z-[1] flex items-start justify-between gap-4 p-5">
@@ -466,7 +490,9 @@ export default function FilesPage() {
                       </span>
                       <div className="min-w-0 space-y-1">
                         <h3 className="block truncate text-sm font-bold text-foreground">
-                          {file.originalName}
+                          {file.titleSource === 'fallback'
+                            ? t('files.untitledDocument')
+                            : file.title ?? file.originalName}
                         </h3>
                         <p className="text-xs font-medium text-muted-foreground">
                           {formatBytes(file.fileSize)}
@@ -634,6 +660,22 @@ export default function FilesPage() {
         ) : (
           <form onSubmit={handleUploadSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
+              <label htmlFor="upload-title" className="text-sm font-medium text-foreground">
+                {t('files.documentTitle')}
+              </label>
+              <Input
+                id="upload-title"
+                value={uploadTitle}
+                onChange={(event) => setUploadTitle(event.target.value)}
+                maxLength={255}
+                placeholder={t('files.documentTitlePlaceholder')}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('files.documentTitleHelp')}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
               <label
                 id="upload-subject-label"
                 htmlFor="upload-subject"
@@ -682,7 +724,7 @@ export default function FilesPage() {
                 ref={fileInputRef}
                 onChange={(e) => handleFileSelection(e.target.files?.[0])}
                 className="sr-only"
-                accept=".pdf,.docx,image/*"
+                accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
                 aria-describedby={`upload-file-requirements${
                   uploadError ? ' upload-file-error' : ''
                 }`}
