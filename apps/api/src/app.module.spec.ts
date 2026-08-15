@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 describe('application throttler configuration', () => {
   const environmentKeys = ['DATABASE_URL', 'JWT_SECRET', 'JWT_REFRESH_SECRET'] as const;
   const environmentSnapshot = Object.fromEntries(
@@ -12,9 +14,11 @@ describe('application throttler configuration', () => {
   });
 
   it('passes registered throttle values to Nest without hard-coded fallbacks', async () => {
-    process.env.DATABASE_URL = 'postgresql://localhost/studyai_test';
-    process.env.JWT_SECRET = 'a'.repeat(32);
-    process.env.JWT_REFRESH_SECRET = 'b'.repeat(32);
+    process.env.DATABASE_URL = String.raw`postgresql://localhost/studyai_test`;
+    Object.assign(process.env, {
+      JWT_SECRET: randomBytes(32).toString('hex'),
+      JWT_REFRESH_SECRET: randomBytes(32).toString('hex'),
+    });
     const { createThrottlerOptions } = await import('./app.module');
     const values: Record<string, number> = {
       'app.throttleLimit': 17,
