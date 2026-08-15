@@ -16,6 +16,9 @@ describe('Native PDF End-to-End Extraction Integration', () => {
   let processor: FilesProcessor;
   let tmpDir: string;
   let ragService: any;
+  let storageProvider: { download: jest.Mock };
+  let lastStorageSourcePath: string | undefined;
+  let observedProcessingFilePath: string | undefined;
   const globalUserId = randomUUID();
 
   beforeAll(async () => {
@@ -54,9 +57,20 @@ describe('Native PDF End-to-End Extraction Integration', () => {
       stages: [],
       registerStages: jest.fn(),
       execute: jest.fn().mockImplementation(async (input: any, context: any) => {
+        const processingFilePath = input.filePath;
+        if (typeof processingFilePath !== 'string') {
+          throw new Error('FilesProcessor must provide the downloaded file path to the extraction pipeline.');
+        }
+
+        expect(fs.existsSync(processingFilePath)).toBe(true);
+        expect(lastStorageSourcePath).toBeDefined();
+        expect(fs.readFileSync(processingFilePath)).toEqual(fs.readFileSync(lastStorageSourcePath!));
+        observedProcessingFilePath = processingFilePath;
+
         const extractedDocument = await nativePdfExtractor.extract({
           fileId: input.fileId,
-          data: input.fileData,
+          filePath: processingFilePath,
+          data: Buffer.isBuffer(input.data) ? input.data : undefined,
           mimeType: input.mimeType,
           fileType: input.fileType,
           signal: context.signal,
@@ -74,10 +88,11 @@ describe('Native PDF End-to-End Extraction Integration', () => {
       }),
     } as any;
 
-    const storageProvider = {
-      download: jest.fn(async (_bucket: string, key: string) =>
-        fs.createReadStream(path.join(tmpDir, path.basename(key))),
-      ),
+    storageProvider = {
+      download: jest.fn(async (_bucket: string, key: string) => {
+        lastStorageSourcePath = path.join(tmpDir, path.basename(key));
+        return fs.createReadStream(lastStorageSourcePath);
+      }),
     };
 
     processor = new FilesProcessor(
@@ -159,6 +174,10 @@ describe('Native PDF End-to-End Extraction Integration', () => {
     // Act
     await processor.handle({ jobId, payload: { attemptId, fileId, generation: 1 } });
 
+    expect(storageProvider.download).toHaveBeenCalledWith('documents', path.posix.join('pdf-e2e-tests', path.basename(filePath)));
+    expect(observedProcessingFilePath).toBeDefined();
+    expect(fs.existsSync(observedProcessingFilePath!)).toBe(false);
+
     // Assert Attempt and File completed
     const attempt = await db.query.fileProcessingAttempts.findFirst({ where: eq(fileProcessingAttempts.id, attemptId) });
     expect(attempt?.status).toBe('completed');
@@ -198,6 +217,10 @@ describe('Native PDF End-to-End Extraction Integration', () => {
 
     // Act
     await processor.handle({ jobId, payload: { attemptId, fileId, generation: 1 } });
+
+    expect(storageProvider.download).toHaveBeenCalledWith('documents', path.posix.join('pdf-e2e-tests', path.basename(filePath)));
+    expect(observedProcessingFilePath).toBeDefined();
+    expect(fs.existsSync(observedProcessingFilePath!)).toBe(false);
 
     // Assert Attempt failed
     const attempt = await db.query.fileProcessingAttempts.findFirst({ where: eq(fileProcessingAttempts.id, attemptId) });
