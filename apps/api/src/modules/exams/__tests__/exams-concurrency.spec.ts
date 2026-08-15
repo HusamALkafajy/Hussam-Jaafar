@@ -224,13 +224,17 @@ describe('Exams Submission Concurrency (e2e)', () => {
     expect(updateChallengeProgress).not.toHaveBeenCalled();
   };
 
-  beforeEach(() => {
-    generateExamFeedback.mockClear();
-    updateChallengeProgress.mockClear();
+  const resetAiController = () => {
     resolveAi = () => {};
     aiStarted = new Promise(resolve => {
       signalAiStarted = resolve;
     });
+  };
+
+  beforeEach(() => {
+    generateExamFeedback.mockClear();
+    updateChallengeProgress.mockClear();
+    resetAiController();
   });
 
   describe('Release question-type containment', () => {
@@ -335,49 +339,102 @@ describe('Exams Submission Concurrency (e2e)', () => {
 
   describe('Part 3 & 4: Simultaneous Submissions', () => {
     it('exactly 1 of 2 simultaneous requests acquires ownership', async () => {
+      const repetitions = 20;
+
+      for (let iteration = 0; iteration < repetitions; iteration += 1) {
+        resetAiController();
+        const { examId, questionId } = await createExam();
+        const url = await app.getUrl();
+
+        const payload1 = { answers: [{ questionId, userAnswer: '2' }] };
+        const payload2 = { answers: [{ questionId, userAnswer: '3' }] };
+
+        const p1 = fetch(`${url}/exams/${examId}/submit`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload1),
+        });
+        const p2 = fetch(`${url}/exams/${examId}/submit`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload2),
+        });
+
+        // Wait until the winning request has entered Phase 2 (AI call).
+        await aiStarted;
+
+        // Release AI so the winning request finishes cleanly.
+        resolveAi({
+          strengthAnalysis: { topics: [], description: 'OK' },
+          weaknessAnalysis: { topics: [], weakTopics: [], description: 'OK' },
+          studyPlan: { steps: [], recommendations: [] },
+          perQuestionFeedback: [],
+        });
+
+        const res1 = await p1;
+        const res2 = await p2;
+
+        const statuses = [res1.status, res2.status].sort();
+        expect(statuses).toEqual([201, 409]);
+
+        const [dbExam] = await db.select().from(exams).where(eq(exams.id, examId));
+        expect(dbExam.evaluationVersion).toBe(1);
+
+        const [dbQ] = await db.select().from(questions).where(eq(questions.examId, examId));
+        const winningAnswer = res1.status === 201 ? '2' : '3';
+        expect(dbQ.userAnswer).toBe(winningAnswer);
+      }
+    });
+
+    it('preserves the ordinary completed-before-request response without mutation', async () => {
       const { examId, questionId } = await createExam();
-      const url = await app.getUrl();
+      const completedAt = new Date('2026-08-15T00:00:00.000Z');
+      const answeredAt = new Date('2026-08-15T00:00:01.000Z');
+      await db
+        .update(exams)
+        .set({
+          status: 'completed',
+          score: '100.00',
+          completedAt,
+          evaluationVersion: 7,
+          evaluationLockedAt: null,
+        })
+        .where(eq(exams.id, examId));
+      await db
+        .update(questions)
+        .set({ userAnswer: '2', isCorrect: true, answeredAt })
+        .where(eq(questions.id, questionId));
 
-      const payload1 = { answers: [{ questionId, userAnswer: '2' }] };
-      const payload2 = { answers: [{ questionId, userAnswer: '3' }] };
-
-      const p1 = fetch(`${url}/exams/${examId}/submit`, {
+      const response = await fetch(`${await app.getUrl()}/exams/${examId}/submit`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload1),
-      });
-      const p2 = fetch(`${url}/exams/${examId}/submit`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload2),
+        body: JSON.stringify({
+          answers: [{ questionId, userAnswer: 'replacement-answer' }],
+        }),
       });
 
-      // Wait until the winning request has entered Phase 2 (AI call).
-      await aiStarted;
-
-      // Release AI so the winning request finishes cleanly
-      resolveAi({
-        strengthAnalysis: { topics: [], description: 'OK' },
-        weaknessAnalysis: { topics: [], weakTopics: [], description: 'OK' },
-        studyPlan: { steps: [], recommendations: [] },
-        perQuestionFeedback: [],
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        message: 'Exam has already been submitted',
       });
 
-      const res1 = await p1;
-      const res2 = await p2;
+      const [storedExam] = await db.select().from(exams).where(eq(exams.id, examId));
+      expect(storedExam).toMatchObject({
+        status: 'completed',
+        score: '100.00',
+        evaluationVersion: 7,
+        evaluationLockedAt: null,
+      });
+      expect(storedExam.completedAt?.toISOString()).toBe(completedAt.toISOString());
 
-      const statuses = [res1.status, res2.status].sort();
-      // One succeeds (201/200), one conflicts (409)
-      expect(statuses).toEqual([201, 409]);
-
-      // Assert DB state
-      const [dbExam] = await db.select().from(exams).where(eq(exams.id, examId));
-      expect(dbExam.evaluationVersion).toBe(1); // Incremented exactly once
-
-      const [dbQ] = await db.select().from(questions).where(eq(questions.examId, examId));
-      // Whichever request won, its answer is persisted. The losing request's answer is NOT persisted.
-      const winningAnswer = res1.status === 201 ? '2' : '3';
-      expect(dbQ.userAnswer).toBe(winningAnswer);
+      const [storedQuestion] = await db
+        .select()
+        .from(questions)
+        .where(eq(questions.id, questionId));
+      expect(storedQuestion).toMatchObject({ userAnswer: '2', isCorrect: true });
+      expect(storedQuestion.answeredAt?.toISOString()).toBe(answeredAt.toISOString());
+      expect(generateExamFeedback).not.toHaveBeenCalled();
+      expect(updateChallengeProgress).not.toHaveBeenCalled();
     });
 
     it('exactly 1 of 10 simultaneous requests acquires ownership', async () => {

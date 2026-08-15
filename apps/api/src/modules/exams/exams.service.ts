@@ -255,6 +255,11 @@ export class ExamsService {
 
         const lockedExam = lockedExamResult[0];
         if (lockedExam.status === 'completed') {
+          if (examData.status === 'active') {
+            throw new ConflictException(
+              'Exam evaluation was completed by a concurrent request.',
+            );
+          }
           throw new BadRequestException('Exam has already been submitted');
         }
         if (lockedExam.status !== 'active') {
