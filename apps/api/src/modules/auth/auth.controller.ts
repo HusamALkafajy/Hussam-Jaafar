@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Body, Req, Res, UseGuards, Query, Param, HttpCode, HttpStatus, All, UnauthorizedException } from '@nestjs/common';
+﻿import { Controller, Post, Get, Body, Req, Res, UseGuards, Query, Param, HttpCode, HttpStatus, All, UnauthorizedException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -16,6 +17,7 @@ import { UserProfileResponse } from '@studyai/types';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Public()
   @Post('register')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
@@ -24,6 +26,7 @@ export class AuthController {
     return { user: result.user, accessToken: result.accessToken };
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -49,6 +52,7 @@ export class AuthController {
     return { message: 'Logged out successfully' };
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
@@ -62,6 +66,7 @@ export class AuthController {
     return { user: result.user, accessToken: result.accessToken };
   }
 
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Public()
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
@@ -139,3 +144,4 @@ export class AuthController {
     return { user };
   }
 }
+

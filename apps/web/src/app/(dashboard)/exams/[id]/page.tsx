@@ -21,6 +21,7 @@ import {
   Brain,
 } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -135,7 +136,7 @@ function ExamSession({ examId }: { examId: string }) {
       setExam(results);
       setTimeLeft(null);
     } catch {
-      alert(t('exams.submitFailure'));
+      toast.error(t('exams.submitFailure'));
       submissionStartedRef.current = false;
     } finally {
       setSubmitting(false);

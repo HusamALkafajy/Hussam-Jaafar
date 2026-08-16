@@ -49,7 +49,7 @@ export class AuthService {
         secure: smtpPort === 465,
         auth: {
           user: smtpUser,
-          password: smtpPassword,
+          pass: smtpPassword,
         },
       } as any);
     }

@@ -25,6 +25,7 @@ import {
   ChevronRight, Star,
 } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { formatBytes, formatDate, cn } from '../../../../lib/utils';
 
@@ -461,7 +462,7 @@ export default function FileDetailPage({ params }: PageProps) {
       await api.post(`/files/${fileId}/reprocess`);
       await loadFile();
     } catch {
-      alert(t('workspace.retryFailure'));
+      toast.error(t('workspace.retryFailure'));
     } finally {
       setReprocessing(false);
     }
@@ -557,7 +558,7 @@ export default function FileDetailPage({ params }: PageProps) {
         questionTypes: ['mcq'],
       });
       router.push(`/exams/${exam.id}`);
-    } catch { alert(t('workspace.examGenerationFailure')); }
+    } catch { toast.error(t('workspace.examGenerationFailure')); }
     finally { setGeneratingExam(false); }
   };
 
@@ -566,7 +567,7 @@ export default function FileDetailPage({ params }: PageProps) {
     try {
       const set = await api.post<any>('/flashcard-sets', { fileId, title: flashcardSetTitle.trim() || undefined, count: flashcardsCount });
       router.push(`/flashcards/${set.id}`);
-    } catch { alert(t('workspace.flashcardGenerationFailure')); }
+    } catch { toast.error(t('workspace.flashcardGenerationFailure')); }
     finally { setGeneratingFlashcards(false); }
   };
 
