@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Inject, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Inject, HttpException, HttpStatus, MessageEvent, InternalServerErrorException } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { CANONICAL_UPLOAD_FORMATS } from '../../common/constants/file-formats.constant';
 import { db } from '@studyai/database';
 import { files, subscriptions, users, subjects, fileProcessingAttempts, documentVersions } from '@studyai/database';
@@ -77,7 +78,7 @@ export class FilesService {
     if (!openrouterKey && !geminiKey && isTestEnvironment && mockExtractionAllowed) {
       this.logger.warn(
         '[FilesService] Neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set. ' +
-        'Document processing will run in MOCK MODE — extracted text will be fake placeholder content. ' +
+        'Document processing will run in MOCK MODE â€” extracted text will be fake placeholder content. ' +
         'Set one of these keys in apps/api/.env to enable real PDF/image parsing.',
       );
     }
@@ -91,7 +92,7 @@ export class FilesService {
     }
   }
 
-  // ── Subjects CRUD ──
+  // â”€â”€ Subjects CRUD â”€â”€
 
   async createSubject(userId: string, data: { name: string; color?: string; icon?: string }) {
     const result = await db
@@ -139,7 +140,7 @@ export class FilesService {
     }
   }
 
-  // ── Files CRUD & Processing ──
+  // â”€â”€ Files CRUD & Processing â”€â”€
 
   async createFile(
     userId: string,
@@ -215,7 +216,7 @@ export class FilesService {
 
   /**
    * Core processing logic. Always terminates by setting processingStatus to
-   * COMPLETED or FAILED — never leaves the record in PROCESSING.
+   * COMPLETED or FAILED â€” never leaves the record in PROCESSING.
    */
   private async _doProcessFile(
     fileId: string,
@@ -472,7 +473,35 @@ export class FilesService {
     }
   }
 
-  // ── AI Methods ──
+  // â”€â”€ AI Methods â”€â”€
+
+  async generateSummaryStream(fileId: string, userId: string, level: string, language = 'en'): Promise<Observable<MessageEvent>> {
+    const fileRecords = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+      .limit(1);
+    
+    const file = fileRecords[0];
+    if (!file) throw new NotFoundException('File not found');
+    if (!file.extractedText) throw new InternalServerErrorException('File text not extracted yet');
+
+    return this.aiService.generateSummaryStream(file.extractedText, level, language);
+  }
+
+  async chatWithDocumentStream(fileId: string, userId: string, question: string): Promise<Observable<MessageEvent>> {
+    const fileRecords = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+      .limit(1);
+      
+    const file = fileRecords[0];
+    if (!file) throw new NotFoundException('File not found');
+    if (!file.extractedText) throw new InternalServerErrorException('File text not extracted yet');
+
+    return this.aiService.chatWithDocumentStream(file.extractedText, question, []);
+  }
 
   async generateSummary(fileId: string, userId: string, level: string, language = 'en') {
     const file = await this.findById(fileId, userId);

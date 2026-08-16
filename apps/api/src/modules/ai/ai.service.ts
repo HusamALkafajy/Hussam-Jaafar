@@ -1,5 +1,6 @@
-import { Injectable, InternalServerErrorException, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, ServiceUnavailableException, MessageEvent } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observable } from 'rxjs';
 import { GoogleGenerativeAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { requestContext } from '../../common/request-context';
 import { db, explanations, eq, and } from '@studyai/database';
@@ -64,7 +65,7 @@ export class AiService {
    * (gemini-2.5-flash = 65 535 output tokens), which exhausts per-request credit
    * budgets and returns HTTP 402 Payment Required.
    *
-   * 4 096 tokens ≈ 3 000 words — sufficient for summaries, explanations, exams,
+   * 4 096 tokens â‰ˆ 3 000 words â€” sufficient for summaries, explanations, exams,
    * flashcards, and chat replies. Raise only for the exam generator if needed.
    */
   private static readonly OPENROUTER_MAX_TOKENS = 2048;
@@ -72,14 +73,14 @@ export class AiService {
   /** Set when GEMINI_API_KEY is present and OPENROUTER_API_KEY is NOT.
    *  Used exclusively for multimodal (PDF / image) extraction via the
    *  native @google/generative-ai SDK, which correctly handles
-   *  application/pdf inlineData — the OpenAI-compat endpoint does not. */
+   *  application/pdf inlineData â€” the OpenAI-compat endpoint does not. */
   private geminiClient: GoogleGenerativeAI | null = null;
   private geminiModel: string = 'gemini-2.5-flash';
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey       = this.configService.get<string>('ai.apiKey')  || null;
     // ai.config.ts now stores the FULL base URL including /v1
-    // e.g. 'https://openrouter.ai/api/v1'  — callOpenRouter appends only '/chat/completions'
+    // e.g. 'https://openrouter.ai/api/v1'  â€” callOpenRouter appends only '/chat/completions'
     this.baseUrl      = this.configService.get<string>('ai.baseUrl') || 'https://openrouter.ai/api/v1';
     this.defaultModel = this.configService.get<string>('ai.model')   || 'google/gemini-2.5-flash';
     this.embeddingApiKey = this.configService.get<string>('ai.embeddingApiKey') || null;
@@ -95,7 +96,7 @@ export class AiService {
       this.geminiModel  = this.defaultModel;
       this.logger.log(
         `[AiService] PROVIDER=GeminiSDK  model=${this.geminiModel}  ` +
-        '(PDF/image → @google/generative-ai inlineData; text calls → Google compat REST)',
+        '(PDF/image â†’ @google/generative-ai inlineData; text calls â†’ Google compat REST)',
       );
     } else if (this.apiKey) {
       this.logger.log(
@@ -103,7 +104,7 @@ export class AiService {
       );
     } else {
       this.logger.warn(
-        '[AiService] PROVIDER=MockMode — no API key found. ' +
+        '[AiService] PROVIDER=MockMode â€” no API key found. ' +
         'Set OPENROUTER_API_KEY (preferred) or GEMINI_API_KEY in apps/api/.env.',
       );
     }
@@ -227,7 +228,7 @@ export class AiService {
     const body: any = {
       model: this.defaultModel,
       messages,
-      // Explicit token cap — prevents OpenRouter from defaulting to the model's
+      // Explicit token cap â€” prevents OpenRouter from defaulting to the model's
       // maximum context window (65 535 for gemini-2.5-flash) and triggering 402.
       max_tokens: maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS,
     };
@@ -272,6 +273,122 @@ export class AiService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  public callOpenRouterStream(
+    messages: Array<{ role: string; content: any }>,
+    maxTokensOverride?: number,
+  ): Observable<MessageEvent> {
+    return new Observable((subscriber) => {
+      const url = `/chat/completions`;
+      const headers = {
+        'Authorization': `Bearer `,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://studyai.com',
+        'X-Title': 'StudyAI',
+      };
+
+      const body = {
+        model: this.defaultModel,
+        messages,
+        max_tokens: maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS,
+        stream: true,
+      };
+
+      const controller = new AbortController();
+
+      fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            let errorMsg = res.statusText;
+            try {
+              const errorJson = await res.json();
+              errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
+            } catch (e) {}
+            subscriber.error(new Error(`OpenRouter API call failed (HTTP ): `));
+            return;
+          }
+
+          if (!res.body) {
+            subscriber.error(new Error('No response body from OpenRouter'));
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let buffer = '';
+
+          const read = async () => {
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmedLine = line.trim();
+                  if (trimmedLine.startsWith('data: ')) {
+                    const data = trimmedLine.slice(6);
+                    if (data === '[DONE]') {
+                      subscriber.next({ data: JSON.stringify({ done: true }) } as MessageEvent);
+                      continue;
+                    }
+                    try {
+                      const parsed = JSON.parse(data);
+                      const content = parsed.choices?.[0]?.delta?.content;
+                      if (content) {
+                        subscriber.next({ data: JSON.stringify({ content }) } as MessageEvent);
+                      }
+                    } catch (e) {
+                      // ignore parse error on incomplete chunks
+                    }
+                  }
+                }
+              }
+              subscriber.complete();
+            } catch (err) {
+              subscriber.error(err);
+            }
+          };
+          read();
+        })
+        .catch((err) => {
+          subscriber.error(err);
+        });
+
+      return () => {
+        controller.abort();
+      };
+    });
+  }
+
+  generateSummaryStream(text: string, level: string, language: string): Observable<MessageEvent> {
+    const messages = [
+      { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+      { role: 'user', content: getSummaryUserPrompt(text, level, language) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
+    ];
+    return this.callOpenRouterStream(messages);
+  }
+
+  chatWithDocumentStream(text: string, question: string, history: any[]): Observable<MessageEvent> {
+    const formattedHistory = history.map((msg) => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content,
+    }));
+    const messages = [
+      { role: 'system', content: `\n\nDocument Content:\n` },
+      ...formattedHistory,
+      { role: 'user', content: getChatUserPrompt(question) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
+    ];
+    return this.callOpenRouterStream(messages);
   }
 
   async getEmbedding(text: string): Promise<number[]> {
@@ -362,14 +479,14 @@ export class AiService {
       return 'TEST_ONLY_DOCUMENT_EXTRACTION';
     }
 
-    // ── Path A: Native Gemini SDK (GEMINI_API_KEY set, no OPENROUTER_API_KEY) ──
+    // â”€â”€ Path A: Native Gemini SDK (GEMINI_API_KEY set, no OPENROUTER_API_KEY) â”€â”€
     // The Gemini SDK correctly handles application/pdf via inlineData.
     // The OpenAI-compat REST endpoint does NOT support PDF as image_url.
     if (this.isGeminiSdkMode()) {
       return this.extractTextWithGeminiSdk(filePath, mimeType);
     }
 
-    // ── Path B: OpenRouter REST endpoint (image_url format) ──
+    // â”€â”€ Path B: OpenRouter REST endpoint (image_url format) â”€â”€
     // Works for images (jpeg, png, webp). For PDFs this path requires the
     // underlying model to support PDF via the OpenAI vision message format,
     // which not all OpenRouter-routed models do. If you are using OpenRouter
@@ -408,7 +525,7 @@ export class AiService {
 
   /**
    * Generation config for document extraction via the native Gemini SDK:
-   * - temperature 0 → deterministic, factual output (less likely to recite)
+   * - temperature 0 â†’ deterministic, factual output (less likely to recite)
    * - maxOutputTokens aligned with OPENROUTER_MAX_TOKENS for cost consistency
    * - topP / topK tightened to reduce hallucinated verbatim passages
    */
@@ -428,7 +545,7 @@ export class AiService {
    */
   private readonly extractionUserPrompt =
     'Analyse this document and produce a structured Markdown summary. ' +
-    'DO NOT copy text verbatim — instead paraphrase, reorganise, and extract key concepts, ' +
+    'DO NOT copy text verbatim â€” instead paraphrase, reorganise, and extract key concepts, ' +
     'headings, tables, formulas, and lists into clean Markdown. ' +
     'Preserve all factual information faithfully but express it in your own words.';
 
@@ -453,7 +570,7 @@ export class AiService {
 
     const inlinePart = { inlineData: { mimeType, data: base64Data } };
 
-    // ── Helper: build a configured GenerativeModel ────────────────────────
+    // â”€â”€ Helper: build a configured GenerativeModel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const buildModel = (modelName: string): GenerativeModel =>
       this.geminiClient!.getGenerativeModel({
         model: modelName,
@@ -462,10 +579,10 @@ export class AiService {
         generationConfig: this.geminiExtractionConfig,
       });
 
-    // ── Attempt 1: primary model, anti-recitation prompt ──────────────────
+    // â”€â”€ Attempt 1: primary model, anti-recitation prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try {
       this.logger.log(
-        `[Gemini SDK] Attempt 1 — model "${this.geminiModel}" with anti-recitation prompt...`,
+        `[Gemini SDK] Attempt 1 â€” model "${this.geminiModel}" with anti-recitation prompt...`,
       );
 
       const result = await this.runWithRetry(() =>
@@ -479,7 +596,7 @@ export class AiService {
       const finishReason = candidate?.finishReason;
 
       if (finishReason === 'RECITATION') {
-        // Do NOT throw yet — fall through to Attempt 2.
+        // Do NOT throw yet â€” fall through to Attempt 2.
         this.logger.warn(
           `[Gemini SDK] RECITATION block on primary model "${this.geminiModel}". ` +
           `Falling back to "${this.recitationFallbackModel}" with stricter paraphrase prompt...`,
@@ -495,7 +612,7 @@ export class AiService {
         return text;
       }
     } catch (err: any) {
-      // Only rethrow non-RECITATION errors from attempt 1 — RECITATION
+      // Only rethrow non-RECITATION errors from attempt 1 â€” RECITATION
       // is handled by falling through to attempt 2 (already logged above).
       if (!err?.message?.includes('RECITATION')) {
         this.logger.error('[Gemini SDK] Attempt 1 failed with non-RECITATION error:', err);
@@ -508,19 +625,19 @@ export class AiService {
       );
     }
 
-    // ── Attempt 2: fallback model + even stricter prompt ──────────────────
+    // â”€â”€ Attempt 2: fallback model + even stricter prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // gemini-1.5-flash / gemini-1.5-pro apply a different training-data
     // attribution heuristic and are less likely to trigger RECITATION on
     // the same content than gemini-2.5-flash.
     try {
       this.logger.log(
-        `[Gemini SDK] Attempt 2 — fallback model "${this.recitationFallbackModel}"...`,
+        `[Gemini SDK] Attempt 2 â€” fallback model "${this.recitationFallbackModel}"...`,
       );
 
       const stricterPrompt =
         'You are a document analyser. Your task is to restructure and reformat the attached ' +
         'document into organised Markdown. IMPORTANT: do not quote or reproduce any sentence ' +
-        'verbatim — summarise every passage in your own words, reorganise the structure, ' +
+        'verbatim â€” summarise every passage in your own words, reorganise the structure, ' +
         'and extract only key concepts, data, formulas, and section headings.';
 
       const result = await this.runWithRetry(() =>
@@ -534,7 +651,7 @@ export class AiService {
       const finishReason = candidate?.finishReason;
 
       if (finishReason === 'RECITATION') {
-        // Both attempts blocked — return a graceful degradation payload so
+        // Both attempts blocked â€” return a graceful degradation payload so
         // the file is marked COMPLETED (not stuck in PROCESSING) and the
         // user sees a useful message instead of a spinner forever.
         this.logger.error(
@@ -696,7 +813,7 @@ export class AiService {
         if (ch === '\\') {
           const next = text[i + 1];
           if (next && !VALID_ESCAPES.has(next)) {
-            // Invalid escape (e.g. \*, \_) — drop the backslash, emit the literal char
+            // Invalid escape (e.g. \*, \_) â€” drop the backslash, emit the literal char
             i++;
             continue;
           }
@@ -719,7 +836,7 @@ export class AiService {
       i++;
     }
 
-    // 4. Parse — throws SyntaxError naturally if still malformed
+    // 4. Parse â€” throws SyntaxError naturally if still malformed
     try {
       return JSON.parse(result) as T;
     } catch (error) {
@@ -748,7 +865,7 @@ export class AiService {
       };
     }
 
-    // ── 1. DB cache lookup ────────────────────────────────────────────────────
+    // â”€â”€ 1. DB cache lookup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (fileId && userId) {
       try {
         const cached = await db.query.explanations.findFirst({
@@ -762,7 +879,7 @@ export class AiService {
 
         if (cached) {
           this.logger.log(
-            `[generateExplanation] Cache HIT — fileId=${fileId} level=${level} lang=${language}`,
+            `[generateExplanation] Cache HIT â€” fileId=${fileId} level=${level} lang=${language}`,
           );
           return {
             content: cached.content,
@@ -772,7 +889,7 @@ export class AiService {
         }
 
         this.logger.log(
-          `[generateExplanation] Cache MISS — calling OpenRouter for fileId=${fileId}`,
+          `[generateExplanation] Cache MISS â€” calling OpenRouter for fileId=${fileId}`,
         );
       } catch (cacheErr: any) {
         // Non-fatal: log and continue to generate fresh
@@ -780,11 +897,11 @@ export class AiService {
       }
     }
 
-    // ── 2. Build messages ─────────────────────────────────────────────────────
+    // â”€â”€ 2. Build messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const userPrompt = getExplanationUserPrompt(text, level, language);
 
     this.logger.log(
-      `[generateExplanation] Sending request — ` +
+      `[generateExplanation] Sending request â€” ` +
       `fileId=${fileId ?? 'n/a'}, level=${level}, lang=${language}, contentLen=${text?.length ?? 0}`,
     );
 
@@ -793,7 +910,7 @@ export class AiService {
       { role: 'user',   content: userPrompt },
     ];
 
-    // ── 3. Call OpenRouter with json_object mode + retry ──────────────────────
+    // â”€â”€ 3. Call OpenRouter with json_object mode + retry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let parsed: any;
     try {
       const responseText = await this.runWithRetry(() =>
@@ -810,7 +927,7 @@ export class AiService {
       throw new InternalServerErrorException(`Explanation generation failed: ${error.message}`);
     }
 
-    // ── 4. Persist to DB (non-fatal) ──────────────────────────────────────────
+    // â”€â”€ 4. Persist to DB (non-fatal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (fileId && userId) {
       try {
         await db.insert(explanations).values({
@@ -1053,15 +1170,15 @@ export class AiService {
     }
   }
 
-  // ── Smart Notes AI methods ──────────────────────────────────────────────
+  // â”€â”€ Smart Notes AI methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /**
    * Generates a 2-3 sentence concise summary of a user's note content.
-   * Called only on explicit "Analyze" button click — never on auto-save.
+   * Called only on explicit "Analyze" button click â€” never on auto-save.
    */
   async generateNoteSummary(content: string): Promise<{ summary: string }> {
     if (this.isMockMode()) {
-      return { summary: 'هذا ملخص تجريبي للملاحظة. يتضمن النقاط الرئيسية التي دوّنها الطالب لمراجعة سريعة.' };
+      return { summary: 'Ù‡Ø°Ø§ Ù…Ù„Ø®Øµ ØªØ¬Ø±ÙŠØ¨ÙŠ Ù„Ù„Ù…Ù„Ø§Ø­Ø¸Ø©. ÙŠØªØ¶Ù…Ù† Ø§Ù„Ù†Ù‚Ø§Ø· Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© Ø§Ù„ØªÙŠ Ø¯ÙˆÙ‘Ù†Ù‡Ø§ Ø§Ù„Ø·Ø§Ù„Ø¨ Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ø³Ø±ÙŠØ¹Ø©.' };
     }
 
     const systemPrompt = `You are an expert educational AI. Read the note and generate a concise summary.
@@ -1089,8 +1206,8 @@ Return JSON: { "summary": "..." }`;
   async generateNoteQuizQuestions(content: string): Promise<Array<{ question: string; answer: string; type: 'mcq' | 'short' }>> {
     if (this.isMockMode()) {
       return [
-        { question: 'ما هو الموضوع الرئيسي في هذه الملاحظة؟', answer: 'الموضوع المدوّن في الملاحظة', type: 'short' },
-        { question: 'أيٌّ من التالي ذكره الطالب في ملاحظاته؟', answer: 'النقطة الأولى', type: 'mcq' },
+        { question: 'Ù…Ø§ Ù‡Ùˆ Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ ÙÙŠ Ù‡Ø°Ù‡ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø©ØŸ', answer: 'Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹ Ø§Ù„Ù…Ø¯ÙˆÙ‘Ù† ÙÙŠ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø©', type: 'short' },
+        { question: 'Ø£ÙŠÙŒÙ‘ Ù…Ù† Ø§Ù„ØªØ§Ù„ÙŠ Ø°ÙƒØ±Ù‡ Ø§Ù„Ø·Ø§Ù„Ø¨ ÙÙŠ Ù…Ù„Ø§Ø­Ø¸Ø§ØªÙ‡ØŸ', answer: 'Ø§Ù„Ù†Ù‚Ø·Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰', type: 'mcq' },
       ];
     }
 

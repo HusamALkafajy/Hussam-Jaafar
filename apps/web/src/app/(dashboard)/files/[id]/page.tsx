@@ -498,12 +498,20 @@ export default function FileDetailPage({ params }: PageProps) {
   const handleGenerateSummary = async () => {
     setGeneratingSummary(true);
     setSummaryError(null);
+    setSummaryResult({ content: '', keyPoints: [], definitions: [], lawsFormulas: [] });
     try {
-      const result = await api.post<any>(`/files/${fileId}/summary`, { level: summaryLevel, language: locale });
-      setSummaryResult(result);
+      let accumulated = '';
+      await api.stream(`/files/${fileId}/summary-stream`, { level: summaryLevel, language: locale }, (chunk: string) => {
+        accumulated += chunk;
+        setSummaryResult((prev: any) => ({
+          ...prev,
+          content: accumulated
+        }));
+      });
     } catch (err: any) {
       console.error('Summary generation failed:', err);
       setSummaryError(t('workspace.summaryFailure'));
+      toast.error(t('workspace.summaryFailure'));
     } finally {
       setGeneratingSummary(false);
     }
@@ -532,18 +540,27 @@ export default function FileDetailPage({ params }: PageProps) {
     setChatLoading(true);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
-      const result = await api.post<any>(`/files/${fileId}/chat`, { content: msg }, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: result.content, references: result.references }]);
+      setChatHistory((prev) => [...prev, { role: 'assistant', content: '', references: [] }]);
+      let accumulated = '';
+      await api.stream(`/files/${fileId}/chat-stream`, { content: msg }, (chunk: string) => {
+        accumulated += chunk;
+        setChatHistory((prev: any[]) => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1].content = accumulated;
+          return newHistory;
+        });
+      }, controller.signal);
     } catch { 
-      clearTimeout(timeoutId);
-      setChatHistory((prev) => [
-        ...prev,
-        { role: 'assistant', content: t('workspace.tutorBusy') },
-      ]);
+      toast.error(t('workspace.tutorBusy'));
+      setChatHistory((prev: any[]) => {
+        const newHistory = [...prev];
+        if (newHistory[newHistory.length - 1].content === '') {
+          newHistory[newHistory.length - 1].content = t('workspace.tutorBusy');
+        }
+        return newHistory;
+      });
     }
     finally { setChatLoading(false); }
   };

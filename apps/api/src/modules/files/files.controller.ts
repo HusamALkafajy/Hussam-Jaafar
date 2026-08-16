@@ -12,7 +12,10 @@ import {
   UploadedFile,
   Headers,
   Res,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { mkdirSync } from 'fs';
@@ -59,7 +62,7 @@ const chunkUploadOptions = {
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
-  // ── Files Endpoints ──
+  // â”€â”€ Files Endpoints â”€â”€
 
   @Post('files/upload')
   @UseInterceptors(FileInterceptor('file', directUploadOptions))
@@ -181,6 +184,27 @@ export class FilesController {
     return this.filesService.assignSubject(id, dto.subjectId || null, userId);
   }
 
+  @Post('files/:id/summary-stream')
+  @Sse()
+  async generateSummaryStream(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body('level') level: string,
+    @Body('language') language?: string,
+  ): Promise<Observable<MessageEvent>> {
+    return this.filesService.generateSummaryStream(id, userId, level, language);
+  }
+
+  @Post('files/:id/chat-stream')
+  @Sse()
+  async chatWithDocumentStream(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body('content') content: string,
+  ): Promise<Observable<MessageEvent>> {
+    return this.filesService.chatWithDocumentStream(id, userId, content);
+  }
+
   @Post('files/:id/summary')
   async generateSummary(
     @CurrentUser('sub') userId: string,
@@ -210,7 +234,7 @@ export class FilesController {
     return this.filesService.chatWithDocument(id, userId, content);
   }
 
-  // ── Subjects Endpoints ──
+  // â”€â”€ Subjects Endpoints â”€â”€
 
 
   @Post('subjects')

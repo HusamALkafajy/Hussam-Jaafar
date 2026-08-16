@@ -347,4 +347,56 @@ export const api = {
 
   delete: <T>(endpoint: string, options?: ExtendedRequestInit) =>
     request<T>(endpoint, { method: 'DELETE', ...options }),
+
+  stream: async (endpoint: string, body: any, onChunk: (text: string) => void, signal?: AbortSignal): Promise<void> => {
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json');
+    const csrfToken = readCsrfToken();
+    if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+    if (_accessToken) headers.set('Authorization', `Bearer ${_accessToken}`);
+
+    const response = await fetch(`${BASE_URL}/api${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal,
+      credentials: 'include',
+    });
+
+    if (response.status === 401) {
+      await refreshAccessToken();
+      headers.set('Authorization', `Bearer ${_accessToken}`);
+      return api.stream(endpoint, body, onChunk, signal);
+    }
+
+    if (!response.ok) {
+      throw new ApiError('Stream request failed', response.status);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No readable stream');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.trim().startsWith('data: ')) {
+          const data = line.trim().slice(6);
+          if (data === '[DONE]') break;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.content) onChunk(parsed.content);
+          } catch (e) {}
+        }
+      }
+    }
+  },
 };
