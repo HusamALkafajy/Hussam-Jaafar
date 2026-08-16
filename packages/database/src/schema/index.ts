@@ -22,3 +22,6 @@ export * from './infrastructure';
 export * from './knowledge';
 export * from './quiz_monthly_usage';
 export * from './prisma_contract';
+
+
+export * from './learning_paths';

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { Observable } from 'rxjs';
 import { GoogleGenerativeAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { requestContext } from '../../common/request-context';
+import { saveTokenUsage } from './token-tracking';
+import { checkQuota } from './quota-guard';
 import { db, explanations, eq, and } from '@studyai/database';
 import { EXTRACTION_SYSTEM_PROMPT } from './prompts/extraction.prompts';
 import { SUMMARY_SYSTEM_PROMPT, getSummaryUserPrompt } from './prompts/summary.prompts';
@@ -279,10 +281,15 @@ export class AiService {
     messages: Array<{ role: string; content: any }>,
     maxTokensOverride?: number,
   ): Observable<MessageEvent> {
+    const store = requestContext.getStore();
+    const userId = (store?.user as any)?.id;
     return new Observable((subscriber) => {
-      const url = `/chat/completions`;
+      if (userId) {
+        checkQuota(userId).catch(err => subscriber.error(err));
+      }
+      const url = `${this.baseUrl}/chat/completions`;
       const headers = {
-        'Authorization': `Bearer `,
+        'Authorization': `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://studyai.com',
         'X-Title': 'StudyAI',
@@ -293,6 +300,7 @@ export class AiService {
         messages,
         max_tokens: maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS,
         stream: true,
+        stream_options: { include_usage: true },
       };
 
       const controller = new AbortController();
@@ -343,6 +351,7 @@ export class AiService {
                     }
                     try {
                       const parsed = JSON.parse(data);
+                      if (parsed.usage && userId) saveTokenUsage(userId, 'stream_call', parsed.usage.prompt_tokens || 0, parsed.usage.completion_tokens || 0, this.defaultModel).catch(() => {});
                       const content = parsed.choices?.[0]?.delta?.content;
                       if (content) {
                         subscriber.next({ data: JSON.stringify({ content }) } as MessageEvent);
@@ -392,6 +401,10 @@ export class AiService {
   }
 
   async getEmbedding(text: string): Promise<number[]> {
+    const store = requestContext.getStore();
+    const userId = (store?.user as any)?.id;
+    if (userId) await checkQuota(userId);
+
     if (this.embeddingMockMode) {
       return this.createDeterministicEmbedding(text);
     }
@@ -591,6 +604,12 @@ export class AiService {
           { text: this.extractionUserPrompt },
         ]),
       );
+
+
+      const usage = result.response.usageMetadata;
+      if (usage && userId) {
+        saveTokenUsage(userId, 'extraction', usage.promptTokenCount || 0, usage.candidatesTokenCount || 0, this.geminiModel).catch(() => {});
+      }
 
       const candidate = result.response.candidates?.[0];
       const finishReason = candidate?.finishReason;
