@@ -70,7 +70,7 @@ export class AiService {
    * 4 096 tokens â‰ˆ 3 000 words â€” sufficient for summaries, explanations, exams,
    * flashcards, and chat replies. Raise only for the exam generator if needed.
    */
-  private static readonly OPENROUTER_MAX_TOKENS = 2048;
+  private static readonly OPENROUTER_MAX_TOKENS = 1500;
 
   /** Set when GEMINI_API_KEY is present and OPENROUTER_API_KEY is NOT.
    *  Used exclusively for multimodal (PDF / image) extraction via the
@@ -605,7 +605,8 @@ export class AiService {
         ]),
       );
 
-
+      const store = requestContext.getStore();
+      const userId = (store?.user as any)?.id;
       const usage = result.response.usageMetadata;
       if (usage && userId) {
         saveTokenUsage(userId, 'extraction', usage.promptTokenCount || 0, usage.candidatesTokenCount || 0, this.geminiModel).catch(() => {});
@@ -1249,4 +1250,5 @@ Return JSON array: [{ "question": "...", "answer": "...", "type": "mcq" | "short
     }
   }
 }
+
 
