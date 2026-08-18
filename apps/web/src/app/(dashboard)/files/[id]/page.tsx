@@ -66,7 +66,7 @@ function TabNav({ active, onChange }: { active: TabId; onChange: (id: TabId) => 
               onClick={() => onChange(tab.id)}
               className={cn(
                 "rounded-xl gap-2",
-                isActive ? "shadow-lg shadow-indigo-600/25" : "text-slate-400 hover:text-slate-200"
+                tab.id === "extracted" && "hidden", isActive ? "shadow-lg shadow-indigo-600/25" : "text-slate-400 hover:text-slate-200"
               )}
             >
               <Icon className="w-4 h-4 shrink-0" />
