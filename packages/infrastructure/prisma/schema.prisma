@@ -1,13 +1,13 @@
 generator client {
   provider        = "prisma-client-js"
   output          = "../src/prisma-client"
-  previewFeatures = ["driverAdapters", "tracing", "metrics"]
+  previewFeatures = ["driverAdapters", "tracing"]
   binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  
 }
 
 // -----------------------------------------------------------------------------
@@ -464,3 +464,4 @@ enum UploadStatus {
   COMPLETED
   FAILED
 }
+
