@@ -12,6 +12,7 @@ import {
   UploadedFile,
   Headers,
   Res,
+  Req,
   Sse,
   MessageEvent,
 } from '@nestjs/common';
@@ -29,7 +30,7 @@ import { FileQueryDto } from './dto/file-query.dto';
 import { UploadFileDto } from './dto/upload-file.dto';
 import { CreateSubjectDto, UpdateSubjectDto, AssignSubjectDto } from '@studyai/types';
 import { FileMagicValidationPipe } from '../../common/pipes/file-magic-validation.pipe';
-import { Response } from 'express';
+import { Response, Request } from 'express';
 import {
   MAX_UPLOAD_BYTES,
   UPLOAD_CHUNK_BYTES,
@@ -186,24 +187,100 @@ export class FilesController {
   }
 
   @Post('files/:id/summary-stream')
-  @Sse()
-  generateSummaryStream(
+  async generateSummaryStream(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body('level') level: string,
-    @Body('language') language?: string,
-  ): Observable<MessageEvent> {
-    return from(this.filesService.generateSummaryStream(id, userId, level, language)).pipe(mergeMap(obs => obs));
+    @Req() req: Request,
+    @Res() res: Response,
+    @Body('language') language: string | undefined,
+  ) {
+      // effective user ID — when not provided by auth, CurrentUser should supply this
+      const effectiveUserId = userId;
+    let subscription: any;
+    try {
+      const obs = await this.filesService.generateSummaryStream(id, effectiveUserId, level, language);
+
+      // Set SSE headers for streaming response AFTER we've successfully created the observable
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      // Flush headers if available (Node/Express)
+      (res as any).flushHeaders?.();
+
+      subscription = obs.subscribe({
+        next: (evt: MessageEvent) => {
+          try {
+            // Support both MessageEvent-like objects and raw chunks
+            if (evt && typeof evt === 'object' && 'data' in evt) {
+              res.write(`data: ${evt.data}\n\n`);
+            } else {
+              res.write(`data: ${JSON.stringify(evt)}\n\n`);
+            }
+          } catch (writeErr) {
+            // ignore write errors for socket close races
+          }
+        },
+        error: (err: any) => {
+          try {
+            res.write(`event: error\ndata: ${JSON.stringify({ message: err?.message || String(err) })}\n\n`);
+          } catch (_) {}
+          try { res.end(); } catch (_) {}
+        },
+        complete: () => {
+          try {
+            res.write('event: done\ndata: {}\n\n');
+          } catch (_) {}
+          try { res.end(); } catch (_) {}
+        },
+      });
+    } catch (err) {
+      // If generating the observable failed synchronously (e.g., NotFoundException), let Nest handle it
+      throw err;
+    }
+
+    // Unsubscribe when client disconnects
+    req.on('close', () => {
+      try { subscription?.unsubscribe?.(); } catch (_) {}
+    });
   }
 
   @Post('files/:id/chat-stream')
-  @Sse()
-  chatWithDocumentStream(
+  async chatWithDocumentStream(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body('content') content: string,
-  ): Observable<MessageEvent> {
-    return from(this.filesService.chatWithDocumentStream(id, userId, content)).pipe(mergeMap(obs => obs));
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    (res as any).flushHeaders?.();
+
+    let subscription: any;
+    try {
+      const obs = await this.filesService.chatWithDocumentStream(id, userId, content);
+      subscription = obs.subscribe({
+        next: (evt: MessageEvent) => {
+          try { res.write(`data: ${evt.data}\n\n`); } catch (_) {}
+        },
+        error: (err: any) => {
+          try { res.write(`event: error\ndata: ${JSON.stringify({ message: err?.message || String(err) })}\n\n`); } catch (_) {}
+          try { res.end(); } catch (_) {}
+        },
+        complete: () => {
+          try { res.write('event: done\ndata: {}\n\n'); } catch (_) {}
+          try { res.end(); } catch (_) {}
+        },
+      });
+    } catch (err) {
+      throw err;
+    }
+
+    req.on('close', () => {
+      try { subscription?.unsubscribe?.(); } catch (_) {}
+    });
   }
 
   @Post('files/:id/summary')
