@@ -15,7 +15,8 @@ import {
   Sse,
   MessageEvent,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Observable, from } from 'rxjs';
+import { mergeMap } from 'rxjs/operators';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { mkdirSync } from 'fs';
@@ -186,23 +187,23 @@ export class FilesController {
 
   @Post('files/:id/summary-stream')
   @Sse()
-  async generateSummaryStream(
+  generateSummaryStream(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body('level') level: string,
     @Body('language') language?: string,
-  ): Promise<Observable<MessageEvent>> {
-    return this.filesService.generateSummaryStream(id, userId, level, language);
+  ): Observable<MessageEvent> {
+    return from(this.filesService.generateSummaryStream(id, userId, level, language)).pipe(mergeMap(obs => obs));
   }
 
   @Post('files/:id/chat-stream')
   @Sse()
-  async chatWithDocumentStream(
+  chatWithDocumentStream(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body('content') content: string,
-  ): Promise<Observable<MessageEvent>> {
-    return this.filesService.chatWithDocumentStream(id, userId, content);
+  ): Observable<MessageEvent> {
+    return from(this.filesService.chatWithDocumentStream(id, userId, content)).pipe(mergeMap(obs => obs));
   }
 
   @Post('files/:id/summary')
