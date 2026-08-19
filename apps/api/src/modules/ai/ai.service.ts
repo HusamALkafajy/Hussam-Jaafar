@@ -121,6 +121,29 @@ export class AiService {
     return this.geminiClient !== null;
   }
 
+  /**
+   * Truncates document content to a safe character limit to prevent HTTP 402
+   * "Prompt tokens limit exceeded" errors on OpenRouter free-tier accounts.
+   *
+   * Rationale:  1 token ≈ 4 characters.
+   *   • MAX_CHARS = 40,000  →  ~10,000 tokens of document context
+   *   • Free-tier observed limit: ~14,197 prompt tokens
+   *   • System prompt + user-prompt wrapper: ~500–2,000 tokens overhead
+   *   • This leaves a comfortable margin for all generation methods.
+   *
+   * The truncation notice appended to the content is intentionally visible to
+   * the AI so it knows the source material was cut, preventing hallucinations.
+   */
+  private static readonly MAX_CONTENT_CHARS = 40_000;
+  private truncateContent(text: string, label = 'content'): string {
+    if (!text || text.length <= AiService.MAX_CONTENT_CHARS) return text;
+    this.logger.warn(
+      `[AiService] truncateContent: ${label} (${text.length} chars) exceeds limit — truncating to ${AiService.MAX_CONTENT_CHARS} chars.`,
+    );
+    return text.slice(0, AiService.MAX_CONTENT_CHARS) + '\n\n...[Content truncated due to token limits]';
+  }
+
+
   private cleanJson(text: string): string {
     if (!text) return '{}';
     let cleaned = text.trim();
@@ -406,9 +429,10 @@ export class AiService {
   }
 
   generateSummaryStream(text: string, level: string, language: string): Observable<MessageEvent> {
+    const safeText = this.truncateContent(text, 'summary stream text');
     const messages = [
       { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
-      { role: 'user', content: getSummaryUserPrompt(text, level, language) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
+      { role: 'user', content: getSummaryUserPrompt(safeText, level, language) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
     ];
     return this.callOpenRouterStream(messages);
   }
@@ -419,7 +443,7 @@ export class AiService {
       content: msg.content,
     }));
     const messages = [
-      { role: 'system', content: `\n\nDocument Content:\n` },
+      { role: 'system', content: `\n\nDocument Content:\n${this.truncateContent(text, 'chat stream document')}` },
       ...formattedHistory,
       { role: 'user', content: getChatUserPrompt(question) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
     ];
@@ -802,9 +826,10 @@ export class AiService {
     }
 
     try {
+      const safeText = this.truncateContent(text, 'summary text');
       const messages = [
         { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
-        { role: 'user', content: getSummaryUserPrompt(text, level, language) }
+        { role: 'user', content: getSummaryUserPrompt(safeText, level, language) }
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
@@ -944,7 +969,8 @@ export class AiService {
     }
 
     // â”€â”€ 2. Build messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const userPrompt = getExplanationUserPrompt(text, level, language);
+    const safeText = this.truncateContent(text, 'explanation text');
+    const userPrompt = getExplanationUserPrompt(safeText, level, language);
 
     this.logger.log(
       `[generateExplanation] Sending request â€” ` +
@@ -1019,9 +1045,10 @@ export class AiService {
     }
 
     try {
+      const safeText = this.truncateContent(text, 'exam text');
       const messages = [
         { role: 'system', content: EXAM_SYSTEM_PROMPT },
-        { role: 'user', content: getExamUserPrompt(text, difficulty, types, count) }
+        { role: 'user', content: getExamUserPrompt(safeText, difficulty, types, count) }
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true, 15 * 60 * 1000));
@@ -1044,9 +1071,10 @@ export class AiService {
     }
 
     try {
+      const safeText = this.truncateContent(text, 'flashcards text');
       const messages = [
         { role: 'system', content: FLASHCARD_SYSTEM_PROMPT },
-        { role: 'user', content: getFlashcardUserPrompt(text, count) }
+        { role: 'user', content: getFlashcardUserPrompt(safeText, count) }
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
@@ -1072,7 +1100,7 @@ export class AiService {
       }));
 
       const messages = [
-        { role: 'system', content: `${CHAT_SYSTEM_PROMPT}\n\nDocument Content:\n${text}` },
+        { role: 'system', content: `${CHAT_SYSTEM_PROMPT}\n\nDocument Content:\n${this.truncateContent(text, 'chat document')}` },
         ...formattedHistory,
         { role: 'user', content: getChatUserPrompt(question) }
       ];
@@ -1097,7 +1125,7 @@ export class AiService {
       }));
 
       const messages = [
-        { role: 'system', content: `${PEDAGOGICAL_TUTOR_SYSTEM_PROMPT}\n\n${contextText}` },
+        { role: 'system', content: `${PEDAGOGICAL_TUTOR_SYSTEM_PROMPT}\n\n${this.truncateContent(contextText, 'tutor context')}` },
         ...formattedHistory,
         { role: 'user', content: question }
       ];
@@ -1164,7 +1192,8 @@ export class AiService {
     }
 
     try {
-      const userPrompt = getExamFeedbackUserPrompt(results, ragContext, score);
+      const safeRagContext = this.truncateContent(ragContext, 'exam feedback context');
+      const userPrompt = getExamFeedbackUserPrompt(results, safeRagContext, score);
       const messages = [
         { role: 'system', content: ADAPTIVE_EXAM_FEEDBACK_SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
@@ -1202,7 +1231,8 @@ export class AiService {
     }
 
     try {
-      const userPrompt = getAdaptiveQuestionUserPrompt(weakTopics, context, existingQuestionTexts);
+      const safeContext = this.truncateContent(context, 'adaptive question context');
+      const userPrompt = getAdaptiveQuestionUserPrompt(weakTopics, safeContext, existingQuestionTexts);
       const messages = [
         { role: 'system', content: ADAPTIVE_QUESTION_SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
@@ -1234,7 +1264,7 @@ Return JSON: { "summary": "..." }`;
     try {
       const messages = [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Note content:\n\n${content}` },
+        { role: 'user', content: `Note content:\n\n${this.truncateContent(content, 'note summary content')}` },
       ];
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       return JSON.parse(this.cleanJson(responseText));
@@ -1264,7 +1294,7 @@ Return JSON array: [{ "question": "...", "answer": "...", "type": "mcq" | "short
     try {
       const messages = [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Note content:\n\n${content}` },
+        { role: 'user', content: `Note content:\n\n${this.truncateContent(content, 'note quiz content')}` },
       ];
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       const parsed = JSON.parse(this.cleanJson(responseText));
