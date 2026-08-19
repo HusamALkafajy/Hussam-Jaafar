@@ -283,11 +283,24 @@ export class AiService {
   ): Observable<MessageEvent> {
     const store = requestContext.getStore();
     const userId = (store?.user as any)?.id;
+
+    // Sanitize baseUrl — strip any trailing slash to avoid double-slash in URL construction
+    const sanitizedBaseUrl = this.baseUrl.replace(/\/$/, '');
+    const url = `${sanitizedBaseUrl}/chat/completions`;
+
     return new Observable((subscriber) => {
       if (userId) {
         checkQuota(userId).catch(err => subscriber.error(err));
       }
-      const url = `${this.baseUrl}/chat/completions`;
+
+      // Guard: warn and abort early if API key is missing
+      if (!this.apiKey) {
+        const msg = '[AiService] callOpenRouterStream: No API key configured. Set OPENROUTER_API_KEY or GEMINI_API_KEY.';
+        this.logger.error(msg);
+        subscriber.error(new Error(msg));
+        return;
+      }
+
       const headers = {
         'Authorization': `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
@@ -305,6 +318,10 @@ export class AiService {
 
       const controller = new AbortController();
 
+      this.logger.debug(
+        `[AiService] callOpenRouterStream → POST ${url} (model=${this.defaultModel}, max_tokens=${maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS})`,
+      );
+
       fetch(url, {
         method: 'POST',
         headers,
@@ -313,12 +330,16 @@ export class AiService {
       })
         .then(async (res) => {
           if (!res.ok) {
-            let errorMsg = res.statusText;
+            let errorMsg = res.statusText || '(no status text)';
             try {
               const errorJson = await res.json();
               errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
-            } catch (e) {}
-            subscriber.error(new Error(`OpenRouter API call failed (HTTP ): `));
+            } catch (e) {
+              // response body may not be JSON — keep statusText
+            }
+            const fullError = `OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`;
+            this.logger.error(`[AiService] callOpenRouterStream: ${fullError} | url=${url}`);
+            subscriber.error(new Error(fullError));
             return;
           }
 
@@ -369,7 +390,12 @@ export class AiService {
           };
           read();
         })
-        .catch((err) => {
+        .catch((err: any) => {
+          // Network-level failure (DNS, timeout, connection refused, invalid URL, etc.)
+          const cause = err?.cause ? ` | cause: ${String(err.cause)}` : '';
+          this.logger.error(
+            `[AiService] callOpenRouterStream: Network-level fetch error — ${err?.message ?? String(err)}${cause} | url=${url}`,
+          );
           subscriber.error(err);
         });
 
