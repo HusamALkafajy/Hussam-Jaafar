@@ -126,7 +126,7 @@ export class AiService {
    * "Prompt tokens limit exceeded" errors on OpenRouter free-tier accounts.
    *
    * Rationale:  1 token ≈ 4 characters.
-   *   • MAX_CHARS = 40,000  →  ~10,000 tokens of document context
+   *   • MAX_CHARS = 30,000  →  ~7,500 tokens of document context
    *   • Free-tier observed limit: ~14,197 prompt tokens
    *   • System prompt + user-prompt wrapper: ~500–2,000 tokens overhead
    *   • This leaves a comfortable margin for all generation methods.
@@ -134,7 +134,7 @@ export class AiService {
    * The truncation notice appended to the content is intentionally visible to
    * the AI so it knows the source material was cut, preventing hallucinations.
    */
-  private static readonly MAX_CONTENT_CHARS = 40_000;
+  private static readonly MAX_CONTENT_CHARS = 30_000;
   private truncateContent(text: string, label = 'content'): string {
     if (!text || text.length <= AiService.MAX_CONTENT_CHARS) return text;
     this.logger.warn(
@@ -995,8 +995,8 @@ export class AiService {
 
       parsed = this.sanitizeAndParseJson(responseText);
     } catch (error: any) {
-      this.logger.error('[generateExplanation] OpenRouter call or JSON parse failed:', error);
-      throw new InternalServerErrorException(`Explanation generation failed: ${error.message}`);
+      this.logger.error(`[generateExplanation] OpenRouter call or JSON parse failed: ${error?.message || error}`, error?.stack);
+      throw new InternalServerErrorException(`Explanation generation failed: ${error?.message || 'Unknown error'}`);
     }
 
     // â”€â”€ 4. Persist to DB (non-fatal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
