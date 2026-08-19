@@ -70,7 +70,7 @@ export class AiService {
    * 4 096 tokens â‰ˆ 3 000 words â€” sufficient for summaries, explanations, exams,
    * flashcards, and chat replies. Raise only for the exam generator if needed.
    */
-  private static readonly OPENROUTER_MAX_TOKENS = 1100;
+  private static readonly OPENROUTER_MAX_TOKENS = 2048;
 
   /** Set when GEMINI_API_KEY is present and OPENROUTER_API_KEY is NOT.
    *  Used exclusively for multimodal (PDF / image) extraction via the
@@ -1306,6 +1306,7 @@ Return JSON array: [{ "question": "...", "answer": "...", "type": "mcq" | "short
     }
   }
 }
+
 
 
 
