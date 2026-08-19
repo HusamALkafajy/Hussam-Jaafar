@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
-import { once } from 'events';
+import { once, EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
+import { of } from 'rxjs';
 import { FilesController } from './files.controller';
 import { FilesService } from './files.service';
 
@@ -163,5 +164,48 @@ describe('FilesController original-content Range contract', () => {
     expect(storageProvider.download).not.toHaveBeenCalled();
     expect(response.setHeader).not.toHaveBeenCalled();
     expect(response.capturedHeaders.has('content-range')).toBe(false);
+  });
+});
+
+describe('FilesController SSE summary-stream formatting', () => {
+  it('formats emitted chunks as SSE data lines and ends the response', async () => {
+    // Prepare a mocked FilesService that returns mixed MessageEvent-like objects and raw strings
+    const service = Object.create(FilesService.prototype) as FilesService & { generateSummaryStream: jest.Mock };
+    service.generateSummaryStream = jest
+      .fn()
+      .mockResolvedValueOnce(of({ data: 'Hello' }, ' World', { data: '[DONE]' }));
+
+    const controller = new FilesController(service);
+
+    // Fake Express req/res
+    const req = new EventEmitter();
+    const writes: string[] = [];
+    const headers: Record<string, any> = {};
+    const res: any = {
+      setHeader: (k: string, v: any) => {
+        headers[k] = v;
+      },
+      write: (chunk: any) => {
+        writes.push(typeof chunk === 'string' ? chunk : String(chunk));
+      },
+      end: jest.fn(),
+      flushHeaders: jest.fn(),
+      headersSent: false,
+    };
+
+    // Call controller
+    await controller.generateSummaryStream('user-id', 'some-file-id', 'simple', req as any, res as any, 'en');
+
+    // Allow any synchronous completion actions
+    await new Promise((r) => setImmediate(r));
+
+    expect(headers['Content-Type']).toBe('text/event-stream');
+
+    // Check emitted SSE formatted chunks exist
+    expect(writes).toContain('data: Hello\n\n');
+    expect(writes).toContain('data: " World"\n\n');
+    expect(writes).toContain('data: [DONE]\n\n');
+
+    expect(res.end).toHaveBeenCalled();
   });
 });
