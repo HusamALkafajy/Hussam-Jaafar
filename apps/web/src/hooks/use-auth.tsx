@@ -1,15 +1,26 @@
-"use client";
+'use client';
 
-// NOTE: This hook relies on httpOnly cookies set by the server for auth (`access_token`, `refresh_token`).
-// Do NOT attempt to read auth cookies from `document.cookie`; they are intentionally httpOnly.
+// NOTE: This hook relies on the httpOnly refresh_token cookie for session restoration.
+// The access token lives ONLY in the browser JS heap (api-client.ts module scope).
+// Do NOT attempt to read auth cookies from document.cookie; they are intentionally httpOnly.
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '../lib/api';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from 'react';
+import { api, setAccessToken, onAuthExpired } from '../lib/api-client';
 import { UserProfileResponse, RegisterDto } from '@studyai/types';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+// ─── Context Type ─────────────────────────────────────────────────────────────
+
 interface AuthContextType {
   user: UserProfileResponse | null;
+  /** true while initial refresh or an auth action is in flight */
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: RegisterDto) => Promise<void>;
@@ -19,114 +30,172 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// ─── AuthProvider ─────────────────────────────────────────────────────────────
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfileResponse | null>(null);
+  // Starts true: protected routes must NOT redirect until refresh resolves
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // Read optional ?plan= query param to auto-trigger checkout after registration/login
+  // Generation counter: incremented on logout/new login.
+  // refreshSession captures the generation at call time and skips setState
+  // if the generation has advanced (stale result from a previous auth lifecycle).
+  const generationRef = useRef(0);
+
+  // Ensures initial refresh fires exactly once per mount (StrictMode safe)
+  const initializedRef = useRef(false);
+
+  // Read optional ?plan= query param
   let searchParams: ReturnType<typeof useSearchParams> | null = null;
   try {
-    // useSearchParams requires Suspense boundary; wrap in try/catch for RSC safety
     // eslint-disable-next-line react-hooks/rules-of-hooks
     searchParams = useSearchParams();
   } catch {
     searchParams = null;
   }
 
-  const checkSession = async () => {
+  // ── checkSession (used externally, e.g. settings page) ──────────────────
+  const checkSession = useCallback(async () => {
     try {
       const data = await api.get<{ user: UserProfileResponse }>('/auth/me');
       setUser(data.user);
-    } catch (e) {
+    } catch {
       setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // ── Initial page-load session restoration via /auth/refresh ─────────────
+  const refreshSession = useCallback(async () => {
+    const myGeneration = generationRef.current;
+    try {
+      const data = await api.post<{ user: UserProfileResponse; accessToken: string }>(
+        '/auth/refresh',
+      );
+      if (generationRef.current !== myGeneration) return; // stale — discard
+      setAccessToken(data.accessToken);
+      setUser(data.user);
+    } catch {
+      if (generationRef.current !== myGeneration) return; // stale — discard
+      setAccessToken(undefined);
+      setUser(null);
+    } finally {
+      if (generationRef.current === myGeneration) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  // ── Mount: fire refresh once ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      refreshSession();
+    }
+  }, [refreshSession]);
+
+  // ── Subscribe to 401-recovery auth expiry from api-client ───────────────
+  useEffect(() => {
+    const unsubscribe = onAuthExpired(() => {
+      generationRef.current += 1;
+      setAccessToken(undefined);
+      setUser(null);
+      setLoading(false);
+      router.push('/login');
+    });
+    return unsubscribe;
+  }, [router]);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   const getCsrfToken = (): string | undefined => {
     try {
       const match = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/);
       return match ? decodeURIComponent(match[1]) : undefined;
-    } catch (e) {
+    } catch {
       return undefined;
     }
   };
 
-  useEffect(() => {
-    checkSession();
-  }, []);
-
-  /**
-   * After a successful login or registration, check if there is a ?plan= query param.
-   * If so, immediately call the checkout API and redirect to Stripe — this creates the
-   * seamless "click Pro on marketing page → register → land on Stripe checkout" flow.
-   */
-  const handlePostAuthRedirect = async (plan: string | null) => {
-    if (plan && (plan === 'pro' || plan === 'institution')) {
-      try {
-        const data = await api.post<{ checkoutUrl: string }>('/subscriptions/checkout', { plan });
-        window.location.href = data.checkoutUrl;
-      } catch (e) {
-        // Checkout auto-trigger failed — fall back to the subscription page
-        console.warn('Auto-checkout failed after auth, redirecting to subscription page:', e);
-        router.push('/subscription');
-      }
-    } else {
-      router.push('/dashboard');
-    }
+  const handlePostAuthRedirect = async (_plan: string | null) => {
+    // FREE_LAUNCH_MODE: checkout is disabled — always go to dashboard.
+    // TODO: Re-enable when STRIPE_ENABLED=true:
+    // if (plan && (plan === 'pro' || plan === 'institution')) {
+    //   const { checkoutUrl } = await api.post<{ checkoutUrl: string }>('/subscriptions/checkout', { plan });
+    //   window.location.href = checkoutUrl;
+    // }
+    router.push('/files');
   };
+
+  // ── Login ─────────────────────────────────────────────────────────────────
 
   const login = async (email: string, password: string) => {
     setLoading(true);
+    const myGeneration = (generationRef.current += 1);
     try {
       const csrf = getCsrfToken();
-      const data = await api.post<{ user: UserProfileResponse }>(
+      const data = await api.post<{ user: UserProfileResponse; accessToken: string }>(
         '/auth/login',
         { email, password },
         csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined,
       );
+      if (generationRef.current !== myGeneration) return;
+      setAccessToken(data.accessToken);
       setUser(data.user);
       const plan = searchParams?.get('plan') ?? null;
       await handlePostAuthRedirect(plan);
-    } catch (e: any) {
-      setUser(null);
-      throw new Error(e.message || 'Login failed');
+    } catch (e: unknown) {
+      if (generationRef.current === myGeneration) setUser(null);
+      throw e;
     } finally {
-      setLoading(false);
+      if (generationRef.current === myGeneration) setLoading(false);
     }
   };
 
-  const register = async (registerData: any) => {
+  // ── Register ──────────────────────────────────────────────────────────────
+
+  const register = async (registerData: RegisterDto) => {
     setLoading(true);
+    const myGeneration = (generationRef.current += 1);
     try {
       const csrf = getCsrfToken();
-      const data = await api.post<{ user: UserProfileResponse }>(
+      const data = await api.post<{ user: UserProfileResponse; accessToken: string }>(
         '/auth/register',
         registerData,
         csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined,
       );
+      if (generationRef.current !== myGeneration) return;
+      setAccessToken(data.accessToken);
       setUser(data.user);
-      // Check if this registration was initiated from the Pricing page with a plan param
       const plan = searchParams?.get('plan') ?? null;
       await handlePostAuthRedirect(plan);
-    } catch (e: any) {
-      setUser(null);
-      throw new Error(e.message || 'Registration failed');
+    } catch (e: unknown) {
+      if (generationRef.current === myGeneration) setUser(null);
+      throw e;
     } finally {
-      setLoading(false);
+      if (generationRef.current === myGeneration) setLoading(false);
     }
   };
 
+  // ── Logout ────────────────────────────────────────────────────────────────
+
   const logout = async () => {
+    // Advance generation immediately so any in-flight refresh result is discarded
+    generationRef.current += 1;
     setLoading(true);
     try {
       const csrf = getCsrfToken();
-      await api.post('/auth/logout', undefined, csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined);
+      await api.post(
+        '/auth/logout',
+        undefined,
+        csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined,
+      );
     } catch (e) {
       console.warn('Logout API failed, clearing local state', e);
     } finally {
+      setAccessToken(undefined);
       setUser(null);
       setLoading(false);
       router.push('/login');
@@ -139,6 +208,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </AuthContext.Provider>
   );
 };
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export const useAuth = () => {
   const context = useContext(AuthContext);

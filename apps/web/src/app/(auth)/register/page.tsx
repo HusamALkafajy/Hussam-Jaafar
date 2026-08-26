@@ -3,16 +3,19 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../../hooks/use-auth';
+import { getRegistrationErrorKey } from '../../../lib/registration-errors';
 import { useLocale } from '../../../hooks/use-locale';
 import { useSearchParams } from 'next/navigation';
 import { Input } from '../../../components/ui/input';
-import { Button } from '../../../components/ui/button';
+import { Button, buttonVariants } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
 import { Mail, Lock, User, AlertCircle, Crown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { Locale } from '@studyai/types';
 
 export default function RegisterPage() {
   const { register } = useAuth();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const searchParams = useSearchParams();
   const plan = searchParams.get('plan');
   const [firstName, setFirstName] = useState('');
@@ -33,7 +36,7 @@ export default function RegisterPage() {
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('auth.passwordMismatch'));
       return;
     }
 
@@ -44,9 +47,10 @@ export default function RegisterPage() {
         password,
         firstName,
         lastName,
+        locale: locale as Locale,
       });
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
+    } catch (error: unknown) {
+      setError(t(getRegistrationErrorKey(error)));
     } finally {
       setLoading(false);
     }
@@ -62,18 +66,22 @@ export default function RegisterPage() {
               <Crown className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-xs font-bold text-indigo-300">أنت على بُعد خطوة واحدة من Pro ✨</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">أنشئ حسابك وسنحولك مباشرةً لإتمام الاشتراك عبر Stripe.</p>
+              <p className="text-xs font-bold text-indigo-300">{t('auth.proStepTitle')}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">{t('auth.proStepDescription')}</p>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">انضم إلينا مجاناً وابدأ التعلم الذكي</p>
+          <p className="text-sm text-slate-400">{t('auth.registerSubtitle')}</p>
         )}
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-sm flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 shrink-0" />
+        <div 
+          role="alert" 
+          aria-live="polite" 
+          className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm flex items-center gap-2"
+        >
+          <AlertCircle className="w-5 h-5 shrink-0" aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
@@ -84,21 +92,23 @@ export default function RegisterPage() {
             id="firstName"
             type="text"
             label={t('auth.firstName')}
-            placeholder="John"
+            placeholder={t('auth.firstNamePlaceholder')}
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
-            icon={<User className="w-4 h-4" />}
+            icon={<User className="w-4 h-4" aria-hidden="true" />}
             required
+            aria-invalid={error ? 'true' : 'false'}
           />
           <Input
             id="lastName"
             type="text"
             label={t('auth.lastName')}
-            placeholder="Doe"
+            placeholder={t('auth.lastNamePlaceholder')}
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
-            icon={<User className="w-4 h-4" />}
+            icon={<User className="w-4 h-4" aria-hidden="true" />}
             required
+            aria-invalid={error ? 'true' : 'false'}
           />
         </div>
 
@@ -109,8 +119,9 @@ export default function RegisterPage() {
           placeholder="name@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          icon={<Mail className="w-4 h-4" />}
+          icon={<Mail className="w-4 h-4" aria-hidden="true" />}
           required
+          aria-invalid={error ? 'true' : 'false'}
         />
 
         <Input
@@ -120,8 +131,9 @@ export default function RegisterPage() {
           placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          icon={<Lock className="w-4 h-4" />}
+          icon={<Lock className="w-4 h-4" aria-hidden="true" />}
           required
+          aria-invalid={error ? 'true' : 'false'}
         />
 
         <Input
@@ -131,8 +143,9 @@ export default function RegisterPage() {
           placeholder="••••••••"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
-          icon={<Lock className="w-4 h-4" />}
+          icon={<Lock className="w-4 h-4" aria-hidden="true" />}
           required
+          aria-invalid={error ? 'true' : 'false'}
         />
 
         <Button type="submit" loading={loading} className="w-full mt-2 font-bold py-2.5">
@@ -148,10 +161,7 @@ export default function RegisterPage() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <a
-          href="http://localhost:4000/api/auth/google"
-          className="flex items-center justify-center gap-2.5 px-4 py-2 bg-white hover:bg-slate-100 text-slate-900 font-medium rounded-lg text-sm transition-all shadow-md active:scale-95"
-        >
+        <a href="/api/auth/google" className={cn(buttonVariants({ variant: 'outline' }), "gap-2.5 bg-white hover:bg-slate-100 text-slate-900 border-none shadow-md")}>
           {/* Simple SVG Google Logo */}
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path
@@ -159,18 +169,15 @@ export default function RegisterPage() {
               d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114A5.99 5.99 0 018 12.5a5.99 5.99 0 015.99-6.014c1.49 0 2.846.55 3.9 1.455l3.14-3.14A9.957 9.957 0 0013.99 2 9.99 9.99 0 004 12a9.99 9.99 0 009.99 10c5.52 0 10.01-4.48 10.01-10 0-.685-.06-1.354-.17-2.014H12.24z"
             />
           </svg>
-          <span>{t('auth.loginWithGoogle')}</span>
+          <span>{t('auth.registerWithGoogle')}</span>
         </a>
 
-        <a
-          href="http://localhost:4000/api/auth/apple"
-          className="flex items-center justify-center gap-2.5 px-4 py-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-white font-medium rounded-lg text-sm transition-all shadow-md active:scale-95"
-        >
+        <a href="/api/auth/apple" className={cn(buttonVariants({ variant: 'outline' }), "gap-2.5 bg-slate-900 border-slate-800 hover:bg-slate-850 hover:text-white text-white shadow-md")}>
           {/* Simple Apple Icon */}
           <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
             <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-1 .04-2.21.67-2.93 1.49-.62.69-1.16 1.84-1.01 2.96 1.1.09 2.23-.58 2.95-1.39z" />
           </svg>
-          <span>{t('auth.loginWithApple')}</span>
+          <span>{t('auth.registerWithApple')}</span>
         </a>
       </div>
 

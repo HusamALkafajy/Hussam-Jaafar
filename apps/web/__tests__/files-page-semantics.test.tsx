@@ -1,0 +1,756 @@
+import React, { Suspense } from 'react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import FilesPage from '../src/app/(dashboard)/files/page';
+import FileDetailPage from '../src/app/(dashboard)/files/[id]/page';
+import { UploadQueue } from '../src/components/upload/upload-queue';
+import { Button } from '../src/components/ui/button';
+import { SidebarNavButton } from '../src/components/ui/sidebar-nav';
+
+const mocks = vi.hoisted(() => ({
+  apiDelete: vi.fn(),
+  apiGet: vi.fn(),
+  apiPost: vi.fn(),
+  locale: 'en' as 'ar' | 'en',
+  push: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
+
+vi.mock('../src/lib/api-client', () => ({
+  api: {
+    delete: (...args: unknown[]) => mocks.apiDelete(...args),
+    get: (...args: unknown[]) => mocks.apiGet(...args),
+    post: (...args: unknown[]) => mocks.apiPost(...args),
+  },
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: (...args: unknown[]) => mocks.toastError(...args),
+    success: (...args: unknown[]) => mocks.toastSuccess(...args),
+  },
+}));
+
+const translations: Record<string, string> = {
+  'dashboard.uploadNewFile': 'Upload File',
+  'files.allSubjects': 'All subjects',
+  'files.allTypes': 'All types',
+  'files.deleteDescription': '{fileName} will be permanently deleted. This action cannot be undone.',
+  'files.deleteFailure': 'Could not delete the file. Try again.',
+  'files.deleteFile': 'Delete file',
+  'files.deleteFileNamed': 'Delete {fileName}',
+  'files.deleteSuccess': 'File deleted successfully.',
+  'files.deleteTitle': 'Delete this file?',
+  'files.date': 'Date',
+  'files.emptyState': 'No files',
+  'files.fileTypeFilter': 'File type filter',
+  'files.fileTypeImage': 'Image',
+  'files.tabExam': 'Quiz',
+  'files.invalidType': 'Choose a PDF, Word document, or image.',
+  'files.maxSize': 'The file must be 50 MiB or smaller.',
+  'files.documentTitle': 'Document title (optional)',
+  'files.documentTitlePlaceholder': 'Enter the book or document title',
+  'files.documentTitleHelp': 'Metadata or filename fallback.',
+  'files.untitledDocument': 'Untitled document',
+  'files.mergingAndAnalyzing': 'Merging and analyzing',
+  'files.noSubject': 'No Subject',
+  'files.openFile': 'Open {fileName}',
+  'files.searchPlaceholder': 'Search files',
+  'files.startUpload': 'Start Upload & Analysis',
+  'files.statusCompleted': 'Completed',
+  'files.statusFailed': 'Failed',
+  'files.statusPending': 'Queued',
+  'files.statusProcessing': 'Processing',
+  'files.subject': 'Subject',
+  'files.subjectFilter': 'Subject filter',
+  'files.title': 'My Files',
+  'files.unnamedFile': 'This file',
+  'files.uploadDescription': 'You can optionally choose a subject before uploading.',
+  'files.uploadFailed': 'Upload failed',
+  'files.uploadKeepOpen': 'Keep this dialog open until the upload finishes.',
+  'files.uploadProgress': 'File upload progress',
+  'files.uploadRequirements': 'PDF, Word, or image',
+  'files.uploadSuccess': 'File uploaded successfully!',
+  'files.uploadSuccessDescription': 'AI analysis started in the background.',
+  'files.uploadZone': 'Choose a file',
+  'files.uploadingChunk': 'Uploading chunk {chunk} of {total}',
+  'common.cancel': 'Cancel',
+  'common.close': 'Close',
+  'uploadQueue.recentJobs': 'Recent Processing Jobs',
+  'uploadQueue.viewAll': 'View All Queue',
+  'uploadQueue.stageUploading': 'Uploading',
+  'uploadQueue.stageQueued': 'Queued',
+  'uploadQueue.stageExtracting': 'Extracting content',
+  'uploadQueue.stageBuildingAst': 'Structuring content',
+  'uploadQueue.stageValidating': 'Validating',
+  'uploadQueue.stageIndexing': 'Indexing content',
+  'uploadQueue.stageFinalizing': 'Finalizing',
+  'uploadQueue.stageCompleted': 'Completed',
+  'workspace.difficulty': 'Difficulty Level',
+  'workspace.easy': 'Easy',
+  'workspace.generateExam': 'Generate Smart Exam',
+  'workspace.generateExamAction': 'Generate Exam',
+  'workspace.hard': 'Hard',
+  'workspace.inProgress': 'In progress',
+  'workspace.mcqOnlyReleaseNote': 'Multiple-choice questions are available in the current release.',
+  'workspace.medium': 'Medium',
+  'workspace.multipleChoice': 'Multiple Choice',
+  'workspace.previousExams': 'Previous quizzes',
+  'workspace.questionCount': 'Questions',
+  'workspace.questions': '{count} questions',
+  'workspace.questionTypes': 'Question Types',
+  'workspace.takeExam': 'Take quiz',
+  'workspace.trueFalse': 'True / False',
+  'workspace.viewResults': 'View results',
+  'exams.draftUnavailableAction': 'Not available yet',
+};
+
+const arabicTranslations: Record<string, string> = {
+  'files.subjectFilter': 'تصفية حسب المادة',
+};
+
+vi.mock('../src/hooks/use-locale', () => ({
+  useLocale: () => ({
+    locale: mocks.locale,
+    t: (key: string, params?: Record<string, string | number>) => {
+      const value =
+        (mocks.locale === 'ar' ? arabicTranslations[key] : undefined) ??
+        translations[key] ??
+        key;
+      return value.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
+        params && Object.prototype.hasOwnProperty.call(params, name)
+          ? String(params[name])
+          : placeholder,
+      );
+    },
+  }),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mocks.push }),
+}));
+
+const file = {
+  createdAt: '2026-07-31T00:00:00.000Z',
+  fileSize: 1024,
+  id: 'file-1',
+  originalName: 'physics.pdf',
+  processingStatus: 'completed',
+};
+
+function expectNoNestedInteractive(container: HTMLElement) {
+  expect(
+    container.querySelectorAll('a a, a button, button a, button button'),
+  ).toHaveLength(0);
+}
+
+function accessibleDescription(element: HTMLElement) {
+  return (element.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+    .join(' ');
+}
+
+describe('files and legacy navigation semantics', () => {
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.locale = 'en';
+    consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) {
+        return Promise.resolve({
+          data: [file],
+          pagination: {
+            limit: 10,
+            page: 1,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      if (url === '/subjects') {
+        return Promise.resolve([
+          { id: 'subject-physics', name: 'Physics' },
+          { id: 'subject-math', name: 'Mathematics' },
+        ]);
+      }
+
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    mocks.apiDelete.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    const semanticErrors = consoleError.mock.calls.filter((args) =>
+      args.some(
+        (value) =>
+          typeof value === 'string' &&
+          /expected a native <button>|validateDOMNesting|hydration|cannot be a descendant|DialogTitle|DialogDescription|accessible (name|description)/i.test(
+            value,
+          ),
+      ),
+    );
+
+    expect(semanticErrors).toEqual([]);
+    consoleError.mockRestore();
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it('keeps file navigation and destructive confirmation as separate controls', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+
+    const openFile = screen.getByLabelText('Open physics.pdf');
+    const deleteFile = screen.getByRole('button', {
+      name: 'Delete physics.pdf',
+    });
+    const navigationActivation = vi.fn((event: Event) =>
+      event.preventDefault(),
+    );
+    openFile.addEventListener('click', navigationActivation);
+
+    expect(openFile.tagName).toBe('A');
+    expect(openFile.getAttribute('href')).toBe('/files/file-1');
+    expect(deleteFile.tagName).toBe('BUTTON');
+    expect(deleteFile.getAttribute('type')).toBe('button');
+    expectNoNestedInteractive(container);
+
+    await user.click(deleteFile);
+
+    const confirmation = await screen.findByRole('alertdialog', {
+      name: 'Delete this file?',
+    });
+    expect(accessibleDescription(confirmation)).toBe(
+      'physics.pdf will be permanently deleted. This action cannot be undone.',
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Cancel' }),
+    );
+    expect(mocks.apiDelete).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Delete file' }));
+
+    await waitFor(() =>
+      expect(mocks.apiDelete).toHaveBeenCalledWith('/files/file-1'),
+    );
+    expect(navigationActivation).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      'File deleted successfully.',
+    );
+  });
+
+  it('keeps destructive cancel safe and returns focus to its trigger', async () => {
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+
+    const deleteFile = screen.getByRole('button', {
+      name: 'Delete physics.pdf',
+    });
+    await user.click(deleteFile);
+
+    const cancel = await screen.findByRole('button', { name: 'Cancel' });
+    expect(document.activeElement).toBe(cancel);
+    await user.click(cancel);
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).toBeNull(),
+    );
+    expect(document.activeElement).toBe(deleteFile);
+    expect(mocks.apiDelete).not.toHaveBeenCalled();
+  });
+
+  it('provides an accessible upload dialog and restores focus on Escape', async () => {
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+
+    const uploadAction = screen.getByRole('button', { name: 'Upload File' });
+    expect(uploadAction.getAttribute('type')).toBe('button');
+    await user.click(uploadAction);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Upload File' });
+    expect(accessibleDescription(dialog)).toBe(
+      'PDF, Word, or image. You can optionally choose a subject before uploading.',
+    );
+
+    const fileInput = screen.getByLabelText(/Choose a file/);
+    expect(document.activeElement).toBe(fileInput);
+    expect(fileInput.getAttribute('accept')).toBe('.pdf,.docx,.jpg,.jpeg,.png,.webp');
+    expect(accessibleDescription(fileInput)).toBe('PDF, Word, or image');
+    expect(screen.getByRole('button', { name: 'Close' })).not.toBeNull();
+    expect(
+      screen.getByRole('combobox', { name: 'Subject' }).textContent,
+    ).toContain('No Subject');
+
+    const submit = screen.getByRole('button', {
+      name: 'Start Upload & Analysis',
+    }) as HTMLButtonElement;
+    expect(submit.getAttribute('type')).toBe('submit');
+    expect(submit.disabled).toBe(true);
+    expect(
+      screen.getByRole('button', { name: 'Cancel' }).getAttribute('type'),
+    ).toBe('button');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).toBeNull(),
+    );
+    expect(document.activeElement).toBe(uploadAction);
+  });
+
+  it('keeps the files filters labeled, keyboard operable, and independent', async () => {
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+
+    const subjectFilter = screen.getByRole('combobox', {
+      name: 'Subject filter',
+    });
+    const typeFilter = screen.getByRole('combobox', {
+      name: 'File type filter',
+    });
+
+    expect(subjectFilter.textContent).toContain('All subjects');
+    expect(typeFilter.textContent).toContain('All types');
+    expect(subjectFilter.getAttribute('aria-expanded')).toBe('false');
+
+    subjectFilter.focus();
+    await user.keyboard('{Enter}');
+    expect(subjectFilter.getAttribute('aria-expanded')).toBe('true');
+    expect(await screen.findByRole('listbox')).not.toBeNull();
+
+    await user.keyboard('{ArrowDown}{Enter}');
+    await waitFor(() => expect(subjectFilter.textContent).toContain('Physics'));
+    expect(subjectFilter.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(subjectFilter);
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        expect.stringMatching(/\/files\?.*subjectId=subject-physics/),
+      ),
+    );
+
+    await user.click(typeFilter);
+    await user.click(await screen.findByRole('option', { name: 'Word' }));
+    await waitFor(() => expect(typeFilter.textContent).toContain('Word'));
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /\/files\?.*subjectId=subject-physics.*fileType=docx/,
+        ),
+      ),
+    );
+
+    subjectFilter.focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(subjectFilter.getAttribute('aria-expanded')).toBe('false'),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(subjectFilter));
+    expect(typeFilter.textContent).toContain('Word');
+  });
+
+  it('exposes only MCQ creation and sends an exact MCQ-only Exam request', async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === '/files/file-1') {
+        return Promise.resolve({
+          ...file,
+          extractedText: 'Course content',
+          fileType: 'docx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+      }
+      if (url === '/exams' || url === '/flashcard-sets') return Promise.resolve([]);
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    mocks.apiPost.mockResolvedValueOnce({ id: 'exam-mcq' });
+    const params = Object.assign(Promise.resolve({ id: 'file-1' }), {
+      status: 'fulfilled',
+      value: { id: 'file-1' },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <Suspense fallback={<div>Loading fixture</div>}>
+        <FileDetailPage params={params} />
+      </Suspense>,
+    );
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Quiz' }));
+
+    expect(screen.getByText('Multiple Choice')).not.toBeNull();
+    expect(
+      screen.getByText('Multiple-choice questions are available in the current release.'),
+    ).not.toBeNull();
+    expect(screen.queryByText('True / False')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Generate Exam' }));
+
+    await waitFor(() =>
+      expect(mocks.apiPost).toHaveBeenCalledWith('/exams', {
+        fileId: 'file-1',
+        difficulty: 'medium',
+        totalQuestions: 10,
+        questionTypes: ['mcq'],
+      }),
+    );
+    expect(mocks.push).toHaveBeenCalledWith('/exams/exam-mcq');
+  });
+
+  it('exposes file-history actions only for eligible active and completed exams', async () => {
+    const examFixture = {
+      fileId: 'file-1',
+      difficulty: 'medium',
+      totalQuestions: 1,
+      createdAt: '2026-08-14T00:00:00.000Z',
+      status: 'active',
+      attemptEligible: false,
+    };
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === '/files/file-1') {
+        return Promise.resolve({
+          ...file,
+          extractedText: 'Course content',
+          fileType: 'docx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+      }
+      if (url === '/flashcard-sets') return Promise.resolve([]);
+      if (url === '/exams') {
+        return Promise.resolve([
+          {
+            ...examFixture,
+            id: 'exam-eligible',
+            title: 'Eligible active quiz',
+            attemptEligible: true,
+          },
+          {
+            ...examFixture,
+            id: 'exam-completed',
+            title: 'Completed quiz',
+            status: 'completed',
+            score: '80.00',
+          },
+          { ...examFixture, id: 'exam-draft', title: 'Draft quiz', status: 'draft' },
+          { ...examFixture, id: 'exam-unsupported', title: 'Unsupported quiz' },
+          { ...examFixture, id: 'exam-mixed', title: 'Mixed quiz' },
+          { ...examFixture, id: 'exam-unknown', title: 'Unknown quiz' },
+          { ...examFixture, id: 'exam-malformed', title: 'Malformed quiz' },
+          {
+            ...examFixture,
+            id: 'exam-invalid-status',
+            title: 'Invalid-status quiz',
+            status: 'archived',
+          },
+        ]);
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    const params = Object.assign(Promise.resolve({ id: 'file-1' }), {
+      status: 'fulfilled',
+      value: { id: 'file-1' },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <Suspense fallback={<div>Loading fixture</div>}>
+        <FileDetailPage params={params} />
+      </Suspense>,
+    );
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Quiz' }));
+
+    const eligibleCard = screen.getByText('Eligible active quiz').closest('.rounded-2xl');
+    const completedCard = screen.getByText('Completed quiz').closest('.rounded-2xl');
+    expect(eligibleCard).not.toBeNull();
+    expect(completedCard).not.toBeNull();
+    expect(within(eligibleCard!).getByText('Take quiz').closest('a')?.getAttribute('href')).toBe(
+      '/exams/exam-eligible',
+    );
+    expect(within(completedCard!).getByText('View results').closest('a')?.getAttribute('href')).toBe(
+      '/exams/exam-completed',
+    );
+
+    for (const title of [
+      'Draft quiz',
+      'Unsupported quiz',
+      'Mixed quiz',
+      'Unknown quiz',
+      'Malformed quiz',
+      'Invalid-status quiz',
+    ]) {
+      const blockedCard = screen.getByText(title).closest('.rounded-2xl');
+      expect(blockedCard).not.toBeNull();
+      expect(within(blockedCard!).getByText('Not available yet')).not.toBeNull();
+      expect(blockedCard!.querySelector('a')).toBeNull();
+    }
+  });
+
+  it('renders the files filter popup with explicit Arabic RTL direction', async () => {
+    mocks.locale = 'ar';
+    document.documentElement.dir = 'rtl';
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+
+    const subjectFilter = screen.getByRole('combobox', {
+      name: 'تصفية حسب المادة',
+    });
+    await user.click(subjectFilter);
+
+    expect(await screen.findByRole('listbox')).not.toBeNull();
+    expect(
+      document.querySelector('[data-slot="select-content"]')?.getAttribute('dir'),
+    ).toBe('rtl');
+  });
+
+  it('keeps keyboard focus inside the upload dialog', async () => {
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Upload File' });
+    for (let index = 0; index < 8; index += 1) {
+      await user.tab();
+      await waitFor(() =>
+        expect(dialog.contains(document.activeElement)).toBe(true),
+      );
+    }
+  });
+
+  it('associates upload validation errors with the standard file input', async () => {
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+
+    const fileInput = screen.getByLabelText(/Choose a file/);
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(['plain text'], 'notes.txt', { type: 'text/plain' })],
+      },
+    });
+
+    const error = await screen.findByRole('alert');
+    expect(error.textContent).toContain('Choose a PDF, Word document, or image.');
+    expect(fileInput.getAttribute('aria-invalid')).toBe('true');
+    expect(fileInput.getAttribute('aria-describedby')).toContain(
+      'upload-file-error',
+    );
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Start Upload & Analysis',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    const oversizedPdf = new File(['pdf'], 'large.pdf', {
+      type: 'application/pdf',
+    });
+    Object.defineProperty(oversizedPdf, 'size', {
+      value: 50 * 1024 * 1024 + 1,
+    });
+    fireEvent.change(fileInput, {
+      target: { files: [oversizedPdf] },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      expect.stringContaining('The file must be 50 MiB or smaller.'),
+    );
+  });
+
+  it('sends the confirmed title and authoritative upload contract with every chunk', async () => {
+    mocks.apiPost.mockResolvedValue({ id: 'new-file' });
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.type(screen.getByLabelText('Document title (optional)'), 'كتاب الفيزياء');
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    const form = mocks.apiPost.mock.calls[0][1] as FormData;
+    expect(form.get('title')).toBe('كتاب الفيزياء');
+    expect(form.get('fileSize')).toBe('4');
+    expect(form.get('mimeType')).toBe('application/pdf');
+  });
+
+  it('uses a valid UUID upload identifier when randomUUID is unavailable', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(17);
+        return bytes;
+      },
+    });
+    mocks.apiPost.mockResolvedValue({ id: 'new-file' });
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    const form = mocks.apiPost.mock.calls[0][1] as FormData;
+    expect(form.get('uploadId')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('uses the persisted document title consistently on card and detail surfaces', async () => {
+    const titledFile = { ...file, title: 'Physics Foundations', titleSource: 'metadata' };
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) return Promise.resolve({ data: [titledFile], pagination: { limit: 10, page: 1, total: 1, totalPages: 1 } });
+      if (url === '/subjects') return Promise.resolve([]);
+      if (url === '/files/file-1') return Promise.resolve(titledFile);
+      if (url === '/exams/file/file-1') return Promise.resolve([]);
+      if (url === '/flashcards/file/file-1') return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+    const { unmount } = render(<FilesPage />);
+    expect(await screen.findByText('Physics Foundations')).not.toBeNull();
+    unmount();
+
+    const params = Object.assign(Promise.resolve({ id: 'file-1' }), {
+      status: 'fulfilled',
+      value: { id: 'file-1' },
+    });
+    render(
+      <Suspense fallback={<div>Loading fixture</div>}>
+        <FileDetailPage params={params} />
+      </Suspense>,
+    );
+    expect(await screen.findByText('Physics Foundations')).not.toBeNull();
+  });
+
+  it('announces upload progress with meaningful accessible values', async () => {
+    let resolveUpload: (value: { id: string }) => void = () => undefined;
+    mocks.apiPost.mockImplementation(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+
+    const fileInput = screen.getByLabelText(/Choose a file/);
+    await user.upload(
+      fileInput,
+      new File(['pdf'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Start Upload & Analysis' }),
+    );
+
+    const progress = await screen.findByRole('progressbar', {
+      name: 'File upload progress',
+    });
+    expect(progress.getAttribute('aria-valuemin')).toBe('0');
+    expect(progress.getAttribute('aria-valuemax')).toBe('100');
+    expect(progress.getAttribute('aria-valuenow')).toBe('0');
+    expect(screen.getByRole('status').textContent).toContain(
+      'Keep this dialog open until the upload finishes.',
+    );
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Upload File' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+
+    resolveUpload({ id: 'new-file' });
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith('/files/new-file'),
+    );
+  });
+
+  it('reports delete failures without a native alert', async () => {
+    mocks.apiDelete.mockRejectedValueOnce(new Error('network failure'));
+    const user = userEvent.setup();
+    render(<FilesPage />);
+    await screen.findByText('physics.pdf');
+
+    await user.click(
+      screen.getByRole('button', { name: 'Delete physics.pdf' }),
+    );
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete file' }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        'Could not delete the file. Try again.',
+      ),
+    );
+    expect(screen.getByRole('alertdialog', {
+      name: 'Delete this file?',
+    })).not.toBeNull();
+  });
+
+  it('renders representative converted navigation as one anchor', () => {
+    const { container } = render(<UploadQueue variant="compact" />);
+    const queueLink = screen.getByText('View All Queue').closest('a');
+
+    expect(queueLink).not.toBeNull();
+    expect(queueLink?.getAttribute('href')).toBe('/upload');
+    expect(queueLink?.classList.contains('group/button')).toBe(true);
+    expectNoNestedInteractive(container);
+  });
+
+  it('keeps loading controls native and disabled', () => {
+    render(<Button loading>Save</Button>);
+    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+
+    expect(save.tagName).toBe('BUTTON');
+    expect(save.getAttribute('type')).toBe('button');
+    expect(save.disabled).toBe(true);
+  });
+
+  it('renders sidebar actions as native buttons', () => {
+    const action = vi.fn();
+    render(<SidebarNavButton onClick={action}>Sign out</SidebarNavButton>);
+
+    const signOut = screen.getByRole('button', { name: 'Sign out' });
+    expect(signOut.tagName).toBe('BUTTON');
+    expect(signOut.getAttribute('type')).toBe('button');
+
+    fireEvent.click(signOut);
+    expect(action).toHaveBeenCalledOnce();
+  });
+});

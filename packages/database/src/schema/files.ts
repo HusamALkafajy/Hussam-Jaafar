@@ -7,6 +7,7 @@ import { explanations } from './explanations';
 import { exams } from './exams';
 import { flashcardSets } from './flashcards';
 import { chatSessions } from './chat';
+import { fileProcessingAttempts } from './file_processing_attempts';
 
 export const fileTypeEnum = pgEnum('file_type', ['pdf', 'docx', 'image']);
 export const processingStatusEnum = pgEnum('processing_status', ['pending', 'processing', 'completed', 'failed']);
@@ -45,4 +46,5 @@ export const filesRelations = relations(files, ({ one, many }) => ({
   exams: many(exams),
   flashcardSets: many(flashcardSets),
   chatSessions: many(chatSessions),
+  processingAttempts: many(fileProcessingAttempts),
 }));

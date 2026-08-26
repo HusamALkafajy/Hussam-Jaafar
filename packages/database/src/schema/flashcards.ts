@@ -10,6 +10,7 @@ export const flashcardSets = pgTable('flashcard_sets', {
   fileId: uuid('file_id').references(() => files.id, { onDelete: 'cascade' }).notNull(),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   title: varchar('title', { length: 255 }).notNull(),
+  originGraphVersion: varchar('origin_graph_version', { length: 255 }), // Added
   totalCards: integer('total_cards').default(0).notNull(),
   masteredCount: integer('mastered_count').default(0).notNull(),
   reviewCount: integer('review_count').default(0).notNull(),
@@ -22,6 +23,10 @@ export const flashcards = pgTable('flashcards', {
   setId: uuid('set_id').references(() => flashcardSets.id, { onDelete: 'cascade' }).notNull(),
   front: text('front').notNull(),
   back: text('back').notNull(),
+  cardType: varchar('card_type', { length: 100 }), // Added
+  version: varchar('version', { length: 255 }), // Added for deterministic hash
+  knowledgeNodeId: varchar('knowledge_node_id', { length: 255 }), // Added
+  sourceReferences: text('source_references'), // Stored as JSON string
   reviewCount: integer('review_count').default(0).notNull(),
   masteryLevel: masteryLevelEnum('mastery_level').default('new').notNull(),
   nextReviewAt: timestamp('next_review_at', { withTimezone: true }),

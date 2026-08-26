@@ -1,13 +1,17 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
-import { api } from '../../../lib/api';
+import { useAuth } from '../../../hooks/use-auth';
 import { useLocale } from '../../../hooks/use-locale';
-import { Card } from '../../../components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
-import { Spinner } from '../../../components/ui/spinner';
 import { Button } from '../../../components/ui/button';
+import { Grid } from '../../../components/ui/grid';
+import { Stack } from '../../../components/ui/stack';
+import { Section } from '../../../components/ui/section';
+import { Container } from '../../../components/ui/container';
+import { Surface } from '../../../components/ui/surface';
 import {
   FileText,
   Clock,
@@ -16,146 +20,185 @@ import {
   Upload,
   BookOpen,
   ArrowRight,
+  GraduationCap,
+  Sparkles,
+  Flame,
+  Pin,
+  Bot
 } from 'lucide-react';
+import { MOCK_DASHBOARD_DATA } from '../../../mocks/workspace';
 import { formatDate } from '../../../lib/utils';
+import { ActivityFeed } from '../../../components/activity-feed';
+import { UploadQueue } from '../../../components/upload/upload-queue';
+import { useFTUE } from '../../../hooks/use-ftue';
+import { FTUEDashboardEmpty } from '../../../components/onboarding/ftue-dashboard-empty';
+import { RecommendationsPanel } from '../../../components/dashboard/recommendations/recommendations-panel';
 
 export default function DashboardPage() {
   const { t, locale } = useLocale();
-  const [loading, setLoading] = useState(true);
-  const [filesCount, setFilesCount] = useState(0);
-  const [recentFiles, setRecentFiles] = useState<any[]>([]);
+  const { user } = useAuth();
+  const { state: ftueState, isReady } = useFTUE();
+  
+  const data = MOCK_DASHBOARD_DATA;
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const response = await api.get<any>('/files?limit=5');
-        setFilesCount(response.pagination?.total || 0);
-        setRecentFiles(response.data || []);
-      } catch (e) {
-        console.error('Failed to load dashboard files', e);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
-  }, []);
+  const statCards = [
+    { label: t('dashboard.studyTime'), value: `${data.statistics.totalStudyTimeHours}h`, icon: Clock, color: 'text-amber-500 bg-amber-500/10' },
+    { label: t('dashboard.documents'), value: data.statistics.documentsRead, icon: FileText, color: 'text-indigo-500 bg-indigo-500/10' },
+    { label: t('dashboard.quizzes'), value: data.statistics.quizzesCompleted, icon: CheckSquare, color: 'text-emerald-500 bg-emerald-500/10' },
+    { label: t('dashboard.averageScore'), value: `${data.statistics.averageScore}%`, icon: Award, color: 'text-rose-500 bg-rose-500/10' },
+  ];
 
-  if (loading) {
+  if (isReady && data.statistics.documentsRead === 0 && !ftueState.hasUploadedDocument) {
     return (
-      <div className="h-64 flex items-center justify-center">
-        <Spinner className="w-8 h-8" />
-      </div>
+      <Container size="xl" className="py-8">
+        <FTUEDashboardEmpty />
+      </Container>
     );
   }
 
-  const statCards = [
-    { label: t('dashboard.uploadedFiles'), value: filesCount, icon: FileText, color: 'text-indigo-400 bg-indigo-500/10' },
-    { label: t('dashboard.completedExams'), value: '0', icon: CheckSquare, color: 'text-emerald-400 bg-emerald-500/10' },
-    { label: t('dashboard.studyHours'), value: '0', icon: Clock, color: 'text-amber-400 bg-amber-500/10' },
-    { label: t('dashboard.completionRate'), value: '0%', icon: Award, color: 'text-rose-400 bg-rose-500/10' },
-  ];
-
   return (
-    <div className="flex flex-col gap-8">
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat, i) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={i} className="flex items-center gap-4 bg-slate-900/40 border-slate-800/45 p-6 hover:-translate-y-0.5">
-              <div className={`p-3 rounded-lg shrink-0 ${stat.color}`}>
-                <Icon className="w-6 h-6" />
-              </div>
-              <div className="flex flex-col gap-1 min-w-0">
-                <span className="text-sm text-slate-400 truncate">{stat.label}</span>
-                <span className="text-2xl font-bold text-white truncate">{stat.value}</span>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Quick Action + Recent Files */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Files Table/List */}
-        <Card className="lg:col-span-2 flex flex-col gap-4 bg-slate-900/40 p-6">
-          <div className="flex items-center justify-between">
-            <h4 className="text-lg font-bold text-white">{t('dashboard.recentFiles')}</h4>
-            <Link href="/files" className="text-indigo-400 hover:text-indigo-300 text-sm font-medium flex items-center gap-1.5 transition-colors">
-              <span>عرض الكل</span>
-              <ArrowRight className="w-4 h-4 rtl-flip" />
-            </Link>
-          </div>
-
-          {recentFiles.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-3 border border-dashed border-slate-800 rounded-lg bg-slate-950/20">
-              <BookOpen className="w-10 h-10 text-slate-600" />
-              <p className="text-sm text-slate-500">لا توجد ملفات مرفوعة حالياً</p>
+    <Container size="xl" className="py-8">
+      <Stack gap={8}>
+        {/* Welcome Section & Learning Streak */}
+        <Surface variant="glass" className="p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 border-primary/20">
+          <Stack gap={2} className="text-center md:text-start flex-1">
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground">
+              {t('dashboard.welcome')} {user?.firstName}
+            </h1>
+            <p className="text-muted-foreground max-w-xl">
+              {t('dashboard.streakMessage', { count: data.statistics.currentStreakDays })}
+            </p>
+          </Stack>
+          <div className="flex items-center gap-3 bg-background/50 p-4 rounded-xl border border-border shrink-0">
+            <div className="p-3 bg-orange-500/10 text-orange-500 rounded-lg">
+              <Flame className="w-6 h-6" />
             </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {recentFiles.map((file) => (
-                <Link
-                  key={file.id}
-                  href={`/files/${file.id}`}
-                  className="flex items-center justify-between p-3.5 bg-slate-900/20 border border-slate-800/40 rounded-lg hover:border-indigo-500/20 hover:bg-slate-900/60 transition-all group"
+            <div>
+              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t('dashboard.currentStreak')}</p>
+              <p className="text-2xl font-bold">{data.statistics.currentStreakDays} <span className="text-sm font-normal text-muted-foreground">{t('dashboard.days')}</span></p>
+            </div>
+          </div>
+        </Surface>
+
+        {/* Overview Stats */}
+        <Grid cols={1} gap={4}>
+          {statCards.map((stat, i) => {
+            const Icon = stat.icon;
+            return (
+              <Card key={i} className="flex items-center gap-4 p-4 hover:border-primary/50 transition-colors">
+                <div className={`p-3 rounded-lg shrink-0 ${stat.color}`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="text-sm text-muted-foreground truncate">{stat.label}</span>
+                  <span className="text-xl font-bold text-foreground truncate">{stat.value}</span>
+                </div>
+              </Card>
+            );
+          })}
+        </Grid>
+
+        <Grid cols={1} gap={8}>
+          {/* Main Content Column */}
+          <Stack gap={8} className="lg:col-span-2">
+            
+            {/* Personalized Recommendations Panel (Consumes API) */}
+            <RecommendationsPanel />
+
+            {/* Recent Subjects */}
+            <Section>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold">{t('dashboard.recentSubjects')}</h3>
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/subjects" />}
+                  variant="link"
+                  className="text-primary p-0"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:scale-105 transition-transform">
-                      <FileText className="w-5 h-5" />
+                  {t('dashboard.viewAll')} <ArrowRight className="ms-1 w-4 h-4 rtl:-scale-x-100" />
+                </Button>
+              </div>
+              <Grid cols={1} gap={4}>
+                {data.recentSubjects.map(subject => (
+                  <Card key={subject.id} className="p-4 hover:border-primary/50 transition-colors cursor-pointer group flex flex-col items-center text-center gap-3">
+                    <div className="p-4 bg-muted rounded-full group-hover:scale-110 transition-transform">
+                      <GraduationCap className="w-6 h-6 text-foreground" />
                     </div>
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className="text-sm font-semibold text-slate-200 truncate group-hover:text-white">
-                        {file.originalName}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {formatDate(file.createdAt, locale)}
-                      </span>
+                    <div>
+                      <h4 className="font-semibold text-foreground line-clamp-1">{subject.name}</h4>
+                      <p className="text-xs text-muted-foreground">{t('dashboard.items', { count: subject.documentCount })}</p>
                     </div>
-                  </div>
+                  </Card>
+                ))}
+              </Grid>
+            </Section>
+            
+          </Stack>
 
-                  <Badge
-                    variant={
-                      file.processingStatus === 'completed'
-                        ? 'success'
-                        : file.processingStatus === 'failed'
-                        ? 'danger'
-                        : 'warning'
-                    }
-                  >
-                    {file.processingStatus === 'completed'
-                      ? t('files.statusCompleted')
-                      : file.processingStatus === 'failed'
-                      ? t('files.statusFailed')
-                      : t('files.statusProcessing')}
-                  </Badge>
-                </Link>
-              ))}
-            </div>
-          )}
-        </Card>
+          {/* Sidebar Column */}
+          <Stack gap={8}>
+            {/* Quick Actions Panel */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">{t('dashboard.quickActions')}</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/upload" />}
+                  className="w-full justify-start"
+                  size="lg"
+                >
+                  <Upload className="me-2 w-4 h-4" />
+                  {t('dashboard.uploadNewFile')}
+                </Button>
+                <Button variant="outline" className="w-full justify-start" size="lg">
+                  <Bot className="me-2 w-4 h-4" />
+                  {t('dashboard.chatTutor')}
+                </Button>
+                <Button variant="outline" className="w-full justify-start" size="lg">
+                  <Sparkles className="me-2 w-4 h-4" />
+                  {t('dashboard.generateFlashcards')}
+                </Button>
+              </CardContent>
+            </Card>
 
-        {/* Quick Actions Panel */}
-        <Card className="flex flex-col gap-5 bg-slate-900/40 p-6">
-          <h4 className="text-lg font-bold text-white">{t('dashboard.quickActions')}</h4>
-          <div className="flex flex-col gap-3">
-            <Link href="/files" className="w-full">
-              <Button className="w-full gap-2 font-bold py-3.5">
-                <Upload className="w-4.5 h-4.5" />
-                <span>{t('dashboard.uploadNewFile')}</span>
-              </Button>
-            </Link>
+            {/* Processing Queue Widget */}
+            <Card>
+              <CardContent className="p-4">
+                <UploadQueue variant="compact" />
+              </CardContent>
+            </Card>
 
-            <Button variant="secondary" disabled className="w-full gap-2 py-3.5 opacity-50 cursor-not-allowed">
-              <span>{t('dashboard.startQuiz')}</span>
-            </Button>
+            {/* Activity Feed */}
+            <Card>
+              <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                <CardTitle className="text-lg">{t('dashboard.activityFeed')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ActivityFeed items={data.activityFeed} />
+              </CardContent>
+            </Card>
 
-            <Button variant="secondary" disabled className="w-full gap-2 py-3.5 opacity-50 cursor-not-allowed">
-              <span>{t('dashboard.reviewCards')}</span>
-            </Button>
-          </div>
-        </Card>
-      </div>
-    </div>
+            {/* Upcoming Reviews Placeholder */}
+            <Card className="bg-muted/50 border-dashed">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg text-muted-foreground">{t('dashboard.upcomingReviews')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Stack gap={4}>
+                  {data.upcomingReviews.map(review => (
+                    <div key={review.id} className="flex flex-col gap-1 pb-4 border-b last:border-0 last:pb-0">
+                      <span className="text-sm font-medium">{review.title}</span>
+                      <span className="text-xs text-muted-foreground">{formatDate(review.date, locale)}</span>
+                    </div>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          </Stack>
+        </Grid>
+      </Stack>
+    </Container>
   );
 }

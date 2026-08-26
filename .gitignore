@@ -7,6 +7,7 @@ dist/
 .next/
 out/
 build/
+apps/web/public/vendor/pdfjs/
 
 # Turbo
 .turbo/
@@ -14,8 +15,14 @@ build/
 # Environment
 .env
 .env.local
+.env.staging
 .env.*.local
+# Local test environment files — contain real DB credentials, must never be committed
+apps/api/.env.test
+docker/.env.prod
 !.env.example
+!apps/api/.env.example
+!docker/.env.prod.example
 
 # IDE
 .vscode/
@@ -37,10 +44,15 @@ yarn-error.log*
 
 # Testing
 coverage/
+e2e-results/
 
 # Database
 *.sqlite
 *.sqlite3
+backups/
+*.dump
+*.backup
+*.sql.gz
 
 # Uploads (local dev)
 uploads/

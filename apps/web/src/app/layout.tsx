@@ -189,10 +189,15 @@ export default async function RootLayout({
         className="relative min-h-screen bg-[#0b0f19] text-slate-100 antialiased overflow-x-hidden"
         suppressHydrationWarning
       >
-        {/* Animated Background Blur Orbs */}
-        <div className="orb orb-primary" />
-        <div className="orb orb-secondary" />
-        <div className="orb orb-accent" />
+        {/* Animated background decoration, locally clipped to the viewport. */}
+        <div
+          className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+          aria-hidden="true"
+        >
+          <div className="orb orb-primary" />
+          <div className="orb orb-secondary" />
+          <div className="orb orb-accent" />
+        </div>
 
         {/*
          * Pass `initialLocale` so the first client render uses the same locale

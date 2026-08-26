@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, UseGuards, Inject, ForbiddenException } from '@nestjs/common';
+import type { IConfigurationProvider, ApplicationConfiguration } from '@studyai/infrastructure';
 import { ExamsService } from './exams.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -8,7 +9,11 @@ import { SubmitExamDto } from './dto/submit-exam.dto';
 @Controller('exams')
 @UseGuards(JwtAuthGuard)
 export class ExamsController {
-  constructor(private readonly examsService: ExamsService) {}
+  constructor(
+    private readonly examsService: ExamsService,
+    @Inject('IConfigurationProvider')
+    private readonly configurationProvider: IConfigurationProvider<ApplicationConfiguration>,
+  ) {}
 
   @Post()
   async createExam(@CurrentUser('sub') userId: string, @Body() dto: CreateExamDto) {
@@ -43,6 +48,14 @@ export class ExamsController {
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
   ) {
+    // Preserve the existing owner-scoped 404 contract before disclosing whether
+    // this future capability is enabled for the current release.
+    await this.examsService.findById(id, userId);
+
+    if (!this.configurationProvider.features.isEnabled('adaptive_exam', { userId })) {
+      throw new ForbiddenException('Adaptive exam questions are disabled for the current release.');
+    }
+
     return this.examsService.generateNextAdaptiveQuestion(id, userId);
   }
 }

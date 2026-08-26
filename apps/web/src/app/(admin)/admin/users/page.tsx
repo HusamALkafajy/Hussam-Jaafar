@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useLocale } from '../../../../hooks/use-locale';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { Card } from '../../../../components/ui/card';
 import { Badge } from '../../../../components/ui/badge';
 import { Spinner } from '../../../../components/ui/spinner';
@@ -58,7 +58,7 @@ export default function AdminUsersPage() {
     { id: '5', firstName: 'Bot', lastName: 'Spammer', email: 'bot@spam.com', role: 'student', subscriptionTier: 'free', isActive: false, createdAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString() },
   ], []);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -70,11 +70,11 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [mockUsers]);
 
   useEffect(() => {
     loadUsers();
-  }, []);
+  }, [loadUsers]);
 
   const handleToggleActive = async (userId: string, currentStatus: boolean) => {
     try {

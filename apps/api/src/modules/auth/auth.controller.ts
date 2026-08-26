@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Body, Req, Res, UseGuards, Query, Param, HttpCode, HttpStatus, All } from '@nestjs/common';
+﻿import { Controller, Post, Get, Body, Req, Res, UseGuards, Query, Param, HttpCode, HttpStatus, All, UnauthorizedException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -16,57 +17,56 @@ import { UserProfileResponse } from '@studyai/types';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Public()
   @Post('register')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.register(dto);
     this.authService.setAuthCookies(res, result);
-    return { user: result.user };
+    return { user: result.user, accessToken: result.accessToken };
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.validateUser(dto.email, dto.password);
     if (!result) {
-      return res.status(HttpStatus.UNAUTHORIZED).json({
-        success: false,
-        message: 'Invalid credentials',
-      });
+      throw new UnauthorizedException('Invalid credentials');
     }
     const logged = await this.authService.login(result);
     this.authService.setAuthCookies(res, logged);
-    return { user: logged.user };
+    return { user: logged.user, accessToken: logged.accessToken };
   }
 
   @Public()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@CurrentUser('sub') userId: string | undefined, @Res({ passthrough: true }) res: Response) {
-    if (userId) {
-      await this.authService.logout(userId);
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const refreshToken = req.cookies?.refresh_token;
+    if (refreshToken) {
+      await this.authService.logoutWithRefreshToken(refreshToken);
     }
     this.authService.clearAuthCookies(res);
     return { message: 'Logged out successfully' };
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const refreshToken = req.cookies['refresh_token'];
     if (!refreshToken) {
-      return res.status(HttpStatus.UNAUTHORIZED).json({
-        success: false,
-        message: 'No refresh token provided',
-      });
+      throw new UnauthorizedException('No refresh token provided');
     }
     const result = await this.authService.refresh(refreshToken);
     this.authService.setAuthCookies(res, result);
-    return { user: result.user };
+    return { user: result.user, accessToken: result.accessToken };
   }
 
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Public()
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
@@ -144,3 +144,4 @@ export class AuthController {
     return { user };
   }
 }
+

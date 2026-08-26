@@ -1,0 +1,202 @@
+import * as fs from 'fs';
+import { StructuralBlock } from '@studyai/ast';
+import {
+  DocumentExtractor,
+  DocumentExtractionContext,
+  EmptyDocumentError,
+  MissingTextLayerError,
+  EncryptedDocumentError,
+  MalformedDocumentError,
+  ExtractionResourceLimitError
+} from '../../contracts/document-extractor';
+import { ExtractedDocument } from '../../contracts/extracted-document';
+import { ExtractedDocumentFactory } from './extracted-document.factory';
+import { Logger } from '@nestjs/common';
+
+// We MUST use eval("import") because pdfjs-dist 6.2.108 ONLY provides ESM builds (.mjs)
+// and lacks a CJS export (pdf.js). We also attach createUint8Array to bypass Jest's VM
+// cross-context instanceof checks which cause InvalidPDFException.
+async function loadPdfJsServerRuntime(): Promise<any> {
+  return eval(`
+    import('pdfjs-dist/legacy/build/pdf.mjs').then(pdfjs => {
+      return {
+        ...pdfjs,
+        createUint8Array: (buf) => new Uint8Array(buf)
+      };
+    })
+  `);
+}
+
+interface PdfTextContent {
+  readonly items: ReadonlyArray<{ readonly str?: string }>;
+}
+
+export class NativePdfExtractor implements DocumentExtractor {
+  private readonly logger = new Logger(NativePdfExtractor.name);
+  private pdfjsLib?: any;
+
+  constructor(
+    pdfjsLib?: any,
+  ) {
+    this.pdfjsLib = pdfjsLib;
+  }
+
+  async extract(context: DocumentExtractionContext): Promise<ExtractedDocument> {
+    if (!context.filePath && !context.data) {
+      throw new MalformedDocumentError('PDF extraction requires a valid file path or data buffer.');
+    }
+
+    const pdfjsLib = this.pdfjsLib || await loadPdfJsServerRuntime();
+
+    let rawData: Buffer;
+    if (context.data) {
+      rawData = context.data;
+    } else {
+      try {
+        rawData = await fs.promises.readFile(context.filePath!);
+      } catch (error: any) {
+        throw new MalformedDocumentError(`Failed to read PDF file: ${error.message}`);
+      }
+    }
+
+    let doc: any;
+    try {
+      // Use standard Node.js entry point, parsing from byte array
+      const loadingTask = pdfjsLib.getDocument({
+        data: pdfjsLib.createUint8Array ? pdfjsLib.createUint8Array(rawData) : new Uint8Array(rawData),
+        useSystemFonts: true,
+      });
+
+      const abortHandler = () => {
+        try {
+          loadingTask.destroy();
+        } catch (e) {
+          // ignore destroy errors
+        }
+      };
+
+      if (context.signal) {
+        if (context.signal.aborted) {
+          abortHandler();
+        } else {
+          context.signal.addEventListener('abort', abortHandler, { once: true });
+        }
+      }
+
+      doc = await loadingTask.promise;
+      
+      if (context.signal) {
+        context.signal.removeEventListener('abort', abortHandler);
+      }
+    } catch (error: any) {
+      if (error.name === 'PasswordException') {
+        throw new EncryptedDocumentError('The PDF is encrypted and requires a password.');
+      }
+      
+      if (context.signal?.aborted || error.message === 'Loading aborted') {
+        // We do not throw ExtractionTimeoutError here. The caller (FilesProcessor) 
+        // that initiated the abort will catch its own AbortError/TimeoutError.
+        // We just bubble up a generic or abort error, which will be intercepted by the orchestrator.
+        throw error;
+      }
+      
+      this.logger.error('PDF parsing failed', error);
+      throw new MalformedDocumentError(`Failed to parse PDF document: ${error.message}`);
+    }
+
+    const numPages = doc.numPages;
+    if (numPages === 0) {
+      throw new EmptyDocumentError('The PDF document contains 0 pages.');
+    }
+
+    // Safety bound to prevent OOM
+    const MAX_EXTRACTION_PAGES = 2000;
+    if (numPages > MAX_EXTRACTION_PAGES) {
+      throw new ExtractionResourceLimitError(`Document exceeds maximum allowed extraction page limit (${MAX_EXTRACTION_PAGES}).`);
+    }
+
+    const blocks: StructuralBlock[] = [];
+    let title: string | undefined;
+    try {
+      const pdfMetadata = await doc.getMetadata();
+      title = typeof pdfMetadata?.info?.Title === 'string'
+        ? pdfMetadata.info.Title
+        : undefined;
+    } catch {
+      // Metadata is optional and must never block extraction.
+    }
+    let totalTextItems = 0;
+    let hasVisualContent = false;
+
+    for (let i = 1; i <= numPages; i++) {
+      let page: any;
+      try {
+        page = await doc.getPage(i);
+      } catch (error: any) {
+        throw new MalformedDocumentError(`Failed to get page ${i}: ${error.message}`);
+      }
+
+      let textContent: PdfTextContent;
+      try {
+        textContent = await page.getTextContent();
+      } catch (error: any) {
+        throw new MalformedDocumentError(`Failed to extract text from page ${i}: ${error.message}`);
+      }
+
+      if (textContent.items.length > 0) {
+        totalTextItems += textContent.items.length;
+
+        // Aggregate all text items on the page into a single paragraph block
+        const pageStrings = textContent.items
+          // `item` could be TextItem or TextMarkedContent; we assume `str` is on TextItem
+          .map((item) => item.str || '')
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (pageStrings.length > 0) {
+          blocks.push({
+            type: 'paragraph',
+            text: pageStrings,
+            metadata: {
+              sourcePage: i
+            }
+          });
+        }
+      } else {
+        // If no text items on this page, heuristically check for visual content
+        if (!hasVisualContent) {
+          try {
+            const opList = await page.getOperatorList();
+            hasVisualContent = opList.fnArray.some((op: number) =>
+              op === pdfjsLib.OPS.paintImageXObject ||
+              op === pdfjsLib.OPS.paintXObject ||
+              op === pdfjsLib.OPS.paintInlineImageXObject ||
+              op === pdfjsLib.OPS.paintFormXObjectBegin ||
+              op === pdfjsLib.OPS.fill ||
+              op === pdfjsLib.OPS.stroke ||
+              op === pdfjsLib.OPS.eoFill ||
+              op === pdfjsLib.OPS.paintSolidColorImageMask
+            );
+          } catch (e) {
+            // Ignore operator list failure; default to false if unsure
+          }
+        }
+      }
+    }
+
+    if (totalTextItems === 0) {
+      if (hasVisualContent) {
+        throw new MissingTextLayerError('No text items found, but visual content detected. Document requires OCR.');
+      } else {
+        throw new EmptyDocumentError('No text items or visual content found in PDF.');
+      }
+    }
+
+    if (blocks.length === 0) {
+      throw new EmptyDocumentError('PDF text extraction yielded no usable text.');
+    }
+
+    return ExtractedDocumentFactory.fromBlocks(blocks, { pageCount: numPages, title });
+  }
+}

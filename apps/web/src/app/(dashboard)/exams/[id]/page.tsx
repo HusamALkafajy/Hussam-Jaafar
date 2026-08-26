@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useEffect, useState, use } from 'react';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
-import { Button } from '../../../../components/ui/button';
+import { Button, buttonVariants } from '../../../../components/ui/button';
 import { Badge } from '../../../../components/ui/badge';
 import { Spinner } from '../../../../components/ui/spinner';
+import { cn } from '../../../../lib/utils';
 import {
   GraduationCap,
   Clock,
@@ -17,18 +18,35 @@ import {
   AlertTriangle,
   Lightbulb,
   ArrowRight,
-  Sparkles,
   Brain,
 } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
+const normalizeReviewText = (value: unknown): string =>
+  typeof value === 'string' ? value : '';
+
+const normalizeReviewKey = (value: unknown): string =>
+  normalizeReviewText(value).trim().toLocaleLowerCase();
+
+const isReleaseSafeAttempt = (candidate: unknown): boolean => {
+  if (!candidate || typeof candidate !== 'object') return false;
+
+  const examCandidate = candidate as Record<string, unknown>;
+  return examCandidate.status === 'active' && examCandidate.attemptEligible === true;
+};
+
 export default function ExamPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const examId = resolvedParams.id;
+  return <ExamSession key={examId} examId={examId} />;
+}
+
+function ExamSession({ examId }: { examId: string }) {
   const { t, locale } = useLocale();
 
   const [loading, setLoading] = useState(true);
@@ -36,45 +54,39 @@ export default function ExamPage({ params }: PageProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [generatingNext, setGeneratingNext] = useState(false);
-
-  const fetchExam = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get<any>(`/exams/${examId}`);
-      setExam(data);
-
-      // Initialize timer if exam is active and has a time limit
-      if (data.status === 'active' && data.timeLimitMinutes) {
-        // Simple mock countdown matching time limit
-        setTimeLeft(data.timeLimitMinutes * 60);
-      }
-    } catch (e) {
-      console.error('Failed to load exam', e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const attemptIsReleaseSafe = isReleaseSafeAttempt(exam);
 
   useEffect(() => {
+    let ignore = false;
+
+    const fetchExam = async () => {
+      setLoading(true);
+      try {
+        const data = await api.get<any>(`/exams/${examId}`);
+        if (!ignore) {
+          setExam(data);
+
+          // Initialize timer if exam is active and has a time limit
+          if (isReleaseSafeAttempt(data) && data.timeLimitMinutes) {
+            // Simple mock countdown matching time limit
+            setTimeLeft(data.timeLimitMinutes * 60);
+          }
+        }
+      } catch (e) {
+        if (!ignore) console.error('Failed to load exam', e);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
     fetchExam();
+
+    return () => {
+      ignore = true;
+    };
   }, [examId]);
 
-  // Countdown timer effect
-  useEffect(() => {
-    if (timeLeft === null || timeLeft <= 0) {
-      if (timeLeft === 0 && exam?.status === 'active') {
-        handleSubmitExam();
-      }
-      return;
-    }
 
-    const timer = setTimeout(() => {
-      setTimeLeft(timeLeft - 1);
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [timeLeft]);
 
   const handleSelectOption = (questionId: string, value: string) => {
     setAnswers((prev) => ({
@@ -83,10 +95,23 @@ export default function ExamPage({ params }: PageProps) {
     }));
   };
 
+  // ============================================================================
+  // ENGINEERING NOTE: SYNCHRONOUS MUTUAL EXCLUSION
+  // ============================================================================
+  // Why both `submissionStartedRef` and `submitting` state exist:
+  // - `submitting` is for UI feedback (disabling buttons, showing spinners).
+  // - `submissionStartedRef` is a synchronous concurrency guard. Since React 
+  //   state updates are asynchronous, the ref strictly guarantees that manual 
+  //   submission and timer auto-submission cannot enter the submission flow 
+  //   in the exact same event loop window.
+  // ============================================================================
+  const submissionStartedRef = React.useRef(false);
+
   const handleSubmitExam = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!exam || exam.status === 'completed') return;
+    if (!isReleaseSafeAttempt(exam) || submitting || submissionStartedRef.current) return;
 
+    submissionStartedRef.current = true;
     setSubmitting(true);
 
     // Format answers for API DTO structure
@@ -110,26 +135,59 @@ export default function ExamPage({ params }: PageProps) {
       });
       setExam(results);
       setTimeLeft(null);
-    } catch (err) {
-      alert('Failed to submit exam: ' + (err instanceof Error ? err.message : 'Error'));
+    } catch {
+      toast.error(t('exams.submitFailure'));
+      submissionStartedRef.current = false;
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleNextAdaptiveQuestion = async () => {
-    setGeneratingNext(true);
-    try {
-      const newQuestion = await api.post<any>(`/exams/${examId}/next-question`);
-      // Re-fetch the full exam to get the updated questions list
-      const updatedExam = await api.get<any>(`/exams/${examId}`);
-      setExam(updatedExam);
-    } catch (err: any) {
-      alert(locale === 'ar' ? 'فشل توليد السؤال: ' + err.message : 'Failed to generate question: ' + err.message);
-    } finally {
-      setGeneratingNext(false);
+  // ============================================================================
+  // ENGINEERING NOTE: LATEST REF PATTERN for TIMER
+  // ============================================================================
+  // Why this exists: We need to access the freshest `handleSubmitExam` closure 
+  // when the timer hits 0, without putting it in the timer's dependency array.
+  // Why no useCallback: `answers` changes on every keystroke, which would cause 
+  // useCallback to return a new reference, forcing the timer to tear down and 
+  // reset on every user interaction (The Timer Trap).
+  // Why independent timer: The timer's lifecycle (ticking every 1s) must be 
+  // completely decoupled from the React render cycle triggered by user inputs.
+  // TODO: Future migration path - extract this pattern into a shared 
+  // `useLatest` or `useInterval` hook for standardizing safe timers.
+  // ============================================================================
+  const latestState = React.useRef({
+    attemptIsReleaseSafe,
+    handleSubmitExam,
+    status: exam?.status,
+  });
+  useEffect(() => {
+    latestState.current = {
+      attemptIsReleaseSafe,
+      handleSubmitExam,
+      status: exam?.status,
+    };
+  });
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (timeLeft === null || timeLeft <= 0) {
+      if (
+        timeLeft === 0 &&
+        latestState.current.status === 'active' &&
+        latestState.current.attemptIsReleaseSafe
+      ) {
+        latestState.current.handleSubmitExam();
+      }
+      return;
     }
-  };
+
+    const timer = setTimeout(() => {
+      setTimeLeft(timeLeft - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [timeLeft]);
 
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
@@ -148,15 +206,16 @@ export default function ExamPage({ params }: PageProps) {
   if (!exam) {
     return (
       <div className="text-center py-12 flex flex-col items-center gap-3">
-        <p className="text-slate-400">Exam not found or access denied.</p>
-        <Link href="/exams">
-          <Button>Back to Exams</Button>
-        </Link>
+        <p className="text-slate-400">{t('exams.notFound')}</p>
+        <Button nativeButton={false} render={<Link href="/exams" />}>
+          {t('exams.backToExams')}
+        </Button>
       </div>
     );
   }
 
   const isCompleted = exam.status === 'completed';
+  const isDraft = exam.status === 'draft';
 
   return (
     <div className="flex flex-col gap-6">
@@ -165,7 +224,7 @@ export default function ExamPage({ params }: PageProps) {
         <div className="flex items-start gap-4">
           <Link
             href={isCompleted ? '/exams' : `/files/${exam.fileId}`}
-            className="mt-1 p-2 rounded-lg border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "mt-1 rounded-lg border-slate-800 bg-transparent hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer")}
           >
             <ArrowRight className="w-4 h-4 rtl-flip" />
           </Link>
@@ -178,13 +237,13 @@ export default function ExamPage({ params }: PageProps) {
                 {exam.difficulty}
               </span>
               <span>•</span>
-              <span>{exam.totalQuestions} {locale === 'ar' ? 'سؤال' : 'Questions'}</span>
+              <span>{t('exams.questions', { count: exam.totalQuestions })}</span>
             </div>
           </div>
         </div>
 
         {/* Timer or Status badge */}
-        {!isCompleted && timeLeft !== null && (
+        {!isCompleted && attemptIsReleaseSafe && timeLeft !== null && (
           <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 font-mono text-lg font-bold self-start md:self-center">
             <Clock className="w-5 h-5 animate-pulse" />
             <span>{formatTime(timeLeft)}</span>
@@ -193,7 +252,7 @@ export default function ExamPage({ params }: PageProps) {
 
         {isCompleted && (
           <Badge variant="success" className="px-4 py-1.5 self-start md:self-center font-bold">
-            {locale === 'ar' ? 'مكتمل' : 'Completed'}
+            {t('exams.completed')}
           </Badge>
         )}
       </div>
@@ -207,7 +266,7 @@ export default function ExamPage({ params }: PageProps) {
             <Card className="p-6 bg-slate-900/20 border-slate-800/60 flex flex-col items-center text-center gap-4 relative overflow-hidden group">
               <div className="absolute top-0 left-0 w-full h-1.5 gradient-primary" />
               <h3 className="text-base font-bold text-white">
-                {locale === 'ar' ? 'النتيجة الإجمالية' : 'Overall Result'}
+                {t('exams.overallResult')}
               </h3>
 
               {/* Dynamic circular score gauge */}
@@ -236,15 +295,15 @@ export default function ExamPage({ params }: PageProps) {
                 <div className="absolute flex flex-col items-center">
                   <span className="text-3xl font-extrabold text-white">{exam.score}%</span>
                   <span className="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">
-                    {Number(exam.score) >= 70 ? (locale === 'ar' ? 'ممتاز' : 'Excellent') : (locale === 'ar' ? 'يحتاج مراجعة' : 'Needs Review')}
+                    {Number(exam.score) >= 70 ? t('exams.excellent') : t('exams.needsReview')}
                   </span>
                 </div>
               </div>
 
               <div className="text-xs text-slate-400 font-medium">
-                {locale === 'ar'
-                  ? `تاريخ الحل: ${new Date(exam.completedAt).toLocaleDateString(locale)}`
-                  : `Completed on: ${new Date(exam.completedAt).toLocaleDateString(locale)}`}
+                {t('exams.completedOn', {
+                  date: new Date(exam.completedAt).toLocaleDateString(locale),
+                })}
               </div>
             </Card>
 
@@ -253,14 +312,14 @@ export default function ExamPage({ params }: PageProps) {
               <Card className="p-6 bg-slate-900/20 border-slate-805/60 flex flex-col gap-5">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Lightbulb className="w-4 h-4 text-indigo-400" />
-                  <span>{locale === 'ar' ? 'تحليل الأداء بالذكاء الاصطناعي' : 'AI Performance Diagnostics'}</span>
+                  <span>{t('exams.performance')}</span>
                 </h4>
 
                 {exam.strengthAnalysis && (
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-bold text-emerald-450 uppercase flex items-center gap-1.5">
                       <CheckCircle className="w-3.5 h-3.5" />
-                      {locale === 'ar' ? 'نقاط القوة' : 'Strengths'}
+                      {t('exams.strengths')}
                     </span>
                     {exam.strengthAnalysis.topics?.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-1">
@@ -279,7 +338,7 @@ export default function ExamPage({ params }: PageProps) {
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-bold text-amber-500 uppercase flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      {locale === 'ar' ? 'نقاط الضعف' : 'Weaknesses'}
+                      {t('exams.weaknesses')}
                     </span>
                     {exam.weaknessAnalysis.topics?.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-1">
@@ -296,42 +355,12 @@ export default function ExamPage({ params }: PageProps) {
               </Card>
             )}
 
-            {/* Adaptive Mode — Generate Next Question */}
-            {exam.weaknessAnalysis?.weakTopics?.length > 0 && (
-              <Card className="p-5 bg-violet-950/20 border-violet-500/20 flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-violet-400" />
-                  <h4 className="text-sm font-bold text-violet-300">
-                    {locale === 'ar' ? 'وضع التكيّف الذكي' : 'Adaptive Mode'}
-                  </h4>
-                  {exam.adaptiveMode && (
-                    <span className="text-[10px] bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-bold border border-violet-500/20">
-                      {locale === 'ar' ? 'نشط' : 'Active'}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {locale === 'ar'
-                    ? 'الذكاء الاصطناعي يمكنه توليد أسئلة تكيّفية تستهدف نقاط ضعفك المحددة.'
-                    : 'The AI can generate targeted follow-up questions for your identified weak areas.'}
-                </p>
-                <Button
-                  onClick={handleNextAdaptiveQuestion}
-                  loading={generatingNext}
-                  className="w-full font-bold flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 border-violet-500"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>{locale === 'ar' ? 'توليد سؤال تكيّفي جديد' : 'Generate Next Adaptive Question'}</span>
-                </Button>
-              </Card>
-            )}
-
             {/* AI Recommendation plan */}
             {exam.studyPlan && (
               <Card className="p-6 bg-indigo-950/10 border-indigo-500/10 flex flex-col gap-4">
                 <h4 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
                   <GraduationCap className="w-4.5 h-4.5" />
-                  <span>{locale === 'ar' ? 'خطة المراجعة المقترحة' : 'Suggested Study Path'}</span>
+                  <span>{t('exams.studyPath')}</span>
                 </h4>
                 <ul className="flex flex-col gap-2.5">
                   {exam.studyPlan.steps.map((step: string, idx: number) => (
@@ -350,22 +379,40 @@ export default function ExamPage({ params }: PageProps) {
           {/* Right panel: Questions review */}
           <div className="lg:col-span-2 flex flex-col gap-6">
             <h3 className="text-lg font-bold text-white">
-              {locale === 'ar' ? 'مراجعة الإجابات التفصيلية' : 'Detailed Question Correction'}
+              {t('exams.detailedReview')}
             </h3>
             {exam.questions.map((q: any, idx: number) => {
-              const isUserCorrect = q.isCorrect;
+              const userAnswer = normalizeReviewText(q.userAnswer);
+              const userAnswerKey = normalizeReviewKey(userAnswer);
+              const correctAnswerKey = normalizeReviewKey(q.correctAnswer);
+              const options = Array.isArray(q.options)
+                ? q.options
+                    .map((option: unknown) => normalizeReviewText(option))
+                    .filter((option: string) => option.trim().length > 0)
+                : [];
+              const explanation = normalizeReviewText(q.explanation);
+              const aiFeedback = normalizeReviewText(q.aiFeedback);
+              const isUnanswered = userAnswerKey.length === 0;
+              const isUserCorrect = !isUnanswered && q.isCorrect === true;
               return (
                 <Card
                   key={q.id}
+                  data-answer-state={
+                    isUnanswered ? 'unanswered' : isUserCorrect ? 'correct' : 'incorrect'
+                  }
                   className={`p-6 bg-slate-900/10 border transition-all ${
-                    isUserCorrect
+                    isUnanswered
+                      ? 'border-slate-700/60 hover:border-slate-600/70 bg-slate-800/10'
+                      : isUserCorrect
                       ? 'border-emerald-500/20 hover:border-emerald-500/30 bg-emerald-500/5'
                       : 'border-rose-500/20 hover:border-rose-500/30 bg-rose-500/5'
                   }`}
                 >
                   <div className="flex items-start gap-4">
                     <div className="mt-0.5 shrink-0">
-                      {isUserCorrect ? (
+                      {isUnanswered ? (
+                        <HelpCircle className="w-5 h-5 text-slate-400" />
+                      ) : isUserCorrect ? (
                         <CheckCircle className="w-5 h-5 text-emerald-500" />
                       ) : (
                         <XCircle className="w-5 h-5 text-rose-500" />
@@ -374,17 +421,23 @@ export default function ExamPage({ params }: PageProps) {
                     <div className="flex flex-col gap-4 w-full">
                       <div className="flex flex-col gap-1.5">
                         <span className="text-xs text-slate-500 font-bold">
-                          {locale === 'ar' ? `السؤال ${idx + 1} (${q.type === 'mcq' ? 'اختياري' : 'صح/خطأ'})` : `Question ${idx + 1} (${q.type === 'mcq' ? 'MCQ' : 'T/F'})`}
+                          {t('exams.questionWithType', {
+                            number: idx + 1,
+                            type: t(q.type === 'mcq' ? 'exams.mcqShort' : 'exams.trueFalseShort'),
+                          })}
                         </span>
                         <h4 className="text-base font-bold text-white leading-relaxed">{q.questionText}</h4>
                       </div>
 
                       {/* Options Grid */}
-                      {q.options && q.options.length > 0 && (
+                      {options.length > 0 && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {q.options.map((opt: string, oIdx: number) => {
-                            const isCorrectOpt = opt.toLowerCase() === q.correctAnswer.toLowerCase();
-                            const isUserOpt = opt.toLowerCase() === q.userAnswer.toLowerCase();
+                          {options.map((opt: string, oIdx: number) => {
+                            const optionKey = normalizeReviewKey(opt);
+                            const isCorrectOpt =
+                              correctAnswerKey.length > 0 && optionKey === correctAnswerKey;
+                            const isUserOpt =
+                              !isUnanswered && optionKey.length > 0 && optionKey === userAnswerKey;
                             return (
                               <div
                                 key={oIdx}
@@ -406,24 +459,24 @@ export default function ExamPage({ params }: PageProps) {
                       )}
 
                       {/* Explanation box */}
-                      {q.explanation && (
+                      {explanation && (
                         <div className="mt-2 text-xs bg-slate-950/30 border border-slate-900 p-4 rounded-xl leading-relaxed text-slate-350">
                           <span className="font-bold text-indigo-400 block mb-1.5 flex items-center gap-1">
                             <Lightbulb className="w-3.5 h-3.5" />
-                            <span>{locale === 'ar' ? 'التفسير والشرح:' : 'Explanation:'}</span>
+                            <span>{t('exams.explanation')}</span>
                           </span>
-                          <span>{q.explanation}</span>
+                          <span>{explanation}</span>
                         </div>
                       )}
 
                       {/* AI Personalized Feedback mini-lesson */}
-                      {q.aiFeedback && (
+                      {aiFeedback && (
                         <div className="mt-2 text-xs bg-violet-950/20 border border-violet-500/20 p-4 rounded-xl leading-relaxed text-slate-300">
                           <span className="font-bold text-violet-400 block mb-1.5 flex items-center gap-1">
                             <Brain className="w-3.5 h-3.5" />
-                            <span>{locale === 'ar' ? 'تعليق المدرّس الذكي:' : 'AI Tutor Feedback:'}</span>
+                            <span>{t('exams.tutorFeedback')}</span>
                           </span>
-                          <span className="whitespace-pre-line">{q.aiFeedback}</span>
+                          <span className="whitespace-pre-line">{aiFeedback}</span>
                         </div>
                       )}
                     </div>
@@ -433,7 +486,7 @@ export default function ExamPage({ params }: PageProps) {
             })}
           </div>
         </div>
-      ) : (
+      ) : attemptIsReleaseSafe ? (
         /* ================= TAKING QUIZ VIEW ================= */
         <form onSubmit={handleSubmitExam} className="flex flex-col gap-8 max-w-3xl mx-auto w-full">
           <div className="flex flex-col gap-6">
@@ -441,7 +494,10 @@ export default function ExamPage({ params }: PageProps) {
               <Card key={q.id} className="p-6 bg-slate-900/20 border-slate-805/60 flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-indigo-400 font-bold uppercase">
-                    {locale === 'ar' ? `السؤال ${idx + 1} من ${exam.totalQuestions}` : `Question ${idx + 1} of ${exam.totalQuestions}`}
+                    {t('exams.questionProgress', {
+                      current: idx + 1,
+                      total: exam.totalQuestions,
+                    })}
                   </span>
                   <h3 className="text-base font-bold text-white leading-relaxed">{q.questionText}</h3>
                 </div>
@@ -480,7 +536,7 @@ export default function ExamPage({ params }: PageProps) {
                 {q.type === 'true_false' && (
                   <div className="grid grid-cols-2 gap-4 mt-2">
                     {['True', 'False'].map((val) => {
-                      const label = val === 'True' ? (locale === 'ar' ? 'صح' : 'True') : (locale === 'ar' ? 'خطأ' : 'False');
+                      const label = t(val === 'True' ? 'exams.true' : 'exams.false');
                       const isSelected = answers[q.id] === val;
                       return (
                         <button
@@ -505,13 +561,33 @@ export default function ExamPage({ params }: PageProps) {
 
           <div className="flex items-center justify-between border-t border-slate-800/40 pt-6">
             <span className="text-xs text-slate-400">
-              {locale === 'ar' ? 'تأكد من إجابة جميع الأسئلة قبل تسليم الاختبار.' : 'Make sure to answer all questions before submitting.'}
+              {t('exams.submitHint')}
             </span>
             <Button type="submit" loading={submitting} className="px-6 font-bold cursor-pointer">
-              <span>{locale === 'ar' ? 'إنهاء وتسليم الاختبار' : 'Finish & Submit Exam'}</span>
+              <span>{t('exams.submit')}</span>
             </Button>
           </div>
         </form>
+      ) : (
+        <Card
+          role="status"
+          className="mx-auto flex w-full max-w-2xl flex-col items-center gap-5 border-amber-500/20 bg-amber-500/5 p-8 text-center"
+        >
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/25 bg-amber-500/10">
+            <AlertTriangle className="h-7 w-7 text-amber-400" aria-hidden="true" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-lg font-bold text-white">
+              {t(isDraft ? 'exams.draftUnavailableTitle' : 'exams.unsupportedFormatTitle')}
+            </h3>
+            <p className="text-sm leading-relaxed text-slate-400">
+              {t(isDraft ? 'exams.draftUnavailableMessage' : 'exams.unsupportedFormatMessage')}
+            </p>
+          </div>
+          <Button nativeButton={false} render={<Link href="/exams" />} variant="secondary">
+            {t('exams.backToExams')}
+          </Button>
+        </Card>
       )}
     </div>
   );

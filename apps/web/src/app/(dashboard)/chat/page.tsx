@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import { useLocale } from '../../../hooks/use-locale';
 import { Card } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -22,11 +22,12 @@ interface ChatSession {
 interface FileItem {
   id: string;
   originalName: string;
+  title?: string;
   status: string;
 }
 
 export default function ChatSessionsPage() {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
   const router = useRouter();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -69,14 +70,14 @@ export default function ChatSessionsPage() {
       router.push(`/chat/${session.id}`);
     } catch (e) {
       console.error('Failed to create chat session', e);
-      alert(locale === 'ar' ? 'فشل في إنشاء المحادثة' : 'Failed to create chat session');
+      alert(t('tutor.createFailure'));
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (sessionId: string) => {
-    if (!confirm(locale === 'ar' ? 'هل تريد حذف هذه المحادثة؟' : 'Delete this conversation?')) return;
+    if (!confirm(t('tutor.deleteConfirmation'))) return;
     setDeletingId(sessionId);
     try {
       await api.delete(`/chat-sessions/${sessionId}`);
@@ -105,12 +106,10 @@ export default function ChatSessionsPage() {
             <div className="p-2 rounded-lg bg-violet-500/15 border border-violet-500/20">
               <MessageSquare className="w-6 h-6 text-violet-400" />
             </div>
-            <span>{locale === 'ar' ? 'محادثة AI — مدرّسك الذكي' : 'AI Tutor Chat'}</span>
+            <span>{t('tutor.title')}</span>
           </h2>
           <p className="text-sm text-slate-400">
-            {locale === 'ar'
-              ? 'اطرح أسئلة على مستنداتك واحصل على شرح تفصيلي مدعوم بالذكاء الاصطناعي.'
-              : 'Ask questions about your documents and get detailed AI-powered explanations.'}
+            {t('tutor.description')}
           </p>
         </div>
         <Button
@@ -119,7 +118,7 @@ export default function ChatSessionsPage() {
           className="flex items-center gap-2 font-bold"
         >
           <Plus className="w-4 h-4" />
-          <span>{locale === 'ar' ? 'محادثة جديدة' : 'New Chat'}</span>
+          <span>{t('tutor.newChat')}</span>
         </Button>
       </div>
 
@@ -129,7 +128,7 @@ export default function ChatSessionsPage() {
           <Card className="w-full max-w-md bg-[#0f1420] border-slate-800 flex flex-col gap-4 p-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-white">
-                {locale === 'ar' ? 'اختر مستنداً للمحادثة' : 'Choose a Document to Chat With'}
+                {t('tutor.chooseDocument')}
               </h3>
               <button
                 onClick={() => setShowFilePicker(false)}
@@ -140,9 +139,7 @@ export default function ChatSessionsPage() {
             </div>
             {files.length === 0 ? (
               <div className="text-center py-6 text-slate-400 text-sm">
-                {locale === 'ar'
-                  ? 'لا توجد مستندات محللة. ارفع وحلّل مستنداً أولاً.'
-                  : 'No analyzed documents found. Upload and analyze a document first.'}
+                {t('tutor.noDocuments')}
               </div>
             ) : (
               <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
@@ -153,7 +150,7 @@ export default function ChatSessionsPage() {
                     className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900/40 border border-slate-800 hover:border-violet-500/40 hover:bg-violet-500/5 text-left transition-all group"
                   >
                     <FolderOpen className="w-4 h-4 text-slate-500 group-hover:text-violet-400 shrink-0" />
-                    <span className="text-sm text-slate-200 font-medium truncate">{file.originalName}</span>
+                    <span className="text-sm text-slate-200 font-medium truncate">{file.title ?? file.originalName}</span>
                   </button>
                 ))}
               </div>
@@ -169,15 +166,13 @@ export default function ChatSessionsPage() {
             <MessageSquare className="w-10 h-10" />
           </div>
           <h4 className="text-lg font-bold text-white">
-            {locale === 'ar' ? 'لا توجد محادثات بعد' : 'No Conversations Yet'}
+            {t('tutor.emptyTitle')}
           </h4>
           <p className="text-sm text-slate-400 max-w-sm">
-            {locale === 'ar'
-              ? 'ابدأ محادثة جديدة مع أي مستند محلل لتحصل على شرح فوري.'
-              : 'Start a new chat with any analyzed document to get instant tutoring.'}
+            {t('tutor.emptyDescription')}
           </p>
           <Button onClick={() => setShowFilePicker(true)} className="mt-2 font-semibold">
-            <span>{locale === 'ar' ? 'ابدأ محادثة الآن' : 'Start a Conversation'}</span>
+            <span>{t('tutor.startConversation')}</span>
           </Button>
         </Card>
       ) : (
@@ -209,7 +204,7 @@ export default function ChatSessionsPage() {
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                   <span className="flex items-center gap-1">
                     <MessageSquare className="w-3.5 h-3.5" />
-                    {locale === 'ar' ? `${session.messageCount} رسالة` : `${session.messageCount} messages`}
+                    {t('tutor.messages', { count: session.messageCount })}
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5" />
@@ -218,12 +213,15 @@ export default function ChatSessionsPage() {
                 </div>
               </div>
 
-              <Link href={`/chat/${session.id}`}>
-                <Button size="sm" className="w-full font-bold flex items-center justify-center gap-1">
-                  <span>{locale === 'ar' ? 'فتح المحادثة' : 'Open Chat'}</span>
-                  <ChevronRight className="w-4 h-4 rtl-flip" />
-                </Button>
-              </Link>
+              <Button
+                nativeButton={false}
+                render={<Link href={`/chat/${session.id}`} />}
+                size="sm"
+                className="w-full font-bold flex items-center justify-center gap-1"
+              >
+                <span>{t('tutor.openChat')}</span>
+                <ChevronRight className="w-4 h-4 rtl-flip" />
+              </Button>
             </Card>
           ))}
         </div>

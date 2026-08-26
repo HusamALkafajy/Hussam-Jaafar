@@ -8,6 +8,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",
+    "test:e2e": "playwright test",
     "typecheck": "turbo typecheck",
     "dev:web": "turbo dev --filter=@studyai/web",
     "dev:api": "turbo dev --filter=@studyai/api",
@@ -15,13 +16,23 @@
     "db:migrate": "turbo db:migrate --filter=@studyai/database",
     "db:push": "turbo db:push --filter=@studyai/database",
     "db:studio": "turbo db:studio --filter=@studyai/database",
+    "ops:test-upload-recovery": "bash scripts/test-upload-recovery.sh",
     "clean": "turbo clean && rimraf node_modules",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "security:scan": "node scripts/check-no-committed-secrets.mjs"
   },
   "devDependencies": {
-    "turbo": "^2.5.0",
+    "@axe-core/playwright": "^4.12.1",
+    "@next/eslint-plugin-next": "15.0.3",
+    "@playwright/test": "^1.61.1",
+    "@typescript-eslint/eslint-plugin": "8.64.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "eslint": "^9.14.0",
+    "eslint-config-next": "15.0.3",
+    "eslint-plugin-react-hooks": "^5.0.0",
     "prettier": "^3.4.0",
     "rimraf": "^6.0.0",
+    "turbo": "^2.5.0",
     "typescript": "^5.7.0"
   },
   "packageManager": "pnpm@9.15.0",

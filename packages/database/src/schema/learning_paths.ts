@@ -2,6 +2,7 @@ import { pgTable, uuid, varchar, integer, decimal, timestamp, boolean, text, jso
 import { relations } from 'drizzle-orm';
 import { users } from './users';
 import { files } from './files';
+import { documentVersions } from './document_engine';
 
 // Custom pgvector type for Drizzle (1536 dimensions for OpenAI/Gemini embeddings)
 const pgVector = customType<{ data: number[] }>({
@@ -118,6 +119,7 @@ export const aiTokenUsage = pgTable('ai_token_usage', {
 export const documentChunks = pgTable('document_chunks', {
   id: uuid('id').primaryKey().defaultRandom(),
   fileId: uuid('file_id').references(() => files.id, { onDelete: 'cascade' }).notNull(),
+  versionId: uuid('version_id').references(() => documentVersions.id, { onDelete: 'cascade' }).notNull(),
   chunkIndex: integer('chunk_index').notNull(),
   content: text('content').notNull(),
   pageNumber: integer('page_number'),
@@ -164,4 +166,5 @@ export const aiTokenUsageRelations = relations(aiTokenUsage, ({ one }) => ({
 
 export const documentChunksRelations = relations(documentChunks, ({ one }) => ({
   file: one(files, { fields: [documentChunks.fileId], references: [files.id] }),
+  version: one(documentVersions, { fields: [documentChunks.versionId], references: [documentVersions.id] }),
 }));

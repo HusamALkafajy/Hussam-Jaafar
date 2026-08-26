@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { resolveInternalApiOrigin } from './src/config/internal-api-origin';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -14,19 +15,49 @@ const nextConfig: NextConfig = {
     ],
   },
   // Ensure we can proxy or call API directly
-  async rewrites() {
+  async redirects() {
     return [
       {
+        source: '/dashboard',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/upload',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/folders',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/notes',
+        destination: '/files',
+        permanent: false,
+      },
+      {
+        source: '/subjects',
+        destination: '/files',
+        permanent: false,
+      },
+    ];
+  },
+  async rewrites() {
+    const internalApiOrigin = resolveInternalApiOrigin();
+    return [
+      {
+        source: '/socket.io',
+        destination: `${internalApiOrigin}/socket.io`,
+      },
+      {
         source: '/api/:path*',
-        destination: process.env.NODE_ENV === 'production'
-          ? 'http://api:4000/api/:path*' // Docker backend container name
-          : 'http://localhost:4000/api/:path*',
+        destination: `${internalApiOrigin}/api/:path*`,
       },
       {
         source: '/uploads/:path*',
-        destination: process.env.NODE_ENV === 'production'
-          ? 'http://api:4000/uploads/:path*'
-          : 'http://localhost:4000/uploads/:path*',
+        destination: `${internalApiOrigin}/uploads/:path*`,
       },
     ];
   },

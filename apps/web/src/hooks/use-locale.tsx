@@ -5,11 +5,12 @@ import ar from '../i18n/ar.json';
 import en from '../i18n/en.json';
 
 type Locale = 'ar' | 'en';
+type TranslationParams = Record<string, string | number>;
 
 interface LocaleContextType {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (path: string) => string;
+  t: (path: string, params?: TranslationParams) => string;
   dir: 'rtl' | 'ltr';
 }
 
@@ -107,7 +108,7 @@ export const LocaleProvider: React.FC<{
   }, [locale, dir]);
 
   const t = useCallback(
-    (path: string): string => {
+    (path: string, params?: TranslationParams): string => {
       const keys = path.split('.');
       let result: any = translations[locale];
       for (const key of keys) {
@@ -117,7 +118,13 @@ export const LocaleProvider: React.FC<{
           return path; // Graceful fallback: return key path
         }
       }
-      return typeof result === 'string' ? result : path;
+      if (typeof result !== 'string') return path;
+
+      return result.replace(/\{(\w+)\}/g, (placeholder, key: string) =>
+        params && Object.prototype.hasOwnProperty.call(params, key)
+          ? String(params?.[key])
+          : placeholder,
+      );
     },
     [locale],
   );

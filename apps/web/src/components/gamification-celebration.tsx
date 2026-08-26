@@ -25,7 +25,7 @@ interface ConfettiPiece {
 }
 
 export function GamificationCelebration() {
-  const { t, locale, dir } = useLocale();
+  const { t, dir } = useLocale();
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [levelUpNumber, setLevelUpNumber] = useState(1);
@@ -63,16 +63,12 @@ export function GamificationCelebration() {
       // 1. Show XP Gain Toast
       if (xpEarned && xpEarned > 0) {
         const id = Math.random().toString(36).substring(2, 9);
-        const xpMessage = locale === 'ar' 
-          ? `كسبت +${xpEarned} نقطة خبرة!` 
-          : `Gained +${xpEarned} XP!`;
-        
         setToasts((prev) => [
           ...prev,
           {
             id,
-            title: locale === 'ar' ? 'نقاط خبرة إضافية' : 'XP Earned',
-            description: xpMessage,
+            title: t('achievements.xpEarned'),
+            description: t('achievements.xpEarnedDescription', { count: xpEarned }),
             xp: xpEarned,
           },
         ]);
@@ -86,17 +82,15 @@ export function GamificationCelebration() {
       // 2. Show Badge Unlocked Toast
       if (awardedBadge) {
         const id = Math.random().toString(36).substring(2, 9);
-        const badgeTitle = locale === 'ar' ? 'تم فتح وسام جديد!' : 'Badge Unlocked!';
-        const badgeDesc = locale === 'ar'
-          ? `تهانينا! لقد حصلت على وسام "${awardedBadge.name}" (+${awardedBadge.xpReward} نقطة خبرة)`
-          : `Congratulations! You unlocked "${awardedBadge.name}" (+${awardedBadge.xpReward} XP)`;
-
         setToasts((prev) => [
           ...prev,
           {
             id,
-            title: badgeTitle,
-            description: badgeDesc,
+            title: t('achievements.badgeUnlocked'),
+            description: t('achievements.badgeUnlockedDescription', {
+              badgeName: awardedBadge.name,
+              count: awardedBadge.xpReward,
+            }),
             badgeCode: awardedBadge.code,
             badgeName: awardedBadge.name,
           },
@@ -119,7 +113,7 @@ export function GamificationCelebration() {
     return () => {
       window.removeEventListener('gamification-update', handleGamificationEvent);
     };
-  }, [locale]);
+  }, [t]);
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -186,10 +180,10 @@ export function GamificationCelebration() {
 
             <div className="flex flex-col gap-1.5">
               <h2 className="text-2xl font-black uppercase tracking-wider bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                {t('achievements.levelUp') || 'Level Up!'}
+                {t('achievements.levelUp')}
               </h2>
               <p className="text-slate-300 text-sm">
-                {(t('achievements.levelUpDesc') || 'Congratulations! You reached Level {level}!').replace('{level}', levelUpNumber.toString())}
+                {t('achievements.levelUpDesc', { level: levelUpNumber })}
               </p>
             </div>
 
@@ -197,7 +191,7 @@ export function GamificationCelebration() {
             <div className="px-6 py-2.5 bg-indigo-500/10 border border-indigo-500/30 rounded-xl flex items-center gap-2">
               <Sparkles className="w-4.5 h-4.5 text-indigo-400" />
               <span className="font-black text-xl text-white">
-                {locale === 'ar' ? `المستوى ${levelUpNumber}` : `Level ${levelUpNumber}`}
+                {t('achievements.level', { level: levelUpNumber })}
               </span>
               <Sparkles className="w-4.5 h-4.5 text-indigo-400" />
             </div>
@@ -206,7 +200,7 @@ export function GamificationCelebration() {
               onClick={() => setShowLevelUp(false)}
               className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/25 transition-all active:scale-95 cursor-pointer"
             >
-              {t('achievements.close') || 'Heck yeah!'}
+              {t('achievements.close')}
             </button>
           </div>
           <style jsx>{`
@@ -260,6 +254,7 @@ export function GamificationCelebration() {
 
             <button
               onClick={() => removeToast(toast.id)}
+              aria-label={t('achievements.dismissNotification')}
               className="text-slate-400 hover:text-white p-1 hover:bg-slate-800/40 rounded transition-colors"
             >
               <X className="w-3.5 h-3.5" />

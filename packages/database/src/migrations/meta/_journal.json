@@ -57,6 +57,104 @@
       "when": 1781652819967,
       "tag": "0007_add_study_groups_and_adaptive_paths",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782471193193,
+      "tag": "0008_dear_photon",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782518359257,
+      "tag": "0009_freezing_darkstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782597409011,
+      "tag": "0010_fantastic_squadron_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782597922045,
+      "tag": "0013_rare_lily_hollister",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783799392203,
+      "tag": "0014_unique_owl",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1784148984084,
+      "tag": "0015_stormy_lady_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784501463713,
+      "tag": "0016_tough_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784579752102,
+      "tag": "0017_complete_loki",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784839956813,
+      "tag": "0018_striped_sage",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784893645942,
+      "tag": "0019_chief_lester",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784893950578,
+      "tag": "0020_lively_zarda",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784996604728,
+      "tag": "0021_magenta_the_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785190238218,
+      "tag": "0022_supreme_texas_twister",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786553880811,
+      "tag": "0024_motionless_lorna_dane",
+      "breakpoints": true
     }
   ]
 }

@@ -18,7 +18,7 @@ import { AppleStrategy } from './strategies/apple.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (config: ConfigService) => ({
-        secret: config.get<string>('auth.jwtSecret'),
+        secret: config.getOrThrow<string>('auth.jwtSecret'),
         signOptions: {
           expiresIn: config.get<string>('auth.jwtAccessExpiration') as any,
         },

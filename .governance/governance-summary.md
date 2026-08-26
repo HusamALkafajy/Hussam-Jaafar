@@ -1,0 +1,90 @@
+# Governance Architecture Summary
+
+## Modules Registered
+- AppModule
+- AdminModule
+- AiModule
+- AnalyticsModule
+- AuthModule
+- CertificationsModule
+- ChatModule
+- DocumentReadModule
+- ExamsModule
+- FilesModule
+- FlashcardsModule
+- GamificationModule
+- InfrastructureModule
+- LearningPathsModule
+- NotesModule
+- PaymentsModule
+- ProjectSubmissionsModule
+- QuotaModule
+- RagModule
+- RecommendationModule
+- StudyCoachModule
+- StudyGroupsModule
+- SubscriptionsModule
+- TelemetryModule
+- UsersModule
+
+## Services Registered in Composition
+- IObjectStorage
+- IStorageProvider
+- IHealthProvider
+- IConfigurationProvider
+- IAssetRepository
+- IRecommendationRepository
+- IIntegrationRepository
+- ISecurityRepository
+- IAnalyticsRepository
+- IRevisionRepository
+- IAssessmentRepository
+- IStudyPlanRepository
+- IWorkflowRepository
+- ILearningRepository
+- IEventOutbox
+- RawEventOutbox
+- IWorkerRuntimeEngine
+- IWorker
+- ILeaseManager
+- ILeasePolicy
+- IWorkerRegistry
+- IJobDispatcher
+- IQueue
+- RawQueue
+- TokenAccountant
+- IDomainCacheService
+- RedisClient
+- IEventDispatcher
+- RawEventDispatcher
+- ITracer
+- IMetrics
+- ILogger
+- PrismaClient
+
+## Framework Bindings
+- AppModule -> NestJS
+- AdminModule -> NestJS
+- AiModule -> NestJS
+- AnalyticsModule -> NestJS
+- AuthModule -> NestJS
+- CertificationsModule -> NestJS
+- ChatModule -> NestJS
+- DocumentReadModule -> NestJS
+- ExamsModule -> NestJS
+- FilesModule -> NestJS
+- FlashcardsModule -> NestJS
+- GamificationModule -> NestJS
+- InfrastructureModule -> NestJS
+- LearningPathsModule -> NestJS
+- NotesModule -> NestJS
+- PaymentsModule -> NestJS
+- ProjectSubmissionsModule -> NestJS
+- QuotaModule -> NestJS
+- RagModule -> NestJS
+- RecommendationModule -> NestJS
+- StudyCoachModule -> NestJS
+- StudyGroupsModule -> NestJS
+- SubscriptionsModule -> NestJS
+- TelemetryModule -> NestJS
+- UsersModule -> NestJS

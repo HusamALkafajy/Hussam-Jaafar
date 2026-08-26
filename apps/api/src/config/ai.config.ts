@@ -6,6 +6,9 @@ const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 /** Google Generative Language OpenAI-compat base (text-only fallback when no OpenRouter key). */
 const GOOGLE_COMPAT_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
+/** Embedding contract retained by the 1,536-dimension pgvector schema. */
+const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
+
 export default registerAs('ai', () => {
   const openRouterApiKey = process.env.OPENROUTER_API_KEY || null;
   const geminiApiKey     = process.env.GEMINI_API_KEY     || null;
@@ -40,6 +43,11 @@ export default registerAs('ai', () => {
     geminiApiKey,
     baseUrl,
     model,
+    embeddingApiKey: openRouterApiKey,
+    embeddingBaseUrl: OPENROUTER_BASE,
+    embeddingModel: EMBEDDING_MODEL,
+    embeddingMockMode: process.env.NODE_ENV === 'test',
+    allowMockDocumentExtraction: process.env.ALLOW_MOCK_DOCUMENT_EXTRACTION === 'true',
     useGeminiSdk,
   };
 });

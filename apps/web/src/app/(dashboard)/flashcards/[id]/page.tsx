@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useEffect, useState, use } from 'react';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
-import { Button } from '../../../../components/ui/button';
+import { Button, buttonVariants } from '../../../../components/ui/button';
 import { Spinner } from '../../../../components/ui/spinner';
 import { HelpCircle, RefreshCw, CheckCircle, ArrowRight, Award, Compass, HelpCircle as HelpIcon } from 'lucide-react';
 import Link from 'next/link';
+import { cn } from '../../../../lib/utils';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -30,20 +31,20 @@ export default function FlashcardReviewPage({ params }: PageProps) {
   const [learningCount, setLearningCount] = useState(0);
   const [reviewingCount, setReviewingCount] = useState(0);
 
-  const fetchSet = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get<any>(`/flashcard-sets/${setId}`);
-      setSet(data);
-      setMasteredCount(data.masteredCount || 0);
-    } catch (e) {
-      console.error('Failed to load flashcard set', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchSet = async () => {
+      setLoading(true);
+      try {
+        const data = await api.get<any>(`/flashcard-sets/${setId}`);
+        setSet(data);
+        setMasteredCount(data.masteredCount || 0);
+      } catch (e) {
+        console.error('Failed to load flashcard set', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchSet();
   }, [setId]);
 
@@ -58,10 +59,10 @@ export default function FlashcardReviewPage({ params }: PageProps) {
   if (!set || !set.cards || set.cards.length === 0) {
     return (
       <div className="text-center py-12 flex flex-col items-center gap-3">
-        <p className="text-slate-400">No cards in this set.</p>
-        <Link href="/flashcards">
-          <Button>Back to Sets</Button>
-        </Link>
+        <p className="text-slate-400">{t('flashcards.noCards')}</p>
+        <Button nativeButton={false} render={<Link href="/flashcards" />}>
+          {t('flashcards.backToSets')}
+        </Button>
       </div>
     );
   }
@@ -96,8 +97,8 @@ export default function FlashcardReviewPage({ params }: PageProps) {
         setReviewCompleted(true);
         setSubmittingReview(false);
       }
-    } catch (e) {
-      alert('Failed to submit review');
+    } catch {
+      alert(t('flashcards.reviewFailure'));
       setSubmittingReview(false);
     }
   };
@@ -117,14 +118,14 @@ export default function FlashcardReviewPage({ params }: PageProps) {
         <div className="flex items-center gap-4">
           <Link
             href={`/files/${set.fileId}`}
-            className="p-2 rounded-lg border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "rounded-lg border-slate-800 bg-transparent hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer")}
           >
             <ArrowRight className="w-4 h-4 rtl-flip" />
           </Link>
           <div className="flex flex-col gap-1">
             <h2 className="text-xl font-bold text-white line-clamp-1">{set.title}</h2>
             <p className="text-xs text-slate-400">
-              {locale === 'ar' ? 'مراجعة بطاقات الذاكرة بالتكرار المتباعد' : 'Memory Card Spaced Repetition'}
+              {t('flashcards.spacedRepetition')}
             </p>
           </div>
         </div>
@@ -147,27 +148,25 @@ export default function FlashcardReviewPage({ params }: PageProps) {
 
           <div className="flex flex-col gap-2">
             <h3 className="text-xl font-bold text-white">
-              {locale === 'ar' ? 'أحسنت! أكملت مراجعة هذه المجموعة' : 'Great Job! Review Session Complete'}
+              {t('flashcards.completeTitle')}
             </h3>
             <p className="text-sm text-slate-400 max-w-sm">
-              {locale === 'ar'
-                ? 'لقد قمت بجدولة البطاقات بنجاح بناءً على مستوى حفظك لتذكيرك بها في الوقت المثالي.'
-                : 'Your cards have been rescheduled dynamically to optimize memory retention.'}
+              {t('flashcards.completeDescription')}
             </p>
           </div>
 
           {/* Session Statistics */}
           <div className="grid grid-cols-3 gap-4 w-full max-w-md bg-slate-950/40 p-4 rounded-xl border border-slate-900 my-2">
             <div className="flex flex-col gap-1 items-center">
-              <span className="text-[10px] text-slate-500 font-bold uppercase">{locale === 'ar' ? 'أتقنت' : 'Mastered'}</span>
+              <span className="text-[10px] text-slate-500 font-bold uppercase">{t('flashcards.mastered')}</span>
               <span className="text-lg font-extrabold text-emerald-450">{masteredCount}</span>
             </div>
             <div className="flex flex-col gap-1 items-center border-x border-slate-850">
-              <span className="text-[10px] text-slate-500 font-bold uppercase">{locale === 'ar' ? 'أراجعها' : 'Reviewing'}</span>
+              <span className="text-[10px] text-slate-500 font-bold uppercase">{t('flashcards.reviewing')}</span>
               <span className="text-lg font-extrabold text-indigo-400">{reviewingCount}</span>
             </div>
             <div className="flex flex-col gap-1 items-center">
-              <span className="text-[10px] text-slate-500 font-bold uppercase">{locale === 'ar' ? 'أتعلمها' : 'Learning'}</span>
+              <span className="text-[10px] text-slate-500 font-bold uppercase">{t('flashcards.learning')}</span>
               <span className="text-lg font-extrabold text-amber-500">{learningCount}</span>
             </div>
           </div>
@@ -175,13 +174,16 @@ export default function FlashcardReviewPage({ params }: PageProps) {
           <div className="flex items-center gap-3 mt-2">
             <Button onClick={handleRestart} variant="secondary" className="font-bold flex items-center gap-1.5">
               <RefreshCw className="w-4 h-4" />
-              <span>{locale === 'ar' ? 'دراسة مجدداً' : 'Study Again'}</span>
+              <span>{t('flashcards.studyAgain')}</span>
             </Button>
-            <Link href={`/files/${set.fileId}`}>
-              <Button variant="primary" className="font-bold">
-                <span>{locale === 'ar' ? 'العودة للمستند' : 'Back to Document'}</span>
-              </Button>
-            </Link>
+            <Button
+              nativeButton={false}
+              render={<Link href={`/files/${set.fileId}`} />}
+              variant="primary"
+              className="font-bold"
+            >
+              <span>{t('flashcards.backToDocument')}</span>
+            </Button>
           </div>
         </Card>
       ) : (
@@ -210,7 +212,7 @@ export default function FlashcardReviewPage({ params }: PageProps) {
               >
                 <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase bg-indigo-500/10 px-3 py-1 rounded-full flex items-center gap-1">
                   <Compass className="w-3.5 h-3.5" />
-                  <span>{locale === 'ar' ? 'السؤال / المفهوم' : 'Question / Concept'}</span>
+                  <span>{t('flashcards.questionConcept')}</span>
                 </span>
                 
                 <p className="text-lg md:text-xl font-bold text-white leading-relaxed max-w-lg select-text my-auto">
@@ -219,7 +221,7 @@ export default function FlashcardReviewPage({ params }: PageProps) {
 
                 <span className="text-xs text-slate-500 font-semibold flex items-center gap-1">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
-                  {locale === 'ar' ? 'اضغط لقلب البطاقة ورؤية الإجابة' : 'Click to flip and view explanation'}
+                  {t('flashcards.flipHint')}
                 </span>
               </div>
 
@@ -234,7 +236,7 @@ export default function FlashcardReviewPage({ params }: PageProps) {
               >
                 <span className="text-[10px] text-emerald-450 font-extrabold tracking-wider uppercase bg-emerald-500/10 px-3 py-1 rounded-full flex items-center gap-1">
                   <CheckCircle className="w-3.5 h-3.5" />
-                  <span>{locale === 'ar' ? 'الإجابة النموذجية' : 'Sample Answer'}</span>
+                  <span>{t('flashcards.sampleAnswer')}</span>
                 </span>
 
                 <p className="text-base md:text-lg text-slate-250 leading-relaxed max-w-lg select-text my-auto overflow-y-auto max-h-[140px] px-2 py-1 scrollbar-thin">
@@ -242,7 +244,7 @@ export default function FlashcardReviewPage({ params }: PageProps) {
                 </p>
 
                 <span className="text-xs text-slate-500 font-semibold">
-                  {locale === 'ar' ? 'اختر مستوى حفظك بالأسفل للجدولة' : 'Select your recall level below'}
+                  {t('flashcards.recallHint')}
                 </span>
               </div>
             </div>
@@ -251,7 +253,7 @@ export default function FlashcardReviewPage({ params }: PageProps) {
           {/* Spaced Repetition Mastery Selection Buttons */}
           <div className="flex flex-col gap-4">
             <h4 className="text-sm font-bold text-white text-center">
-              {locale === 'ar' ? 'كيف كان حفظك لهذه البطاقة؟' : 'How well did you recall this card?'}
+              {t('flashcards.recallQuestion')}
             </h4>
             <div className="grid grid-cols-3 gap-4">
               <Button
@@ -261,8 +263,8 @@ export default function FlashcardReviewPage({ params }: PageProps) {
                 className="py-6 rounded-xl font-bold border-rose-500/10 text-white disabled:opacity-40"
               >
                 <div className="flex flex-col items-center gap-0.5">
-                  <span>{locale === 'ar' ? 'صعب / أتعلمها' : 'Hard / Learn'}</span>
-                  <span className="text-[10px] opacity-75 font-normal">({locale === 'ar' ? 'غداً' : '1 day'})</span>
+                  <span>{t('flashcards.hardLearn')}</span>
+                  <span className="text-[10px] opacity-75 font-normal">({t('flashcards.oneDay')})</span>
                 </div>
               </Button>
 
@@ -273,8 +275,8 @@ export default function FlashcardReviewPage({ params }: PageProps) {
                 className="py-6 rounded-xl font-bold border-indigo-500/10 text-white disabled:opacity-40"
               >
                 <div className="flex flex-col items-center gap-0.5">
-                  <span>{locale === 'ar' ? 'متوسط / أراجعها' : 'Medium / Review'}</span>
-                  <span className="text-[10px] opacity-75 font-normal">({locale === 'ar' ? '3 أيام' : '3 days'})</span>
+                  <span>{t('flashcards.mediumReview')}</span>
+                  <span className="text-[10px] opacity-75 font-normal">({t('flashcards.threeDays')})</span>
                 </div>
               </Button>
 
@@ -285,8 +287,8 @@ export default function FlashcardReviewPage({ params }: PageProps) {
                 className="py-6 rounded-xl font-bold bg-emerald-600/10 hover:bg-emerald-600/20 border-emerald-500/20 text-emerald-450 disabled:opacity-40"
               >
                 <div className="flex flex-col items-center gap-0.5">
-                  <span>{locale === 'ar' ? 'سهل / أتقنتها' : 'Easy / Mastered'}</span>
-                  <span className="text-[10px] opacity-75 font-normal">({locale === 'ar' ? 'أسبوع' : '7 days'})</span>
+                  <span>{t('flashcards.easyMastered')}</span>
+                  <span className="text-[10px] opacity-75 font-normal">({t('flashcards.sevenDays')})</span>
                 </div>
               </Button>
             </div>

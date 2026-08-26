@@ -26,10 +26,45 @@ import {
   MessageSquare,
   NotebookPen,
   Users,
+  Search,
 } from 'lucide-react';
 import { GamificationWidget } from '../../components/gamification-widget';
 import { GamificationCelebration } from '../../components/gamification-celebration';
-
+import {
+  PageLayout,
+  PageLayoutHeader,
+  PageLayoutSidebar,
+  PageLayoutMain,
+} from '../../components/ui/page-layout';
+import {
+  SidebarNav,
+  SidebarNavButton,
+  SidebarNavGroup,
+  SidebarNavItem,
+} from '../../components/ui/sidebar-nav';
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+} from '../../components/ui/breadcrumb';
+import {
+  TopNav,
+  TopNavStart,
+  TopNavCenter,
+  TopNavEnd,
+} from '../../components/ui/top-nav';
+import { GlobalCommandPalette } from '../../components/global-command-palette';
+import { Toaster } from '../../components/ui/sonner';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '../../components/ui/sheet';
 
 export default function DashboardLayout({
   children,
@@ -40,7 +75,7 @@ export default function DashboardLayout({
   const { t, locale, setLocale, dir } = useLocale();
   const router = useRouter();
   const pathname = usePathname();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -50,7 +85,7 @@ export default function DashboardLayout({
 
   if (loading) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#0b0f19]">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background">
         <Spinner className="w-10 h-10 border-4" />
       </div>
     );
@@ -60,154 +95,252 @@ export default function DashboardLayout({
     return null; // Prevents flashing while redirecting
   }
 
-  const navItems: Array<{
-    label: string;
-    href: string;
-    icon: React.ComponentType<{ className?: string }>;
-    disabled?: boolean;
-  }> = [
-    { label: t('dashboard.sidebarHome'), href: '/dashboard', icon: LayoutDashboard },
+  const navItems = [
     { label: t('dashboard.sidebarFiles'), href: '/files', icon: FolderOpen },
     { label: t('dashboard.sidebarExams'), href: '/exams', icon: GraduationCap },
-    { label: t('dashboard.sidebarLearningPaths'), href: '/learning-paths', icon: Compass },
-    { label: t('dashboard.sidebarFlashcards'), href: '/flashcards', icon: HelpCircle },
-    { label: locale === 'ar' ? 'محادثة AI' : 'AI Tutor Chat', href: '/chat', icon: MessageSquare },
-    { label: locale === 'ar' ? 'ملاحظاتي' : 'My Notes', href: '/notes', icon: NotebookPen },
-    { label: locale === 'ar' ? 'مجموعات الدراسة' : 'Study Groups', href: '/study-groups', icon: Users },
-    { label: t('dashboard.sidebarCertifications'), href: '/certifications', icon: Award },
-    { label: t('dashboard.sidebarAchievements') || 'Achievements', href: '/achievements', icon: Trophy },
-    { label: locale === 'ar' ? 'لوحة الصدارة' : 'Leaderboard', href: '/leaderboard', icon: Trophy },
-    { label: t('dashboard.sidebarAnalytics'), href: '/analytics', icon: BarChart2 },
-    { label: t('dashboard.sidebarSettings'), href: '/settings', icon: Settings },
-    { label: t('dashboard.sidebarSubscription'), href: '/subscription', icon: CreditCard },
+    { label: t('dashboard.sidebarFlashcards'), href: '/flashcards', icon: MessageSquare },
   ];
-
 
   const toggleLanguage = () => {
     setLocale(locale === 'ar' ? 'en' : 'ar');
   };
 
+  const openCommandPalette = () => {
+    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
+    window.setTimeout(() => document.dispatchEvent(event), 0);
+  };
+
+  const isFileDetailRoute = pathname !== '/files' && pathname.startsWith('/files/');
+
   return (
-    <div className="min-h-screen w-full flex bg-[#060913] text-slate-100" dir={dir}>
+    <PageLayout
+      variant="dashboard"
+      dir={dir}
+      className={isFileDetailRoute ? undefined : 'studyai-dashboard-theme'}
+    >
+      <GlobalCommandPalette />
+      <Toaster richColors position={dir === 'rtl' ? 'bottom-left' : 'bottom-right'} />
       <GamificationCelebration />
-      {/* Sidebar */}
-      <aside
-        className={`glass border-r border-slate-800/40 h-screen sticky top-0 flex flex-col justify-between transition-all duration-300 z-30 ${
-          sidebarOpen ? 'w-64' : 'w-20'
-        }`}
-      >
-        <div className="flex flex-col">
+      <PageLayoutSidebar className="justify-between border-sidebar-border bg-sidebar text-sidebar-foreground">
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
           {/* Sidebar Header */}
-          <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800/20">
-            <Link href="/" className="flex items-center gap-2 overflow-hidden">
-              <div className="gradient-primary p-2 rounded-lg text-white">
+          <div className="h-16 flex items-center px-4 border-b shrink-0">
+            <Link href="/files" className="flex items-center gap-2">
+              <div className="bg-primary/10 text-primary p-2 rounded-lg">
                 <GraduationCap className="w-5 h-5 shrink-0" />
               </div>
-              {sidebarOpen && (
-                <span className="text-lg font-bold gradient-text truncate">
-                  {t('common.appName')}
-                </span>
-              )}
+              <span className="text-lg font-bold truncate">
+                {t('common.appName')}
+              </span>
             </Link>
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-1 rounded hover:bg-slate-800/50 text-slate-400 hover:text-white"
-            >
-              <ChevronLeft className={`w-5 h-5 transition-transform duration-200 ${!sidebarOpen ? 'rotate-180' : ''}`} />
-            </button>
           </div>
 
           {/* Nav Items */}
-          <nav className="flex flex-col gap-1 p-3 mt-4">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.disabled ? '#' : item.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group relative ${
-                    item.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-                  } ${
-                    isActive
-                      ? 'gradient-primary text-white shadow-md shadow-indigo-500/10'
-                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/40'
-                  }`}
-                >
-                  <Icon className="w-5 h-5 shrink-0" />
-                  {sidebarOpen && <span className="truncate">{item.label}</span>}
-                  {!sidebarOpen && (
-                    <span className="absolute left-22 scale-0 group-hover:scale-100 bg-slate-900 border border-slate-800 text-slate-100 text-xs px-2 py-1 rounded shadow-lg transition-all z-40 whitespace-nowrap">
+          <div className="p-4 flex-1">
+            <SidebarNav>
+              <SidebarNavGroup>
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href;
+                  return (
+                    <SidebarNavItem
+                      key={item.href}
+                      href={item.href}
+                      active={isActive}
+                      icon={<Icon />}
+                      className={isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:text-sidebar-primary' : undefined}
+                    >
                       {item.label}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
-          
-          {/* Gamification Widget */}
-          <div className="px-3 py-2 mt-2">
-            <GamificationWidget sidebarOpen={sidebarOpen} />
+                    </SidebarNavItem>
+                  );
+                })}
+              </SidebarNavGroup>
+            </SidebarNav>
+            <div className="mt-4">
+              <GamificationWidget sidebarOpen={true} />
+            </div>
           </div>
         </div>
 
-
         {/* Sidebar Footer */}
-        <div className="p-3 border-t border-slate-800/20 flex flex-col gap-2">
-          {/* Language toggle inside sidebar */}
-          <button
-            onClick={toggleLanguage}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 w-full"
-          >
-            <Globe className="w-5 h-5 shrink-0" />
-            {sidebarOpen && <span>{locale === 'ar' ? 'English' : 'العربية'}</span>}
-          </button>
-
-          <button
-            onClick={logout}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/5 w-full cursor-pointer"
-          >
-            <LogOut className="w-5 h-5 shrink-0" />
-            {sidebarOpen && <span>{t('common.logout')}</span>}
-          </button>
+        <div className="p-4 border-t flex flex-col gap-2 shrink-0">
+          <SidebarNav>
+            <SidebarNavButton onClick={toggleLanguage} icon={<Globe />}>
+              <span className="w-full text-start inline-block">
+                {t(locale === 'ar' ? 'common.english' : 'common.arabic')}
+              </span>
+            </SidebarNavButton>
+            <SidebarNavButton
+              onClick={logout}
+              icon={<LogOut />}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive w-full text-start"
+            >
+              <span className="w-full text-start inline-block">
+                {t('common.logout')}
+              </span>
+            </SidebarNavButton>
+          </SidebarNav>
         </div>
-      </aside>
+      </PageLayoutSidebar>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="h-16 glass border-b border-slate-800/40 flex items-center justify-between px-6 sticky top-0 z-20 backdrop-blur">
-          <h3 className="text-base font-semibold text-slate-300 flex items-center gap-2">
-            <span>{t('dashboard.welcome')}</span>
-            <span className="text-white font-bold">{user.firstName}</span>
-          </h3>
+        <PageLayoutHeader className="z-20 border-border bg-secondary/95 backdrop-blur">
+          <TopNav className="h-full border-0 bg-transparent px-0">
+            <TopNavStart>
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                <SheetTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="md:hidden"
+                      aria-label={t('dashboard.sidebarHome')}
+                    />
+                  }
+                >
+                  <Menu className="w-5 h-5 text-muted-foreground" />
+                  <span className="sr-only">{t('dashboard.sidebarHome')}</span>
+                </SheetTrigger>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-bold uppercase select-none">
-              {user.subscriptionTier}
-            </div>
+                <SheetContent
+                  side={dir === 'rtl' ? 'right' : 'left'}
+                  className="studyai-dashboard-theme w-80 max-w-[85vw] gap-0 border-border bg-secondary p-0 text-foreground md:hidden"
+                >
+                  <SheetHeader className="h-16 flex-row items-center border-b px-4 py-0 pe-14">
+                    <Link
+                      href="/files"
+                      onClick={() => setMobileNavOpen(false)}
+                      className="flex items-center gap-2"
+                    >
+                      <div className="bg-primary/10 text-primary p-2 rounded-lg">
+                        <GraduationCap className="w-5 h-5 shrink-0" />
+                      </div>
+                      <SheetTitle className="text-lg font-bold">
+                        {t('common.appName')}
+                      </SheetTitle>
+                    </Link>
+                    <SheetDescription className="sr-only">
+                      {t('dashboard.sidebarHome')}
+                    </SheetDescription>
+                  </SheetHeader>
 
-            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 select-none uppercase font-bold text-sm">
-              {user.avatarUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={user.avatarUrl} alt="Avatar" className="w-full h-full rounded-full object-cover" />
-              ) : (
-                user.firstName && user.lastName ? (
-                  `${user.firstName[0]}${user.lastName[0]}`
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+                    <SidebarNav>
+                      <SidebarNavGroup>
+                        {navItems.map((item) => {
+                          const Icon = item.icon;
+                          const isActive = pathname === item.href;
+                          return (
+                            <SidebarNavItem
+                              key={item.href}
+                              href={item.href}
+                              active={isActive}
+                              icon={<Icon />}
+                              className={isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:text-sidebar-primary' : undefined}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setMobileNavOpen(false);
+                                router.push(item.href);
+                              }}
+                            >
+                              {item.label}
+                            </SidebarNavItem>
+                          );
+                        })}
+                      </SidebarNavGroup>
+                    </SidebarNav>
+                  </div>
+
+                  <SheetFooter className="border-t">
+                    <SidebarNav>
+                      <SidebarNavButton
+                        onClick={() => {
+                          toggleLanguage();
+                          setMobileNavOpen(false);
+                        }}
+                        icon={<Globe />}
+                      >
+                        <span className="w-full text-start inline-block">
+                          {t(locale === 'ar' ? 'common.english' : 'common.arabic')}
+                        </span>
+                      </SidebarNavButton>
+                      <SidebarNavButton
+                        onClick={() => {
+                          setMobileNavOpen(false);
+                          void logout();
+                        }}
+                        icon={<LogOut />}
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive w-full text-start"
+                      >
+                        <span className="w-full text-start inline-block">
+                          {t('common.logout')}
+                        </span>
+                      </SidebarNavButton>
+                    </SidebarNav>
+                  </SheetFooter>
+                </SheetContent>
+              </Sheet>
+
+              <div className="hidden md:flex">
+                <Breadcrumb>
+                  <BreadcrumbList>
+                    <BreadcrumbItem>
+                      <BreadcrumbLink href="/files" className="text-foreground font-semibold">
+                        {t('dashboard.welcome')} {user.firstName}
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                  </BreadcrumbList>
+                </Breadcrumb>
+              </div>
+            </TopNavStart>
+
+            <TopNavCenter>
+              <div className="hidden md:flex w-full max-w-sm">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start bg-muted text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={openCommandPalette}
+                >
+                  <Search className="size-4" />
+                  <span className="truncate">{t('dashboard.searchWorkspace')}</span>
+                </Button>
+              </div>
+            </TopNavCenter>
+
+            <TopNavEnd>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                onClick={openCommandPalette}
+              >
+                <Search className="w-5 h-5 text-muted-foreground" />
+                <span className="sr-only">{t('common.search')}</span>
+              </Button>
+
+              <div className="w-8 h-8 rounded-full bg-muted border flex items-center justify-center text-muted-foreground select-none uppercase font-bold text-sm overflow-hidden">
+                {user.avatarUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={user.avatarUrl} alt={t('common.avatar')} className="w-full h-full object-cover" />
                 ) : (
-                  <User className="w-4 h-4" />
-                )
-              )}
-            </div>
-          </div>
-        </header>
+                  user.firstName && user.lastName ? (
+                    `${user.firstName[0]}${user.lastName[0]}`
+                  ) : (
+                    <User className="w-4 h-4" />
+                  )
+                )}
+              </div>
+            </TopNavEnd>
+          </TopNav>
+        </PageLayoutHeader>
 
-        {/* Content Wrapper */}
-        <main className="flex-grow p-6 md:p-8 max-w-7xl w-full mx-auto overflow-y-auto">
+        <PageLayoutMain>
           {children}
-        </main>
+        </PageLayoutMain>
       </div>
-    </div>
+    </PageLayout>
   );
 }
+
+

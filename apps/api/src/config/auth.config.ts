@@ -14,4 +14,5 @@ export default registerAs('auth', () => ({
   appleKeyId: process.env.APPLE_KEY_ID,
   applePrivateKey: process.env.APPLE_PRIVATE_KEY,
   appleCallbackUrl: process.env.APPLE_CALLBACK_URL || 'http://localhost:4000/api/auth/apple/callback',
+  superAdminEmail: process.env.SUPER_ADMIN_EMAIL,
 }));

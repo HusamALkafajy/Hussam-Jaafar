@@ -1,0 +1,29 @@
+{
+  "name": "@studyai/infrastructure",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "@studyai/domain": "workspace:*",
+    "bullmq": "^5.79.1",
+    "ioredis": "^5.11.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.1",
+    "dotenv-cli": "^11.0.0",
+    "prisma": "^5.22.0",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"try { require('fs').cpSync('src/prisma-client', 'dist/prisma-client', {recursive: true, force: true}) } catch(e) { console.log('Ignored cpSync error') }\"",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "dotenv -e ../../.env.local -c local -- prisma generate"
+  }
+}

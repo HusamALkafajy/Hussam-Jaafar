@@ -1,16 +1,19 @@
 import { defineConfig } from 'drizzle-kit';
-import * as dotenv from 'dotenv';
-import * as path from 'path';
 
-// Load .env from monorepo root
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+const databaseUrl = process.env.DRIZZLE_DATABASE_URL || process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error('DRIZZLE_DATABASE_URL or DATABASE_URL must be supplied through the environment.');
+}
 
 export default defineConfig({
+  // Supported commands use scripts/run-drizzle-kit.cjs, which sets the CWD to
+  // this package before Drizzle Kit resolves these relative paths.
   schema: './src/schema/index.ts',
   out: './src/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgresql://studyai:studyai_dev_password@localhost:5432/studyai',
+    url: databaseUrl,
   },
   verbose: true,
   strict: true,

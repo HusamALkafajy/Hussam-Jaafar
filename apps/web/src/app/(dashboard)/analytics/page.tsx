@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useLocale } from '../../../hooks/use-locale';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import { Card } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
 import { Spinner } from '../../../components/ui/spinner';

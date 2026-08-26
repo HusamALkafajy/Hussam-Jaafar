@@ -1,18 +1,19 @@
-# Production Dockerfile for NestJS API Backend
-# Multi-stage build leveraging Turborepo pruning for minimal image size.
+# Production Dockerfile for the NestJS API and its embedded worker runtime.
+# The final runner contains only the deployed API dependency tree. A separate
+# migrator target retains Drizzle Kit solely for the one-shot migration service.
 
 # Stage 1: Prune monorepo
-FROM node:20-alpine AS pruner
-RUN apk add --no-cache libc6-compat
-RUN npm install -g turbo
+FROM node:22-alpine AS pruner
+RUN apk add --no-cache libc6-compat openssl
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 COPY . .
-RUN turbo prune @studyai/api --docker
+RUN pnpm dlx turbo@2.9.18 prune @studyai/api --docker
 
 # Stage 2: Install dependencies
-FROM node:20-alpine AS installer
-RUN apk add --no-cache libc6-compat
-RUN npm install -g pnpm@9.15.0
+FROM node:22-alpine AS installer
+RUN apk add --no-cache libc6-compat openssl
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 # First copy lockfile and package.json files
@@ -20,50 +21,90 @@ COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=pruner /app/out/pnpm-workspace.yaml ./pnpm-workspace.yaml
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Keep a BuildKit package cache so the production deployment step can reuse
+# downloaded packages and transient registry failures do not discard an
+# otherwise completed dependency download.
+RUN --mount=type=cache,id=studyai-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store
 
 # Stage 3: Build the application
-FROM node:20-alpine AS builder
-RUN apk add --no-cache libc6-compat
-RUN npm install -g pnpm@9.15.0
+FROM node:22-alpine AS builder
+RUN apk add --no-cache libc6-compat openssl
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 COPY --from=installer /app/ .
 COPY --from=pruner /app/out/full/ .
 COPY turbo.json turbo.json
 
-# Build NestJS API & dependencies (like database package)
-RUN pnpm run build --filter=@studyai/api...
 
-# Stage 4: Production runner
-FROM node:20-alpine AS runner
+# Build NestJS API & dependencies (like database package)
+RUN pnpm --filter @studyai/infrastructure exec prisma generate
+RUN pnpm exec turbo build --filter=@studyai/api...
+RUN --mount=type=cache,id=studyai-pnpm-store,target=/pnpm/store \
+    pnpm --store-dir /pnpm/store --prefer-offline --filter @studyai/api --prod deploy /app/deploy
+
+# Workspace packages can carry Turbo task logs into pnpm's deployed tree.
+# Remove build-only metadata and package readmes, then fail the image build if
+# either Turbo metadata or an absolute developer-workspace marker remains.
+RUN find /app -type d -name .turbo -prune -exec rm -rf '{}' + \
+    && find /app -type f \( -name 'turbo-*.log' -o -name 'README*' -o -name 'readme*' -o -name '*.d.ts' -o -name '*.dll' -o -name '*.dll.node' -o -name '*.exe' \) -exec rm -f '{}' + \
+    && test -z "$(find /app -type d -name .turbo -print -quit)" \
+    && test -z "$(find /app -type f -name 'turbo-*.log' -print -quit)" \
+    && ! grep -R -I -m 1 -E 'C:\\Users\\|C:/Users/|ViberDownloads|studyai-p0-v2-clean' /app/deploy
+
+# Shared non-root runtime base.
+FROM node:22-alpine AS runtime-base
+RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=4000
+ENV APP_PORT=4000
 
 RUN addgroup --system --gid 1001 nestjs
-RUN adduser --system --uid 1001 api
+RUN adduser --system --uid 1001 --ingroup nestjs api
 
-# Copy package lockfiles and workspace dependencies
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
-COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+# Offline helper for explicit upload-volume backup or restore operations. It is
+# not part of either the migrator or API runner image and has no network need.
+FROM runtime-base AS upload-ops
+RUN apk add --no-cache bash coreutils tar
+COPY --chmod=0555 scripts/backup-uploads.sh /usr/local/bin/backup-uploads
+COPY --chmod=0555 scripts/restore-uploads.sh /usr/local/bin/restore-uploads
 
-# Copy node_modules tree (pre-installed in stage 2 and built in stage 3)
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
-COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
+ENTRYPOINT ["/usr/local/bin/backup-uploads"]
 
-# Ensure upload directory exists and is owned by the app user
-RUN mkdir -p /app/apps/api/uploads && chown -R api:nestjs /app/apps/api/uploads
+# One-shot migration image. The full pruned build tree retains Drizzle Kit for
+# the sole production DDL path, while Prisma remains client-generation/runtime
+# tooling and the long-running API image below remains production-only.
+FROM builder AS migrator
+RUN test -z "$(find /app -type d -name .turbo -print -quit)" \
+    && test -z "$(find /app -type f -name 'turbo-*.log' -print -quit)"
+RUN corepack disable \
+    && npm install --global pnpm@9.15.0
+RUN addgroup --system --gid 1001 nestjs \
+    && adduser --system --uid 1001 --ingroup nestjs api
+
+USER api
+
+CMD ["node", "packages/database/scripts/run-production-migrations.cjs"]
+
+# Long-running API image with the production-only deployed API tree.
+FROM runtime-base AS runner
+COPY --from=builder --chown=api:nestjs /app/deploy ./apps/api
+
+ENV STORAGE_PATH=/app/apps/api/uploads
+
+# The named document volume is mounted at this exact owned directory. Docker
+# preserves its initial ownership when populating a new named volume.
+RUN mkdir -p ${STORAGE_PATH} && chown -R api:nestjs ${STORAGE_PATH}
 
 USER api
 
 EXPOSE 4000
 
-# Start NestJS production build launcher
-CMD ["node", "apps/api/dist/main"]
+HEALTHCHECK --interval=10s --timeout=5s --retries=12 \
+  CMD wget -qO- http://127.0.0.1:4000/api/health >/dev/null || exit 1
+
+# Start the NestJS production build. The embedded WorkerRuntime starts during
+# application bootstrap and stays in this same process.
+CMD ["node", "apps/api/dist/main.js"]

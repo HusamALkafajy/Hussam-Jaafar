@@ -1,10 +1,13 @@
-import { Controller, Get, Patch, Body, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, BadRequestException, Query, Sse, MessageEvent } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Observable, interval, throwError, of } from 'rxjs';
+import { map, take, switchMap, delay as rxDelay } from 'rxjs/operators';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateLocaleDto } from './dto/update-locale.dto';
+import { TokenCost } from '../../common/decorators/token-cost.decorator';
 import * as bcrypt from 'bcrypt';
 
 @Controller('users')
@@ -63,5 +66,28 @@ export class UsersController {
   async updateLocale(@CurrentUser('sub') userId: string, @Body() dto: UpdateLocaleDto) {
     await this.usersService.updateLocale(userId, dto.locale);
     return { message: 'Locale updated successfully', locale: dto.locale };
+  }
+
+  // --- TEMPORARY ENDPOINT FOR STEP 4.5 VALIDATION ---
+  @Sse('quota-test-lifecycle')
+  @TokenCost(100)
+  testQuotaLifecycle(
+    @CurrentUser('sub') userId: string,
+    @Query('fail') fail?: string,
+    @Query('delay') delay?: string
+  ): Observable<MessageEvent> {
+    if (fail === 'controller') {
+      return throwError(() => new BadRequestException('Controller failed - expecting refund'));
+    }
+    
+    const delayMs = delay ? parseInt(delay, 10) : 10;
+    
+    // Simulate an AI streaming response that takes time
+    // If the client disconnects during this interval, the Observable is unsubscribed,
+    // triggering the interceptor's finalize() BEFORE complete() is called.
+    return interval(delayMs).pipe(
+      take(5), // Emit 5 chunks
+      map((n) => ({ data: { message: `Chunk ${n}`, userId } }))
+    );
   }
 }

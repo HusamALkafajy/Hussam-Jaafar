@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { useLocale } from '../../../../hooks/use-locale';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 
 interface Note {
   id: string;

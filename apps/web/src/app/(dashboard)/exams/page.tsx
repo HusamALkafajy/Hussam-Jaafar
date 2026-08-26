@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import { useLocale } from '../../../hooks/use-locale';
 import { Card } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -43,10 +43,10 @@ export default function ExamsListPage() {
         <div className="flex flex-col gap-1.5">
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             <GraduationCap className="w-7 h-7 text-indigo-400 animate-pulse" />
-            <span>{locale === 'ar' ? 'الاختبارات التفاعلية' : 'Interactive Exams'}</span>
+            <span>{t('exams.title')}</span>
           </h2>
           <p className="text-sm text-slate-400">
-            {locale === 'ar' ? 'قائمة بجميع اختبارات الذكاء الاصطناعي التي أنشأتها لقياس مستوى فهمك.' : 'A list of all AI-generated quizzes designed to assess your comprehension.'}
+            {t('exams.description')}
           </p>
         </div>
       </div>
@@ -57,16 +57,18 @@ export default function ExamsListPage() {
             <GraduationCap className="w-10 h-10" />
           </div>
           <h4 className="text-lg font-bold text-white">
-            {locale === 'ar' ? 'لا توجد اختبارات بعد' : 'No Exams Generated Yet'}
+            {t('exams.emptyTitle')}
           </h4>
           <p className="text-sm text-slate-400 max-w-sm">
-            {locale === 'ar' ? 'اذهب لصفحة ملفاتي، وافتح أي مستند لإنشاء اختبار ذكي مخصص له.' : 'Navigate to your files and open any document to create a custom AI quiz.'}
+            {t('exams.emptyDescription')}
           </p>
-          <Link href="/files">
-            <Button className="mt-2 font-semibold">
-              <span>{locale === 'ar' ? 'تصفح ملفاتي' : 'Browse My Files'}</span>
-            </Button>
-          </Link>
+          <Button
+            nativeButton={false}
+            render={<Link href="/files" />}
+            className="mt-2 font-semibold"
+          >
+            <span>{t('exams.browseFiles')}</span>
+          </Button>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -78,7 +80,7 @@ export default function ExamsListPage() {
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] bg-indigo-500/15 text-indigo-400 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                    {locale === 'ar' ? `صعوبة: ${ex.difficulty}` : `Difficulty: ${ex.difficulty}`}
+                    {t('exams.difficulty', { difficulty: ex.difficulty })}
                   </span>
                   <span className="text-xs text-slate-400 flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5" />
@@ -93,11 +95,11 @@ export default function ExamsListPage() {
                 <div className="flex items-center gap-4 text-xs text-slate-400 font-medium">
                   <span className="flex items-center gap-1">
                     <HelpCircle className="w-4 h-4 text-slate-500" />
-                    {locale === 'ar' ? `${ex.totalQuestions} سؤال` : `${ex.totalQuestions} Questions`}
+                    {t('exams.questions', { count: ex.totalQuestions })}
                   </span>
                   {ex.timeLimitMinutes && (
                     <span>
-                      {locale === 'ar' ? `الوقت: ${ex.timeLimitMinutes} دقيقة` : `Time limit: ${ex.timeLimitMinutes} min`}
+                      {t('exams.timeLimit', { minutes: ex.timeLimitMinutes })}
                     </span>
                   )}
                 </div>
@@ -106,25 +108,48 @@ export default function ExamsListPage() {
               <div className="flex items-center justify-between border-t border-slate-800/30 pt-4 mt-1">
                 {ex.status === 'completed' ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">{locale === 'ar' ? 'الدرجة المحققة:' : 'Achieved Score:'}</span>
+                    <span className="text-xs text-slate-500">{t('exams.score')}</span>
                     <span className={`text-base font-extrabold ${Number(ex.score) >= 70 ? 'text-emerald-450' : 'text-amber-450'}`}>
                       {ex.score}%
                     </span>
                   </div>
+                ) : ex.status === 'draft' ? (
+                  <span className="rounded bg-slate-500/10 px-2 py-0.5 text-xs font-bold text-slate-400">
+                    {t('exams.draft')}
+                  </span>
                 ) : (
                   <span className="text-xs font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">
-                    {locale === 'ar' ? 'قيد الدراسة/الحل' : 'In Progress'}
+                    {t('exams.inProgress')}
                   </span>
                 )}
 
-                <Link href={`/exams/${ex.id}`}>
-                  <Button size="sm" variant={ex.status === 'completed' ? 'secondary' : 'primary'} className="font-bold flex items-center gap-1">
-                    <span>
-                      {ex.status === 'completed' ? (locale === 'ar' ? 'عرض النتائج' : 'View Results') : (locale === 'ar' ? 'بدء الحل' : 'Start Exam')}
-                    </span>
+                {ex.status === 'completed' ? (
+                  <Button
+                    nativeButton={false}
+                    render={<Link href={`/exams/${ex.id}`} />}
+                    size="sm"
+                    variant="secondary"
+                    className="font-bold flex items-center gap-1"
+                  >
+                    <span>{t('exams.viewResults')}</span>
                     <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
                   </Button>
-                </Link>
+                ) : ex.status === 'active' && ex.attemptEligible === true ? (
+                  <Button
+                    nativeButton={false}
+                    render={<Link href={`/exams/${ex.id}`} />}
+                    size="sm"
+                    variant="primary"
+                    className="font-bold flex items-center gap-1"
+                  >
+                    <span>{t('exams.start')}</span>
+                    <ChevronRight className="w-4 h-4 rtl-flip shrink-0" />
+                  </Button>
+                ) : (
+                  <span className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                    {t('exams.draftUnavailableAction')}
+                  </span>
+                )}
               </div>
             </Card>
           ))}

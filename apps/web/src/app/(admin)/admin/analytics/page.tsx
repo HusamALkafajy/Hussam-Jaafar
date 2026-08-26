@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../../../../lib/api';
+import { api } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Card } from '../../../../components/ui/card';
 import { Badge } from '../../../../components/ui/badge';
@@ -93,12 +93,15 @@ export default function AdminAnalyticsDashboardPage() {
           </p>
         </div>
 
-        <Link href="/admin">
-          <Button variant="secondary" className="border-slate-800 text-slate-400 hover:text-white cursor-pointer font-semibold py-1.5 px-3.5 text-xs">
-            <ArrowLeft className="w-3.5 h-3.5 mr-1.5 rtl:ml-1.5" />
-            <span>{locale === 'ar' ? 'العودة للوحة الإدارة' : 'Back to Admin'}</span>
-          </Button>
-        </Link>
+        <Button
+          nativeButton={false}
+          render={<Link href="/admin" />}
+          variant="secondary"
+          className="border-slate-800 text-slate-400 hover:text-white cursor-pointer font-semibold py-1.5 px-3.5 text-xs"
+        >
+          <ArrowLeft className="w-3.5 h-3.5 mr-1.5 rtl:ml-1.5" />
+          <span>{locale === 'ar' ? 'العودة للوحة الإدارة' : 'Back to Admin'}</span>
+        </Button>
       </div>
 
       {/* 4 Stats Cards Grid */}

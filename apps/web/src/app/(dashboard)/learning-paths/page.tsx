@@ -2,13 +2,20 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import { useLocale } from '../../../hooks/use-locale';
 import { Card } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
 import { Spinner } from '../../../components/ui/spinner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
 import {
   Compass,
   Plus,
@@ -220,35 +227,57 @@ export default function LearningPathsPage() {
                 {/* Difficulty & Daily Minutes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-400">
+                    <span id="learning-path-level-label" className="text-xs font-bold text-slate-400">
                       {locale === 'ar' ? 'مستوى البدء' : 'Starting Level'}
-                    </label>
-                    <select
+                    </span>
+                    <Select
                       value={difficultyLevel}
-                      onChange={(e) => setDifficultyLevel(e.target.value)}
-                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-indigo-500 w-full h-[38px]"
+                      onValueChange={(value) => value !== null && setDifficultyLevel(value)}
                     >
-                      <option value="beginner">{locale === 'ar' ? 'مبتدئ' : 'Beginner'}</option>
-                      <option value="intermediate">{locale === 'ar' ? 'متوسط' : 'Intermediate'}</option>
-                      <option value="advanced">{locale === 'ar' ? 'متقدم' : 'Advanced'}</option>
-                    </select>
+                      <SelectTrigger
+                        aria-labelledby="learning-path-level-label"
+                        className="h-[38px] w-full min-w-0 border-slate-800 bg-slate-950 px-3 py-2 text-slate-300"
+                      >
+                        <SelectValue>
+                          {difficultyLevel === 'advanced'
+                            ? locale === 'ar' ? 'متقدم' : 'Advanced'
+                            : difficultyLevel === 'intermediate'
+                              ? locale === 'ar' ? 'متوسط' : 'Intermediate'
+                              : locale === 'ar' ? 'مبتدئ' : 'Beginner'}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+                        <SelectItem value="beginner">{locale === 'ar' ? 'مبتدئ' : 'Beginner'}</SelectItem>
+                        <SelectItem value="intermediate">{locale === 'ar' ? 'متوسط' : 'Intermediate'}</SelectItem>
+                        <SelectItem value="advanced">{locale === 'ar' ? 'متقدم' : 'Advanced'}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-400">
+                    <span id="learning-path-time-label" className="text-xs font-bold text-slate-400">
                       {locale === 'ar' ? 'الدراسة اليومية المتاحة' : 'Daily Available Time'}
-                    </label>
-                    <select
-                      value={dailyAvailableMinutes}
-                      onChange={(e: any) => setDailyAvailableMinutes(Number(e.target.value))}
-                      className="px-3 py-2 bg-slate-955 border border-slate-800 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-indigo-500 w-full h-[38px] bg-slate-950"
+                    </span>
+                    <Select
+                      value={String(dailyAvailableMinutes)}
+                      onValueChange={(value) => value !== null && setDailyAvailableMinutes(Number(value))}
                     >
-                      <option value={15}>15 {locale === 'ar' ? 'دقيقة / يوم' : 'min / day'}</option>
-                      <option value={30}>30 {locale === 'ar' ? 'دقيقة / يوم' : 'min / day'}</option>
-                      <option value={45}>45 {locale === 'ar' ? 'دقيقة / يوم' : 'min / day'}</option>
-                      <option value={60}>60 {locale === 'ar' ? 'دقيقة / يوم' : 'min / day'}</option>
-                      <option value={120}>120 {locale === 'ar' ? 'دقيقة / يوم' : 'min / day'}</option>
-                    </select>
+                      <SelectTrigger
+                        aria-labelledby="learning-path-time-label"
+                        className="h-[38px] w-full min-w-0 border-slate-800 bg-slate-950 px-3 py-2 text-slate-300"
+                      >
+                        <SelectValue>
+                          {dailyAvailableMinutes} {locale === 'ar' ? 'دقيقة / يوم' : 'min / day'}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+                        {[15, 30, 45, 60, 120].map((minutes) => (
+                          <SelectItem key={minutes} value={String(minutes)}>
+                            {minutes} {locale === 'ar' ? 'دقيقة / يوم' : 'min / day'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 

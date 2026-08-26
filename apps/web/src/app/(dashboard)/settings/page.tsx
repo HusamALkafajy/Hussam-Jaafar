@@ -6,7 +6,7 @@ import { useLocale } from '../../../hooks/use-locale';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api-client';
 import {
   User,
   Lock,

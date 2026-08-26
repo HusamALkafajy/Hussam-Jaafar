@@ -9,6 +9,7 @@ export enum ProcessingStatus {
   PROCESSING = 'processing',
   COMPLETED = 'completed',
   FAILED = 'failed',
+  OCR_REQUIRED = 'ocr_required',
 }
 
 export interface FileMetadata {

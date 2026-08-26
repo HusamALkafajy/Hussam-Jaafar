@@ -1,7 +1,10 @@
-import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, ServiceUnavailableException, MessageEvent } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observable } from 'rxjs';
 import { GoogleGenerativeAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { requestContext } from '../../common/request-context';
+import { saveTokenUsage } from './token-tracking';
+import { checkQuota } from './quota-guard';
 import { db, explanations, eq, and } from '@studyai/database';
 import { EXTRACTION_SYSTEM_PROMPT } from './prompts/extraction.prompts';
 import { SUMMARY_SYSTEM_PROMPT, getSummaryUserPrompt } from './prompts/summary.prompts';
@@ -15,6 +18,7 @@ import {
   ADAPTIVE_QUESTION_SYSTEM_PROMPT,
   getAdaptiveQuestionUserPrompt,
 } from './prompts/adaptive-exam.prompts';
+import { PEDAGOGICAL_TUTOR_SYSTEM_PROMPT } from './prompts/tutor.prompts';
 import * as fs from 'fs/promises';
 
 /**
@@ -49,6 +53,12 @@ export class AiService {
   private apiKey: string | null = null;
   private baseUrl = 'https://openrouter.ai/api/v1';
   private defaultModel = 'google/gemini-2.5-flash';
+  private embeddingApiKey: string | null = null;
+  private embeddingBaseUrl = 'https://openrouter.ai/api/v1';
+  private embeddingModel = 'openai/text-embedding-3-small';
+  private embeddingMockMode = false;
+
+  private static readonly EMBEDDING_DIMENSIONS = 1536;
 
   /**
    * Hard cap on output tokens sent with every OpenRouter request.
@@ -57,7 +67,7 @@ export class AiService {
    * (gemini-2.5-flash = 65 535 output tokens), which exhausts per-request credit
    * budgets and returns HTTP 402 Payment Required.
    *
-   * 4 096 tokens ≈ 3 000 words — sufficient for summaries, explanations, exams,
+   * 4 096 tokens â‰ˆ 3 000 words â€” sufficient for summaries, explanations, exams,
    * flashcards, and chat replies. Raise only for the exam generator if needed.
    */
   private static readonly OPENROUTER_MAX_TOKENS = 2048;
@@ -65,16 +75,20 @@ export class AiService {
   /** Set when GEMINI_API_KEY is present and OPENROUTER_API_KEY is NOT.
    *  Used exclusively for multimodal (PDF / image) extraction via the
    *  native @google/generative-ai SDK, which correctly handles
-   *  application/pdf inlineData — the OpenAI-compat endpoint does not. */
+   *  application/pdf inlineData â€” the OpenAI-compat endpoint does not. */
   private geminiClient: GoogleGenerativeAI | null = null;
   private geminiModel: string = 'gemini-2.5-flash';
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey       = this.configService.get<string>('ai.apiKey')  || null;
     // ai.config.ts now stores the FULL base URL including /v1
-    // e.g. 'https://openrouter.ai/api/v1'  — callOpenRouter appends only '/chat/completions'
+    // e.g. 'https://openrouter.ai/api/v1'  â€” callOpenRouter appends only '/chat/completions'
     this.baseUrl      = this.configService.get<string>('ai.baseUrl') || 'https://openrouter.ai/api/v1';
     this.defaultModel = this.configService.get<string>('ai.model')   || 'google/gemini-2.5-flash';
+    this.embeddingApiKey = this.configService.get<string>('ai.embeddingApiKey') || null;
+    this.embeddingBaseUrl = this.configService.get<string>('ai.embeddingBaseUrl') || 'https://openrouter.ai/api/v1';
+    this.embeddingModel = this.configService.get<string>('ai.embeddingModel') || 'openai/text-embedding-3-small';
+    this.embeddingMockMode = this.configService.get<boolean>('ai.embeddingMockMode') === true;
 
     const useGeminiSdk = this.configService.get<boolean>('ai.useGeminiSdk');
     const geminiApiKey = this.configService.get<string>('ai.geminiApiKey');
@@ -84,7 +98,7 @@ export class AiService {
       this.geminiModel  = this.defaultModel;
       this.logger.log(
         `[AiService] PROVIDER=GeminiSDK  model=${this.geminiModel}  ` +
-        '(PDF/image → @google/generative-ai inlineData; text calls → Google compat REST)',
+        '(PDF/image â†’ @google/generative-ai inlineData; text calls â†’ Google compat REST)',
       );
     } else if (this.apiKey) {
       this.logger.log(
@@ -92,20 +106,43 @@ export class AiService {
       );
     } else {
       this.logger.warn(
-        '[AiService] PROVIDER=MockMode — no API key found. ' +
+        '[AiService] PROVIDER=MockMode â€” no API key found. ' +
         'Set OPENROUTER_API_KEY (preferred) or GEMINI_API_KEY in apps/api/.env.',
       );
     }
   }
 
   private isMockMode(): boolean {
-    return !this.apiKey;
+    return !this.apiKey || this.apiKey.includes('mock');
   }
 
   /** True when the native Gemini SDK should handle multimodal calls. */
   private isGeminiSdkMode(): boolean {
     return this.geminiClient !== null;
   }
+
+  /**
+   * Truncates document content to a safe character limit to prevent HTTP 402
+   * "Prompt tokens limit exceeded" errors on OpenRouter free-tier accounts.
+   *
+   * Rationale:  1 token ≈ 4 characters.
+   *   • MAX_CHARS = 30,000  →  ~7,500 tokens of document context
+   *   • Free-tier observed limit: ~14,197 prompt tokens
+   *   • System prompt + user-prompt wrapper: ~500–2,000 tokens overhead
+   *   • This leaves a comfortable margin for all generation methods.
+   *
+   * The truncation notice appended to the content is intentionally visible to
+   * the AI so it knows the source material was cut, preventing hallucinations.
+   */
+  private static readonly MAX_CONTENT_CHARS = 30_000;
+  private truncateContent(text: string, label = 'content'): string {
+    if (!text || text.length <= AiService.MAX_CONTENT_CHARS) return text;
+    this.logger.warn(
+      `[AiService] truncateContent: ${label} (${text.length} chars) exceeds limit — truncating to ${AiService.MAX_CONTENT_CHARS} chars.`,
+    );
+    return text.slice(0, AiService.MAX_CONTENT_CHARS) + '\n\n...[Content truncated due to token limits]';
+  }
+
 
   private cleanJson(text: string): string {
     if (!text) return '{}';
@@ -202,6 +239,7 @@ export class AiService {
     messages: Array<{ role: string; content: any }>,
     jsonMode = false,
     timeoutMs = 10 * 60 * 1000,
+    maxTokensOverride?: number,
   ): Promise<string> {
     // this.baseUrl already contains /v1 (set by ai.config.ts), so append only the path.
     const url = `${this.baseUrl}/chat/completions`;
@@ -215,9 +253,9 @@ export class AiService {
     const body: any = {
       model: this.defaultModel,
       messages,
-      // Explicit token cap — prevents OpenRouter from defaulting to the model's
+      // Explicit token cap â€” prevents OpenRouter from defaulting to the model's
       // maximum context window (65 535 for gemini-2.5-flash) and triggering 402.
-      max_tokens: AiService.OPENROUTER_MAX_TOKENS,
+      max_tokens: maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS,
     };
 
     if (jsonMode) {
@@ -262,65 +300,256 @@ export class AiService {
     }
   }
 
+  public callOpenRouterStream(
+    messages: Array<{ role: string; content: any }>,
+    maxTokensOverride?: number,
+  ): Observable<MessageEvent> {
+    const store = requestContext.getStore();
+    const userId = (store?.user as any)?.id;
+
+    // Sanitize baseUrl — strip any trailing slash to avoid double-slash in URL construction
+    const sanitizedBaseUrl = this.baseUrl.replace(/\/$/, '');
+    const url = `${sanitizedBaseUrl}/chat/completions`;
+
+    return new Observable((subscriber) => {
+      if (userId) {
+        checkQuota(userId).catch(err => subscriber.error(err));
+      }
+
+      // Guard: warn and abort early if API key is missing
+      if (!this.apiKey) {
+        const msg = '[AiService] callOpenRouterStream: No API key configured. Set OPENROUTER_API_KEY or GEMINI_API_KEY.';
+        this.logger.error(msg);
+        subscriber.error(new Error(msg));
+        return;
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://studyai.com',
+        'X-Title': 'StudyAI',
+      };
+
+      const body = {
+        model: this.defaultModel,
+        messages,
+        max_tokens: maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS,
+        stream: true,
+        stream_options: { include_usage: true },
+      };
+
+      const controller = new AbortController();
+
+      this.logger.debug(
+        `[AiService] callOpenRouterStream → POST ${url} (model=${this.defaultModel}, max_tokens=${maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS})`,
+      );
+
+      fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            let errorMsg = res.statusText || '(no status text)';
+            try {
+              const errorJson = await res.json();
+              errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
+            } catch (e) {
+              // response body may not be JSON — keep statusText
+            }
+            const fullError = `OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`;
+            this.logger.error(`[AiService] callOpenRouterStream: ${fullError} | url=${url}`);
+            subscriber.error(new Error(fullError));
+            return;
+          }
+
+          if (!res.body) {
+            subscriber.error(new Error('No response body from OpenRouter'));
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let buffer = '';
+
+          const read = async () => {
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmedLine = line.trim();
+                  if (trimmedLine.startsWith('data: ')) {
+                    const data = trimmedLine.slice(6);
+                    if (data === '[DONE]') {
+                      subscriber.next({ data: JSON.stringify({ done: true }) } as MessageEvent);
+                      continue;
+                    }
+                    try {
+                      const parsed = JSON.parse(data);
+                      if (parsed.usage && userId) saveTokenUsage(userId, 'stream_call', parsed.usage.prompt_tokens || 0, parsed.usage.completion_tokens || 0, this.defaultModel).catch(() => {});
+                      const content = parsed.choices?.[0]?.delta?.content;
+                      if (content) {
+                        subscriber.next({ data: JSON.stringify({ content }) } as MessageEvent);
+                      }
+                    } catch (e) {
+                      // ignore parse error on incomplete chunks
+                    }
+                  }
+                }
+              }
+              subscriber.complete();
+            } catch (err) {
+              subscriber.error(err);
+            }
+          };
+          read();
+        })
+        .catch((err: any) => {
+          // Network-level failure (DNS, timeout, connection refused, invalid URL, etc.)
+          const cause = err?.cause ? ` | cause: ${String(err.cause)}` : '';
+          this.logger.error(
+            `[AiService] callOpenRouterStream: Network-level fetch error — ${err?.message ?? String(err)}${cause} | url=${url}`,
+          );
+          subscriber.error(err);
+        });
+
+      return () => {
+        controller.abort();
+      };
+    });
+  }
+
+  generateSummaryStream(text: string, level: string, language: string): Observable<MessageEvent> {
+    const safeText = this.truncateContent(text, 'summary stream text');
+    const messages = [
+      { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+      { role: 'user', content: getSummaryUserPrompt(safeText, level, language) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
+    ];
+    return this.callOpenRouterStream(messages);
+  }
+
+  chatWithDocumentStream(text: string, question: string, history: any[]): Observable<MessageEvent> {
+    const formattedHistory = history.map((msg) => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content,
+    }));
+    const messages = [
+      { role: 'system', content: `\n\nDocument Content:\n${this.truncateContent(text, 'chat stream document')}` },
+      ...formattedHistory,
+      { role: 'user', content: getChatUserPrompt(question) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
+    ];
+    return this.callOpenRouterStream(messages);
+  }
+
   async getEmbedding(text: string): Promise<number[]> {
-    if (this.isMockMode()) {
-      // Return a pseudo-random 1536 dimensions vector
-      const vec = new Array(1536).fill(0).map(() => Math.random() - 0.5);
-      // L2 normalize
-      const len = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0)) || 1;
-      return vec.map((v) => v / len);
+    const store = requestContext.getStore();
+    const userId = (store?.user as any)?.id;
+    if (userId) await checkQuota(userId);
+
+    if (this.embeddingMockMode) {
+      return this.createDeterministicEmbedding(text);
     }
 
+    if (!this.embeddingApiKey) {
+      this.logger.error('Embedding provider is not configured');
+      throw new ServiceUnavailableException('Embedding provider is not configured');
+    }
+
+    let providerStatus: number | undefined;
     try {
-      const url = `${this.baseUrl}/v1/embeddings`;
+      const url = this.buildEmbeddingUrl();
       const res = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${this.embeddingApiKey}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://studyai.com',
+          'X-Title': 'StudyAI',
         },
         body: JSON.stringify({
-          model: 'text-embedding-3-small',
+          model: this.embeddingModel,
           input: text,
+          dimensions: AiService.EMBEDDING_DIMENSIONS,
         }),
       });
+      providerStatus = res.status;
 
       if (!res.ok) {
-        throw new Error(`Embedding API failed: ${res.statusText}`);
+        throw new Error('Embedding provider returned an unsuccessful response');
       }
 
       const data = await res.json();
-      return data?.data?.[0]?.embedding || new Array(1536).fill(0);
-    } catch (err) {
-      this.logger.warn('Failed to call embedding API, using deterministic pseudo-embedding:', err);
-      // Generate a deterministic pseudo-embedding based on character codes
-      const vec = new Array(1536).fill(0);
-      for (let i = 0; i < text.length; i++) {
-        vec[i % 1536] += text.charCodeAt(i);
+      const embedding = data?.data?.[0]?.embedding;
+      if (
+        !Array.isArray(embedding) ||
+        embedding.length !== AiService.EMBEDDING_DIMENSIONS ||
+        !embedding.every((value: unknown) => typeof value === 'number' && Number.isFinite(value))
+      ) {
+        throw new Error('Embedding provider returned an invalid vector');
       }
-      const len = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0)) || 1;
-      return vec.map((v) => v / len);
+
+      return embedding;
+    } catch (error) {
+      this.logger.error('Embedding provider request failed', {
+        status: providerStatus,
+        errorType: error instanceof Error ? error.name : 'UnknownError',
+      });
+      throw new ServiceUnavailableException('Embedding provider request failed');
     }
+  }
+
+  private buildEmbeddingUrl(): string {
+    const url = new URL(this.embeddingBaseUrl.trim());
+    const basePath = url.pathname.replace(/\/+$/, '');
+    const hasVersionedOpenAiPath = /\/v\d+(?:beta\d*)?(?:\/openai)?$/i.test(basePath);
+
+    url.pathname = `${basePath}${hasVersionedOpenAiPath ? '' : '/v1'}/embeddings`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  }
+
+  private createDeterministicEmbedding(text: string): number[] {
+    const vector = new Array(AiService.EMBEDDING_DIMENSIONS).fill(0);
+    for (let index = 0; index < text.length; index++) {
+      vector[index % AiService.EMBEDDING_DIMENSIONS] += text.charCodeAt(index);
+    }
+    const length = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+    return vector.map((value) => value / length);
   }
 
   async extractText(filePath: string, mimeType: string): Promise<string> {
     if (this.isMockMode()) {
-      this.logger.log(`[Mock Mode] Extracting text from file: ${filePath}`);
-      return (
-        `This is mock extracted text content from the file: ${filePath}. ` +
-        'In a real production deployment, this would contain the actual parsed ' +
-        'contents of the uploaded document extracted via the Gemini API.'
-      );
+      const isTestEnvironment = this.configService.get<string>('app.nodeEnv') === 'test';
+      const mockExtractionAllowed = this.configService.get<boolean>('ai.allowMockDocumentExtraction') === true;
+      if (!isTestEnvironment || !mockExtractionAllowed) {
+        throw new ServiceUnavailableException(
+          'Document extraction requires a configured provider for this file type.',
+        );
+      }
+
+      // This branch exists solely for isolated automated tests. It must never
+      // become a persisted user-document result.
+      return 'TEST_ONLY_DOCUMENT_EXTRACTION';
     }
 
-    // ── Path A: Native Gemini SDK (GEMINI_API_KEY set, no OPENROUTER_API_KEY) ──
+    // â”€â”€ Path A: Native Gemini SDK (GEMINI_API_KEY set, no OPENROUTER_API_KEY) â”€â”€
     // The Gemini SDK correctly handles application/pdf via inlineData.
     // The OpenAI-compat REST endpoint does NOT support PDF as image_url.
     if (this.isGeminiSdkMode()) {
       return this.extractTextWithGeminiSdk(filePath, mimeType);
     }
 
-    // ── Path B: OpenRouter REST endpoint (image_url format) ──
+    // â”€â”€ Path B: OpenRouter REST endpoint (image_url format) â”€â”€
     // Works for images (jpeg, png, webp). For PDFs this path requires the
     // underlying model to support PDF via the OpenAI vision message format,
     // which not all OpenRouter-routed models do. If you are using OpenRouter
@@ -359,7 +588,7 @@ export class AiService {
 
   /**
    * Generation config for document extraction via the native Gemini SDK:
-   * - temperature 0 → deterministic, factual output (less likely to recite)
+   * - temperature 0 â†’ deterministic, factual output (less likely to recite)
    * - maxOutputTokens aligned with OPENROUTER_MAX_TOKENS for cost consistency
    * - topP / topK tightened to reduce hallucinated verbatim passages
    */
@@ -367,7 +596,7 @@ export class AiService {
     temperature: 0,
     topP: 0.8,
     topK: 20,
-    maxOutputTokens: AiService.OPENROUTER_MAX_TOKENS,
+    maxOutputTokens: 8192, // Increased exclusively for PDF extraction to handle large documents natively
   };
 
   /**
@@ -379,7 +608,7 @@ export class AiService {
    */
   private readonly extractionUserPrompt =
     'Analyse this document and produce a structured Markdown summary. ' +
-    'DO NOT copy text verbatim — instead paraphrase, reorganise, and extract key concepts, ' +
+    'DO NOT copy text verbatim â€” instead paraphrase, reorganise, and extract key concepts, ' +
     'headings, tables, formulas, and lists into clean Markdown. ' +
     'Preserve all factual information faithfully but express it in your own words.';
 
@@ -404,7 +633,7 @@ export class AiService {
 
     const inlinePart = { inlineData: { mimeType, data: base64Data } };
 
-    // ── Helper: build a configured GenerativeModel ────────────────────────
+    // â”€â”€ Helper: build a configured GenerativeModel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const buildModel = (modelName: string): GenerativeModel =>
       this.geminiClient!.getGenerativeModel({
         model: modelName,
@@ -413,10 +642,10 @@ export class AiService {
         generationConfig: this.geminiExtractionConfig,
       });
 
-    // ── Attempt 1: primary model, anti-recitation prompt ──────────────────
+    // â”€â”€ Attempt 1: primary model, anti-recitation prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try {
       this.logger.log(
-        `[Gemini SDK] Attempt 1 — model "${this.geminiModel}" with anti-recitation prompt...`,
+        `[Gemini SDK] Attempt 1 â€” model "${this.geminiModel}" with anti-recitation prompt...`,
       );
 
       const result = await this.runWithRetry(() =>
@@ -426,11 +655,18 @@ export class AiService {
         ]),
       );
 
+      const store = requestContext.getStore();
+      const userId = (store?.user as any)?.id;
+      const usage = result.response.usageMetadata;
+      if (usage && userId) {
+        saveTokenUsage(userId, 'extraction', usage.promptTokenCount || 0, usage.candidatesTokenCount || 0, this.geminiModel).catch(() => {});
+      }
+
       const candidate = result.response.candidates?.[0];
       const finishReason = candidate?.finishReason;
 
       if (finishReason === 'RECITATION') {
-        // Do NOT throw yet — fall through to Attempt 2.
+        // Do NOT throw yet â€” fall through to Attempt 2.
         this.logger.warn(
           `[Gemini SDK] RECITATION block on primary model "${this.geminiModel}". ` +
           `Falling back to "${this.recitationFallbackModel}" with stricter paraphrase prompt...`,
@@ -446,7 +682,7 @@ export class AiService {
         return text;
       }
     } catch (err: any) {
-      // Only rethrow non-RECITATION errors from attempt 1 — RECITATION
+      // Only rethrow non-RECITATION errors from attempt 1 â€” RECITATION
       // is handled by falling through to attempt 2 (already logged above).
       if (!err?.message?.includes('RECITATION')) {
         this.logger.error('[Gemini SDK] Attempt 1 failed with non-RECITATION error:', err);
@@ -459,19 +695,19 @@ export class AiService {
       );
     }
 
-    // ── Attempt 2: fallback model + even stricter prompt ──────────────────
+    // â”€â”€ Attempt 2: fallback model + even stricter prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // gemini-1.5-flash / gemini-1.5-pro apply a different training-data
     // attribution heuristic and are less likely to trigger RECITATION on
     // the same content than gemini-2.5-flash.
     try {
       this.logger.log(
-        `[Gemini SDK] Attempt 2 — fallback model "${this.recitationFallbackModel}"...`,
+        `[Gemini SDK] Attempt 2 â€” fallback model "${this.recitationFallbackModel}"...`,
       );
 
       const stricterPrompt =
         'You are a document analyser. Your task is to restructure and reformat the attached ' +
         'document into organised Markdown. IMPORTANT: do not quote or reproduce any sentence ' +
-        'verbatim — summarise every passage in your own words, reorganise the structure, ' +
+        'verbatim â€” summarise every passage in your own words, reorganise the structure, ' +
         'and extract only key concepts, data, formulas, and section headings.';
 
       const result = await this.runWithRetry(() =>
@@ -485,7 +721,7 @@ export class AiService {
       const finishReason = candidate?.finishReason;
 
       if (finishReason === 'RECITATION') {
-        // Both attempts blocked — return a graceful degradation payload so
+        // Both attempts blocked â€” return a graceful degradation payload so
         // the file is marked COMPLETED (not stuck in PROCESSING) and the
         // user sees a useful message instead of a spinner forever.
         this.logger.error(
@@ -551,7 +787,7 @@ export class AiService {
         },
       ];
 
-      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages));
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, false, 10 * 60 * 1000, 8192));
       return responseText;
     } catch (error: any) {
       this.logger.error('[OpenRouter] extractText failed:', error);
@@ -590,9 +826,10 @@ export class AiService {
     }
 
     try {
+      const safeText = this.truncateContent(text, 'summary text');
       const messages = [
         { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
-        { role: 'user', content: getSummaryUserPrompt(text, level, language) }
+        { role: 'user', content: getSummaryUserPrompt(safeText, level, language) }
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
@@ -647,7 +884,7 @@ export class AiService {
         if (ch === '\\') {
           const next = text[i + 1];
           if (next && !VALID_ESCAPES.has(next)) {
-            // Invalid escape (e.g. \*, \_) — drop the backslash, emit the literal char
+            // Invalid escape (e.g. \*, \_) â€” drop the backslash, emit the literal char
             i++;
             continue;
           }
@@ -670,11 +907,13 @@ export class AiService {
       i++;
     }
 
-    // 4. Parse — throws SyntaxError naturally if still malformed
+    // 4. Parse â€” throws SyntaxError naturally if still malformed
     try {
       return JSON.parse(result) as T;
     } catch (error) {
-      console.error('[sanitizeAndParseJson] JSON parse failed. Raw truncated text:\n', raw);
+      this.logger.error('AI response JSON parsing failed', error, {
+        responseLength: raw.length,
+      });
       throw new Error('Explanation generation failed: The AI response was too long and got truncated. Please try again with a shorter section.');
     }
   }
@@ -697,7 +936,7 @@ export class AiService {
       };
     }
 
-    // ── 1. DB cache lookup ────────────────────────────────────────────────────
+    // â”€â”€ 1. DB cache lookup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (fileId && userId) {
       try {
         const cached = await db.query.explanations.findFirst({
@@ -711,7 +950,7 @@ export class AiService {
 
         if (cached) {
           this.logger.log(
-            `[generateExplanation] Cache HIT — fileId=${fileId} level=${level} lang=${language}`,
+            `[generateExplanation] Cache HIT â€” fileId=${fileId} level=${level} lang=${language}`,
           );
           return {
             content: cached.content,
@@ -721,7 +960,7 @@ export class AiService {
         }
 
         this.logger.log(
-          `[generateExplanation] Cache MISS — calling OpenRouter for fileId=${fileId}`,
+          `[generateExplanation] Cache MISS â€” calling OpenRouter for fileId=${fileId}`,
         );
       } catch (cacheErr: any) {
         // Non-fatal: log and continue to generate fresh
@@ -729,11 +968,12 @@ export class AiService {
       }
     }
 
-    // ── 2. Build messages ─────────────────────────────────────────────────────
-    const userPrompt = getExplanationUserPrompt(text, level, language);
+    // â”€â”€ 2. Build messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const safeText = this.truncateContent(text, 'explanation text');
+    const userPrompt = getExplanationUserPrompt(safeText, level, language);
 
     this.logger.log(
-      `[generateExplanation] Sending request — ` +
+      `[generateExplanation] Sending request â€” ` +
       `fileId=${fileId ?? 'n/a'}, level=${level}, lang=${language}, contentLen=${text?.length ?? 0}`,
     );
 
@@ -742,7 +982,7 @@ export class AiService {
       { role: 'user',   content: userPrompt },
     ];
 
-    // ── 3. Call OpenRouter with json_object mode + retry ──────────────────────
+    // â”€â”€ 3. Call OpenRouter with json_object mode + retry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let parsed: any;
     try {
       const responseText = await this.runWithRetry(() =>
@@ -755,11 +995,11 @@ export class AiService {
 
       parsed = this.sanitizeAndParseJson(responseText);
     } catch (error: any) {
-      this.logger.error('[generateExplanation] OpenRouter call or JSON parse failed:', error);
-      throw new InternalServerErrorException(`Explanation generation failed: ${error.message}`);
+      this.logger.error(`[generateExplanation] OpenRouter call or JSON parse failed: ${error?.message || error}`, error?.stack);
+      throw new InternalServerErrorException(`Explanation generation failed: ${error?.message || 'Unknown error'}`);
     }
 
-    // ── 4. Persist to DB (non-fatal) ──────────────────────────────────────────
+    // â”€â”€ 4. Persist to DB (non-fatal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (fileId && userId) {
       try {
         await db.insert(explanations).values({
@@ -786,33 +1026,29 @@ export class AiService {
     if (this.isMockMode()) {
       return {
         title: 'Mock Learning Assessment',
-        questions: [
-          {
+        questions: Array.from({ length: count }, (_, index) => {
+          const questionNumber = index + 1;
+          return {
             type: 'mcq',
-            questionText: 'Which platform allows students to study using AI?',
-            options: ['StudyAI', 'LegacyBooks', 'ManualQuiz', 'None'],
+            questionText: `Mock multiple-choice question ${questionNumber}`,
+            options: ['StudyAI', `Alternative ${questionNumber}`],
             correctAnswer: 'StudyAI',
-            explanation: 'StudyAI is the AI-powered SaaS described in the document.',
-            difficulty: 'easy',
+            explanation: `Mock explanation ${questionNumber}`,
+            difficulty:
+              difficulty === 'mixed'
+                ? ['easy', 'medium', 'hard'][index % 3]
+                : difficulty,
             points: 1,
-          },
-          {
-            type: 'true_false',
-            questionText: 'OpenRouter API supports PDF document processing natively.',
-            options: null,
-            correctAnswer: 'true',
-            explanation: 'OpenRouter supports multimodal input files up to limits of the underlying model.',
-            difficulty: 'easy',
-            points: 1,
-          },
-        ],
+          };
+        }),
       };
     }
 
     try {
+      const safeText = this.truncateContent(text, 'exam text');
       const messages = [
         { role: 'system', content: EXAM_SYSTEM_PROMPT },
-        { role: 'user', content: getExamUserPrompt(text, difficulty, types, count) }
+        { role: 'user', content: getExamUserPrompt(safeText, difficulty, types, count) }
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true, 15 * 60 * 1000));
@@ -835,9 +1071,10 @@ export class AiService {
     }
 
     try {
+      const safeText = this.truncateContent(text, 'flashcards text');
       const messages = [
         { role: 'system', content: FLASHCARD_SYSTEM_PROMPT },
-        { role: 'user', content: getFlashcardUserPrompt(text, count) }
+        { role: 'user', content: getFlashcardUserPrompt(safeText, count) }
       ];
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
@@ -863,7 +1100,7 @@ export class AiService {
       }));
 
       const messages = [
-        { role: 'system', content: `${CHAT_SYSTEM_PROMPT}\n\nDocument Content:\n${text}` },
+        { role: 'system', content: `${CHAT_SYSTEM_PROMPT}\n\nDocument Content:\n${this.truncateContent(text, 'chat document')}` },
         ...formattedHistory,
         { role: 'user', content: getChatUserPrompt(question) }
       ];
@@ -873,6 +1110,32 @@ export class AiService {
     } catch (error: any) {
       this.logger.error('Error in chatWithDocument:', error);
       throw new InternalServerErrorException(`Document Q&A failed: ${error.message}`);
+    }
+  }
+
+  async chatWithTutor(contextText: string, question: string, history: any[]): Promise<string> {
+    if (this.isMockMode()) {
+      return `This is a mock response from the Pedagogical Tutor to your question: "${question}". I am replying based on the mock pedagogical context.`;
+    }
+
+    try {
+      const formattedHistory = history.map((msg) => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content,
+      }));
+
+      const messages = [
+        { role: 'system', content: `${PEDAGOGICAL_TUTOR_SYSTEM_PROMPT}\n\n${this.truncateContent(contextText, 'tutor context')}` },
+        ...formattedHistory,
+        { role: 'user', content: question }
+      ];
+
+      // Tutor uses standard text output, not JSON, because it needs to generate rich Markdown text
+      const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, false));
+      return responseText;
+    } catch (error: any) {
+      this.logger.error('Error in chatWithTutor:', error);
+      throw new InternalServerErrorException(`Pedagogical Tutor Q&A failed: ${error.message}`);
     }
   }
 
@@ -929,7 +1192,8 @@ export class AiService {
     }
 
     try {
-      const userPrompt = getExamFeedbackUserPrompt(results, ragContext, score);
+      const safeRagContext = this.truncateContent(ragContext, 'exam feedback context');
+      const userPrompt = getExamFeedbackUserPrompt(results, safeRagContext, score);
       const messages = [
         { role: 'system', content: ADAPTIVE_EXAM_FEEDBACK_SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
@@ -967,7 +1231,8 @@ export class AiService {
     }
 
     try {
-      const userPrompt = getAdaptiveQuestionUserPrompt(weakTopics, context, existingQuestionTexts);
+      const safeContext = this.truncateContent(context, 'adaptive question context');
+      const userPrompt = getAdaptiveQuestionUserPrompt(weakTopics, safeContext, existingQuestionTexts);
       const messages = [
         { role: 'system', content: ADAPTIVE_QUESTION_SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
@@ -981,15 +1246,15 @@ export class AiService {
     }
   }
 
-  // ── Smart Notes AI methods ──────────────────────────────────────────────
+  // â”€â”€ Smart Notes AI methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /**
    * Generates a 2-3 sentence concise summary of a user's note content.
-   * Called only on explicit "Analyze" button click — never on auto-save.
+   * Called only on explicit "Analyze" button click â€” never on auto-save.
    */
   async generateNoteSummary(content: string): Promise<{ summary: string }> {
     if (this.isMockMode()) {
-      return { summary: 'هذا ملخص تجريبي للملاحظة. يتضمن النقاط الرئيسية التي دوّنها الطالب لمراجعة سريعة.' };
+      return { summary: 'Ù‡Ø°Ø§ Ù…Ù„Ø®Øµ ØªØ¬Ø±ÙŠØ¨ÙŠ Ù„Ù„Ù…Ù„Ø§Ø­Ø¸Ø©. ÙŠØªØ¶Ù…Ù† Ø§Ù„Ù†Ù‚Ø§Ø· Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© Ø§Ù„ØªÙŠ Ø¯ÙˆÙ‘Ù†Ù‡Ø§ Ø§Ù„Ø·Ø§Ù„Ø¨ Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ø³Ø±ÙŠØ¹Ø©.' };
     }
 
     const systemPrompt = `You are an expert educational AI. Read the note and generate a concise summary.
@@ -999,7 +1264,7 @@ Return JSON: { "summary": "..." }`;
     try {
       const messages = [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Note content:\n\n${content}` },
+        { role: 'user', content: `Note content:\n\n${this.truncateContent(content, 'note summary content')}` },
       ];
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       return JSON.parse(this.cleanJson(responseText));
@@ -1017,8 +1282,8 @@ Return JSON: { "summary": "..." }`;
   async generateNoteQuizQuestions(content: string): Promise<Array<{ question: string; answer: string; type: 'mcq' | 'short' }>> {
     if (this.isMockMode()) {
       return [
-        { question: 'ما هو الموضوع الرئيسي في هذه الملاحظة؟', answer: 'الموضوع المدوّن في الملاحظة', type: 'short' },
-        { question: 'أيٌّ من التالي ذكره الطالب في ملاحظاته؟', answer: 'النقطة الأولى', type: 'mcq' },
+        { question: 'Ù…Ø§ Ù‡Ùˆ Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ ÙÙŠ Ù‡Ø°Ù‡ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø©ØŸ', answer: 'Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹ Ø§Ù„Ù…Ø¯ÙˆÙ‘Ù† ÙÙŠ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø©', type: 'short' },
+        { question: 'Ø£ÙŠÙŒÙ‘ Ù…Ù† Ø§Ù„ØªØ§Ù„ÙŠ Ø°ÙƒØ±Ù‡ Ø§Ù„Ø·Ø§Ù„Ø¨ ÙÙŠ Ù…Ù„Ø§Ø­Ø¸Ø§ØªÙ‡ØŸ', answer: 'Ø§Ù„Ù†Ù‚Ø·Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰', type: 'mcq' },
       ];
     }
 
@@ -1029,7 +1294,7 @@ Return JSON array: [{ "question": "...", "answer": "...", "type": "mcq" | "short
     try {
       const messages = [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Note content:\n\n${content}` },
+        { role: 'user', content: `Note content:\n\n${this.truncateContent(content, 'note quiz content')}` },
       ];
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       const parsed = JSON.parse(this.cleanJson(responseText));
@@ -1041,4 +1306,7 @@ Return JSON array: [{ "question": "...", "answer": "...", "type": "mcq" | "short
     }
   }
 }
+
+
+
 

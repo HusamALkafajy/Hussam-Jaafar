@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { db, flashcardSets, flashcards, eq, and, desc, sql } from '@studyai/database';
 import { AiService } from '../ai/ai.service';
 import { FilesService } from '../files/files.service';
+import { getStoredDocumentTitle } from '../files/utils/document-title.util';
 import { GamificationService } from '../study-coach/gamification.service';
 import { CreateFlashcardSetDto } from './dto/create-flashcard-set.dto';
 import { ReviewFlashcardDto } from './dto/review-flashcard.dto';
@@ -124,7 +125,7 @@ export class FlashcardsService {
 
     // 1. Generate flashcards via the configured AI provider
     const generated = await this.aiService.generateFlashcards(file.extractedText, count);
-    const title = dto.title || generated.title || `بطاقات: ${file.originalName}`;
+    const title = dto.title || generated.title || `بطاقات: ${getStoredDocumentTitle(file.metadata, file.originalName)}`;
     const cards = generated.cards || [];
 
     if (cards.length === 0) {
@@ -170,6 +171,21 @@ export class FlashcardsService {
       .from(flashcardSets)
       .where(eq(flashcardSets.userId, userId))
       .orderBy(desc(flashcardSets.createdAt));
+  }
+
+  async findByFileId(fileId: string, userId: string) {
+    const setResult = await db
+      .select()
+      .from(flashcardSets)
+      .where(and(eq(flashcardSets.fileId, fileId), eq(flashcardSets.userId, userId)))
+      .orderBy(desc(flashcardSets.createdAt))
+      .limit(1);
+
+    if (setResult.length === 0) {
+      throw new NotFoundException('Flashcard set not found for this file');
+    }
+
+    return this.findById(setResult[0].id, userId);
   }
 
   async findById(id: string, userId: string) {

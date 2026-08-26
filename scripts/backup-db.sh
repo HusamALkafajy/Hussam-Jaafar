@@ -1,41 +1,42 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Database Backup Script for StudyAI
-# Automatically dumps the PostgreSQL database, compresses it, and retains files for 7 days.
+set -euo pipefail
+umask 077
 
-# Exit immediately if a command exits with a non-zero status
-set -e
+fail() {
+  printf 'ERROR: %s\n' "$1" >&2
+  exit 1
+}
 
-# Load environment variables if available
-if [ -f ../.env ]; then
-  export $(cat ../.env | xargs)
-fi
+: "${DATABASE_URL:?DATABASE_URL must identify the database to back up}"
+: "${DATABASE_TARGET_LABEL:?DATABASE_TARGET_LABEL must explicitly identify the target environment}"
 
-DB_USER=${DATABASE_USER:-"postgres"}
-DB_NAME=${DATABASE_NAME:-"studyai"}
-DB_HOST=${DATABASE_HOST:-"localhost"}
-DB_PORT=${DATABASE_PORT:-5432}
-DB_PASS=${DATABASE_PASSWORD:-"postgres"}
+command -v pg_dump >/dev/null 2>&1 || fail "pg_dump is required"
+command -v pg_restore >/dev/null 2>&1 || fail "pg_restore is required to verify the backup"
 
-BACKUP_DIR="./backups"
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-BACKUP_FILE="$BACKUP_DIR/backup_${DB_NAME}_${TIMESTAMP}.sql.gz"
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+backup_dir="${BACKUP_DIR:-${repository_root}/backups}"
+timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+backup_file="${BACKUP_FILE:-${backup_dir}/studyai-${timestamp}.dump}"
 
-# Create backup directory if it does not exist
-mkdir -p "$BACKUP_DIR"
+case "$backup_file" in
+  *.dump | *.backup) ;;
+  *) fail "BACKUP_FILE must end in .dump or .backup" ;;
+esac
 
-echo "[$(date)] Starting database backup for $DB_NAME..."
+[[ ! -e "$backup_file" ]] || fail "refusing to overwrite existing backup: $backup_file"
+mkdir -p "$backup_dir"
 
-# Export password for pg_dump
-export PGPASSWORD="$DB_PASS"
+printf 'Creating a custom-format backup for target label: %s\n' "$DATABASE_TARGET_LABEL"
+pg_dump \
+  --dbname="$DATABASE_URL" \
+  --format=custom \
+  --no-owner \
+  --no-privileges \
+  --file="$backup_file"
 
-# Run pg_dump and compress the output
-pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" | gzip > "$BACKUP_FILE"
+[[ -s "$backup_file" ]] || fail "backup is empty: $backup_file"
+pg_restore --list "$backup_file" >/dev/null
 
-echo "[$(date)] Backup completed successfully. Saved to $BACKUP_FILE"
-
-# Clean up backups older than 7 days
-echo "[$(date)] Cleaning up backups older than 7 days..."
-find "$BACKUP_DIR" -name "backup_${DB_NAME}_*.sql.gz" -mtime +7 -exec rm -f {} \;
-
-echo "[$(date)] Database backup maintenance finished."
+printf 'Backup created and catalog verified: %s\n' "$backup_file"
+printf 'Retention is intentionally not automated; follow docs/DATABASE_BACKUP_RESTORE.md.\n'

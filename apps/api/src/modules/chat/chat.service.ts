@@ -18,9 +18,11 @@ import {
 import { AiService } from '../ai/ai.service';
 import { RagService } from '../rag/rag.service';
 import { StudyGroupsService } from '../study-groups/study-groups.service';
+import { DocumentReadService } from '../document-read/document-read.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { buildRagContext } from '../ai/prompts/chat.prompts';
+import { getStoredDocumentTitle } from '../files/utils/document-title.util';
 
 /** How many recent messages to include as conversation history */
 const HISTORY_WINDOW = 10;
@@ -36,6 +38,7 @@ export class ChatService {
     private readonly aiService: AiService,
     private readonly ragService: RagService,
     private readonly studyGroupsService: StudyGroupsService,
+    private readonly documentReadService: DocumentReadService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -75,7 +78,7 @@ export class ChatService {
       .values({
         fileId: dto.fileId,
         userId,
-        title: `محادثة: ${file.originalName}`,
+        title: `محادثة: ${getStoredDocumentTitle(file.metadata, file.originalName)}`,
         messageCount: 0,
       })
       .returning();
@@ -170,12 +173,20 @@ export class ChatService {
       .map((m) => ({ role: m.role, content: m.content }));
 
     // 4. Retrieve semantically relevant document chunks via pgvector
-    this.logger.log(`Retrieving RAG chunks for session ${sessionId}...`);
-    const ragChunks = await this.ragService.searchChunks(
-      session.fileId,
-      dto.content,
-      RAG_CHUNK_LIMIT,
-    );
+    // Resolve the active version for this file
+    const { versionId } = await this.documentReadService.resolveActiveReadableVersion(session.fileId, session.userId);
+    
+    let ragChunks: any[] = [];
+    if (versionId) {
+      this.logger.log(`Retrieving RAG chunks for session ${sessionId}, version ${versionId}...`);
+      ragChunks = await this.ragService.searchChunks(
+        versionId,
+        dto.content,
+        RAG_CHUNK_LIMIT,
+      );
+    } else {
+      this.logger.log(`No active version found for file ${session.fileId}, skipping RAG context.`);
+    }
 
     const ragContext = buildRagContext(ragChunks);
 

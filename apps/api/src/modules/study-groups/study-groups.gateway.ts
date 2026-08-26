@@ -29,6 +29,8 @@ import { ConfigService } from '@nestjs/config';
    * CORS must allow the Next.js dev server (port 3001 in this project).
    * We read FRONTEND_URL from the environment; fall back to localhost:3001.
    * An array is accepted so both ports work during development.
+   * NOTE (Architecture Exemption): process.env is used here because decorators
+   * execute at module load time before the DI container provides ConfigService.
    */
   cors: {
     origin: [
@@ -46,6 +48,7 @@ import { ConfigService } from '@nestjs/config';
    */
   transports: ['polling', 'websocket'],
   namespace: '/study-groups',
+  addTrailingSlash: false,
 })
 export class StudyGroupsGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
@@ -176,8 +179,16 @@ export class StudyGroupsGateway
       throw new Error('No authentication token provided');
     }
 
+    if (authPayload && raw === authPayload) {
+      this.logger.log(`[WS] Token resolved from auth payload for socket ${client.id}`);
+    } else if (cookieToken && raw === cookieToken) {
+      this.logger.log(`[WS] Token resolved from cookie for socket ${client.id}`);
+    } else if (headerToken && raw === headerToken) {
+      this.logger.log(`[WS] Token resolved from header for socket ${client.id}`);
+    }
+
     try {
-      const secret = this.configService.get<string>('auth.jwtSecret');
+      const secret = this.configService.getOrThrow<string>('auth.jwtSecret');
       const payload = this.jwtService.verify(raw, { secret });
       if (!payload?.sub) throw new Error('JWT payload missing sub claim');
       return payload.sub as string;

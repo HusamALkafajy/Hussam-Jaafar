@@ -6,6 +6,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserRole, AuthProvider, Locale } from '@studyai/types';
+import { db } from '@studyai/database';
 
 type AuthUser = {
   id: string;
@@ -48,7 +49,7 @@ export class AuthService {
         secure: smtpPort === 465,
         auth: {
           user: smtpUser,
-          password: smtpPassword,
+          pass: smtpPassword,
         },
       } as any);
     }
@@ -94,7 +95,7 @@ export class AuthService {
   }
 
   async login(user: AuthUser) {
-    const superAdminEmail = this.configService.get<string>('SUPER_ADMIN_EMAIL') || process.env.SUPER_ADMIN_EMAIL;
+    const superAdminEmail = this.configService.get<string>('auth.superAdminEmail');
     if (superAdminEmail && user.email.toLowerCase() === superAdminEmail.toLowerCase() && user.role !== UserRole.ADMIN) {
       const updated = await this.usersService.update(user.id, { role: UserRole.ADMIN });
       user.role = updated.role;
@@ -102,7 +103,7 @@ export class AuthService {
 
     const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('auth.jwtSecret'),
+      secret: this.configService.getOrThrow<string>('auth.jwtSecret'),
       expiresIn: this.configService.get<string>('auth.jwtAccessExpiration') as any,
     });
 
@@ -132,20 +133,7 @@ export class AuthService {
 
   async refresh(refreshToken: string) {
     try {
-      const payload = await this.jwtService.verifyAsync(refreshToken, {
-        secret: this.configService.get<string>('auth.jwtRefreshSecret'),
-      });
-
-      const user = await this.usersService.findById(payload.sub);
-      if (!user || !user.refreshTokenHash) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
-      if (!isMatch) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
+      const user = await this.getUserForRefreshToken(refreshToken);
       return this.login(user);
     } catch (e) {
       throw new UnauthorizedException('Invalid refresh token');
@@ -154,6 +142,19 @@ export class AuthService {
 
   async logout(userId: string) {
     await this.usersService.updateRefreshTokenHash(userId, null);
+  }
+
+  async logoutWithRefreshToken(refreshToken: string) {
+    try {
+      const user = await this.getUserForRefreshToken(refreshToken);
+      await this.logout(user.id);
+    } catch (error) {
+      if (!(error instanceof UnauthorizedException)) {
+        throw error;
+      }
+      // Logout remains idempotent: an expired or already-revoked cookie is
+      // cleared by the controller without disclosing token validity.
+    }
   }
 
   async verifyEmail(token: string) {
@@ -191,8 +192,14 @@ export class AuthService {
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(dto.newPassword, salt);
 
-    await this.usersService.updatePassword(user.id, passwordHash);
-    await this.usersService.clearResetToken(user.id);
+    // All three mutations share one transaction handle (tx).
+    // If any step throws, the entire transaction rolls back atomically:
+    // no partial state where the password is changed but sessions remain valid.
+    await db.transaction(async (tx) => {
+      await this.usersService.updatePassword(user.id, passwordHash, tx);
+      await this.usersService.updateRefreshTokenHash(user.id, null, tx);
+      await this.usersService.clearResetToken(user.id, tx);
+    });
 
     return { message: 'Password reset successfully' };
   }
@@ -236,14 +243,7 @@ export class AuthService {
   setAuthCookies(response: Response, tokens: { accessToken: string; refreshToken: string }) {
     const isProd = this.configService.get<string>('NODE_ENV') === 'production';
 
-    response.cookie('access_token', tokens.accessToken, {
-      // Protect access token from JavaScript to prevent XSS token theft.
-      httpOnly: true,
-      secure: isProd,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 15 * 60 * 1000, // 15 minutes
-    });
+    // Access token is memory-only, do not set it in a cookie.
 
     response.cookie('refresh_token', tokens.refreshToken, {
       httpOnly: true,
@@ -265,9 +265,31 @@ export class AuthService {
   }
 
   clearAuthCookies(response: Response) {
-    response.clearCookie('access_token', { path: '/' });
     response.clearCookie('refresh_token', { path: '/' });
     response.clearCookie('csrf_token', { path: '/' });
+  }
+
+  private async getUserForRefreshToken(refreshToken: string): Promise<AuthUser> {
+    let payload: { sub: string };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.configService.get<string>('auth.jwtRefreshSecret'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.usersService.findById(payload.sub) as AuthUser | null;
+    if (!user || !user.refreshTokenHash) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+    if (!isMatch) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    return user;
   }
 
   private async sendVerificationEmail(email: string, name: string, token: string) {
@@ -276,13 +298,17 @@ export class AuthService {
     this.logger.log(`Verification email prepared for ${email}`);
 
     if (this.transporter) {
-      const from = this.configService.get<string>('SMTP_FROM') || 'StudyAI <noreply@studyai.com>';
-      await this.transporter.sendMail({
-        from,
-        to: email,
-        subject: 'Verify your email — StudyAI',
-        html: `<p>Hello ${name},</p><p>Please verify your email by clicking <a href="${url}">here</a>.</p>`,
-      });
+      try {
+        const from = this.configService.get<string>('SMTP_FROM') || 'StudyAI <noreply@studyai.com>';
+        await this.transporter.sendMail({
+          from,
+          to: email,
+          subject: 'Verify your email - StudyAI',
+          html: `<p>Hello ${name},</p><p>Please verify your email by clicking <a href="${url}">here</a>.</p>`,
+        });
+      } catch (e) {
+        this.logger.error(`Failed to send verification email to ${email}: ${e.message}`);
+      }
     }
   }
 

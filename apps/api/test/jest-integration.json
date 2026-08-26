@@ -1,0 +1,13 @@
+{
+  "moduleFileExtensions": ["js", "json", "mjs", "ts"],
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "testRegex": "\\.integration\\.spec\\.ts$",
+  "transform": {
+    "^.+\\.ts$": "ts-jest"
+  },
+  "resolver": "<rootDir>/test/jest-integration-resolver.cjs",
+  "setupFilesAfterEnv": ["<rootDir>/test/jest-integration-teardown.ts"],
+  "globalSetup": "<rootDir>/test/setup.ts",
+  "globalTeardown": "<rootDir>/test/teardown.ts"
+}

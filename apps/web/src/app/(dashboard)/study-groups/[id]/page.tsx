@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
-import { api } from '../../../../lib/api';
+import { api, getAccessToken } from '../../../../lib/api-client';
 import { useLocale } from '../../../../hooks/use-locale';
 import { Button } from '../../../../components/ui/button';
 import { Spinner } from '../../../../components/ui/spinner';
@@ -32,6 +32,7 @@ interface SharedFile {
   id: string;
   fileId: string;
   originalName: string;
+  title?: string;
   mimeType: string;
   fileSize: number;
   processingStatus: string;
@@ -158,7 +159,7 @@ function ShareFileModal({
                   className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900/40 border border-slate-800 hover:border-violet-500/40 hover:bg-violet-500/5 text-left transition-all group w-full disabled:opacity-60"
                 >
                   <FileText className="w-4 h-4 text-slate-500 group-hover:text-violet-400 shrink-0" />
-                  <span className="text-sm text-slate-200 font-medium truncate flex-1">{file.originalName}</span>
+                  <span className="text-sm text-slate-200 font-medium truncate flex-1">{file.title ?? file.originalName}</span>
                   {sharing === file.id && <Spinner className="w-4 h-4" />}
                 </button>
               ))}
@@ -234,20 +235,6 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
   // ── WebSocket setup ───────────────────────────────────────────────────────
   useEffect(() => {
     /**
-     * Derive the backend base URL (no /api suffix) from the env variable that
-     * the rest of the app already uses.  The fallback must match APP_URL in .env
-     * (http://localhost:4000).
-     *
-     * NEXT_PUBLIC_API_URL is used by lib/api.ts as the REST base — it already
-     * points to the API server without the /api path segment.
-     */
-    const API_BASE =
-      process.env.NEXT_PUBLIC_API_URL ||
-      (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-        ? '' // same-origin in production (Nginx proxies both REST and WS)
-        : 'http://localhost:4000');
-
-    /**
      * socket.io-client accepts the namespace as a path suffix on the URL.
      * The server-side @WebSocketGateway has namespace: '/study-groups'.
      *
@@ -256,13 +243,15 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
      * forwarded during this first HTTP request.  After the handshake, socket.io
      * upgrades to WebSocket automatically.
      */
-    const socket = io(`${API_BASE}/study-groups`, {
+    const socket = io('/study-groups', {
+      auth: { token: getAccessToken() },
       withCredentials: true,                       // send cookies (access_token)
       transports: ['polling', 'websocket'],         // polling FIRST — required for cookie auth
       reconnectionAttempts: 8,
       reconnectionDelay: 1500,
       reconnectionDelayMax: 8000,
       timeout: 10000,
+      addTrailingSlash: false,
     });
 
     socketRef.current = socket;
@@ -377,10 +366,12 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
       {/* ── Top bar ── */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-800/40 mb-0">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href="/study-groups">
-            <button className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
-              <ArrowLeft className="w-4 h-4" />
-            </button>
+          <Link
+            href="/study-groups"
+            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition"
+            aria-label={locale === 'ar' ? 'العودة للمجموعات' : 'Back to Groups'}
+          >
+            <ArrowLeft className="w-4 h-4" />
           </Link>
           <div className="min-w-0">
             <h2 className="font-bold text-white text-base leading-tight truncate">{group.name}</h2>
@@ -484,17 +475,18 @@ export default function StudyGroupDetailPage({ params }: PageProps) {
                     <div className="flex items-start gap-2 min-w-0">
                       <FileText className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
                       <span className="text-xs font-medium text-slate-200 truncate flex-1 leading-tight">
-                        {file.originalName}
+                        {file.title ?? file.originalName}
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-500">{formatFileSize(file.fileSize)}</span>
                     <div className="flex gap-1.5">
                       {/* Chat with this shared file */}
-                      <Link href={`/chat?fileId=${file.fileId}`} className="flex-1">
-                        <button className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-violet-600/20 border border-violet-500/30 hover:bg-violet-600/30 text-violet-300 text-[10px] font-semibold transition">
-                          <MessageCircle className="w-3 h-3" />
-                          {locale === 'ar' ? 'محادثة' : 'Chat'}
-                        </button>
+                      <Link
+                        href={`/chat?fileId=${file.fileId}`}
+                        className="flex-1 w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-violet-600/20 border border-violet-500/30 hover:bg-violet-600/30 text-violet-300 text-[10px] font-semibold transition"
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                        {locale === 'ar' ? 'محادثة' : 'Chat'}
                       </Link>
 
                       {/* Unshare — only for owner/admin or the uploader */}
