@@ -60,6 +60,45 @@ const ALL_SUBJECTS_VALUE = '__all-subjects__';
 const ALL_FILE_TYPES_VALUE = '__all-file-types__';
 const NO_SUBJECT_VALUE = '__no-subject__';
 
+interface MonthlyUploadAllowance {
+  limit: number;
+  remaining: number;
+  resetAt: string | null;
+  used: number;
+}
+
+const normalizeMonthlyUploadAllowance = (value: unknown): MonthlyUploadAllowance | null => {
+  if (!value || typeof value !== 'object') return null;
+
+  const record = value as Record<string, unknown>;
+  const limit = record.monthlyFileLimit;
+  const used = record.filesUsedThisMonth;
+
+  if (
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < 0 ||
+    typeof used !== 'number' ||
+    !Number.isInteger(used) ||
+    used < 0
+  ) {
+    return null;
+  }
+
+  const resetAt =
+    typeof record.currentPeriodEnd === 'string' &&
+    Number.isFinite(Date.parse(record.currentPeriodEnd))
+      ? record.currentPeriodEnd
+      : null;
+
+  return {
+    limit,
+    remaining: Math.max(limit - used, 0),
+    resetAt,
+    used,
+  };
+};
+
 const createUploadId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
@@ -85,6 +124,9 @@ export default function FilesPage() {
   const [loadError, setLoadError] = useState(false);
   const [filesList, setFilesList] = useState<any[]>([]);
   const [subjectsList, setSubjectsList] = useState<any[]>([]);
+  const [monthlyUploadAllowance, setMonthlyUploadAllowance] =
+    useState<MonthlyUploadAllowance | null>(null);
+  const [monthlyUploadAllowanceLoaded, setMonthlyUploadAllowanceLoaded] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
 
   // Filters
@@ -144,6 +186,26 @@ export default function FilesPage() {
     }, 300); // Debounce search
     return () => clearTimeout(timer);
   }, [search, subjectId, fileType, loadData]);
+
+  useEffect(() => {
+    let active = true;
+
+    api
+      .get<unknown>('/subscriptions/current')
+      .then((value) => {
+        if (active) setMonthlyUploadAllowance(normalizeMonthlyUploadAllowance(value));
+      })
+      .catch(() => {
+        if (active) setMonthlyUploadAllowance(null);
+      })
+      .finally(() => {
+        if (active) setMonthlyUploadAllowanceLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const hasProcessing = filesList.some(
@@ -286,6 +348,25 @@ export default function FilesPage() {
   };
 
   const hasActiveFilters = Boolean(search || subjectId || fileType);
+  const monthlyUploadLimitReached = Boolean(
+    monthlyUploadAllowance && monthlyUploadAllowance.used >= monthlyUploadAllowance.limit,
+  );
+  const monthlyUploadProgress = monthlyUploadAllowance
+    ? monthlyUploadAllowance.limit === 0
+      ? 100
+      : Math.min(
+          100,
+          Math.round((monthlyUploadAllowance.used / monthlyUploadAllowance.limit) * 100),
+        )
+    : 0;
+  const monthlyUploadResetDate = monthlyUploadAllowance?.resetAt
+    ? new Intl.DateTimeFormat(locale === 'ar' ? 'ar-IQ' : 'en-US', {
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'UTC',
+        year: 'numeric',
+      }).format(new Date(monthlyUploadAllowance.resetAt))
+    : null;
 
   const clearFilters = () => {
     setSearch('');
@@ -313,6 +394,72 @@ export default function FilesPage() {
           <span>{t('dashboard.uploadNewFile')}</span>
         </DialogTrigger>
       </div>
+
+      {monthlyUploadAllowanceLoaded && (
+        <Card
+          role="region"
+          aria-label={t('files.monthlyUploadAllowance')}
+          className="gap-3 bg-card/70 p-4 ring-1 ring-border"
+        >
+          {monthlyUploadAllowance ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-foreground">
+                    {t('files.monthlyUploadAllowance')}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {t('files.monthlyUploadsUsed', {
+                      limit: monthlyUploadAllowance.limit,
+                      used: monthlyUploadAllowance.used,
+                    })}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold text-foreground">
+                  {t('files.monthlyUploadsRemaining', {
+                    remaining: monthlyUploadAllowance.remaining,
+                  })}
+                </p>
+              </div>
+
+              <div
+                role="progressbar"
+                aria-label={t('files.monthlyUploadAllowance')}
+                aria-valuemin={0}
+                aria-valuemax={monthlyUploadAllowance.limit}
+                aria-valuenow={Math.min(
+                  monthlyUploadAllowance.used,
+                  monthlyUploadAllowance.limit,
+                )}
+                className="h-2 overflow-hidden rounded-full bg-muted"
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${monthlyUploadProgress}%` }}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>
+                  {monthlyUploadResetDate
+                    ? t('files.monthlyUploadsReset', { date: monthlyUploadResetDate })
+                    : t('files.monthlyUploadsResetUnavailable')}
+                </span>
+                {monthlyUploadLimitReached && (
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-foreground">
+                    <AlertTriangle className="size-4" aria-hidden="true" />
+                    {t('files.monthlyUploadLimitReached')}
+                  </span>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {t('files.monthlyUploadUsageUnavailable')}
+            </p>
+          )}
+        </Card>
+      )}
 
       {/* Filters Bar */}
       <Card

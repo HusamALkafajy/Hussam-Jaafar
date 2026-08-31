@@ -63,6 +63,13 @@ const translations: Record<string, string> = {
   'files.documentTitleHelp': 'Metadata or filename fallback.',
   'files.untitledDocument': 'Untitled document',
   'files.mergingAndAnalyzing': 'Merging and analyzing',
+  'files.monthlyUploadAllowance': 'Monthly upload allowance',
+  'files.monthlyUploadLimitReached': 'Monthly upload limit reached. New uploads become available after the monthly reset.',
+  'files.monthlyUploadUsageUnavailable': 'Monthly upload allowance is temporarily unavailable.',
+  'files.monthlyUploadsRemaining': 'Uploads remaining this month: {remaining}',
+  'files.monthlyUploadsReset': 'Resets on {date}',
+  'files.monthlyUploadsResetUnavailable': 'Reset date unavailable',
+  'files.monthlyUploadsUsed': 'Monthly uploads used: {used} / {limit}',
   'files.noSubject': 'No Subject',
   'files.openFile': 'Open {fileName}',
   'files.searchPlaceholder': 'Search files',
@@ -116,6 +123,11 @@ const translations: Record<string, string> = {
 };
 
 const arabicTranslations: Record<string, string> = {
+  'files.monthlyUploadAllowance': 'حد الرفع الشهري',
+  'files.monthlyUploadLimitReached': 'بلغت حد الرفع الشهري. ستتوفر عمليات رفع جديدة بعد إعادة الضبط الشهرية.',
+  'files.monthlyUploadsRemaining': 'عمليات الرفع المتبقية هذا الشهر: {remaining}',
+  'files.monthlyUploadsReset': 'يُعاد الضبط في {date}',
+  'files.monthlyUploadsUsed': 'عمليات الرفع المستخدمة شهرياً: {used} / {limit}',
   'files.subjectFilter': 'تصفية حسب المادة',
 };
 
@@ -192,6 +204,14 @@ describe('files and legacy navigation semantics', () => {
         ]);
       }
 
+      if (url === '/subscriptions/current') {
+        return Promise.resolve({
+          currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+          filesUsedThisMonth: 2,
+          monthlyFileLimit: 5,
+        });
+      }
+
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
     mocks.apiDelete.mockResolvedValue({});
@@ -257,6 +277,129 @@ describe('files and legacy navigation semantics', () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       'File deleted successfully.',
     );
+  });
+
+  it('shows the trusted monthly upload allowance without storage or checkout guidance', async () => {
+    render(<FilesPage />);
+
+    const allowance = await screen.findByRole('region', {
+      name: 'Monthly upload allowance',
+    });
+
+    expect(within(allowance).getByText('Monthly uploads used: 2 / 5')).not.toBeNull();
+    expect(within(allowance).getByText('Uploads remaining this month: 3')).not.toBeNull();
+    expect(within(allowance).getByText('Resets on Sep 1, 2026')).not.toBeNull();
+    expect(allowance.textContent).not.toMatch(/storage|delete|remove|upgrade/i);
+  });
+
+  it.each([
+    ['en', 'Monthly upload limit reached. New uploads become available after the monthly reset.'],
+    ['ar', 'بلغت حد الرفع الشهري. ستتوفر عمليات رفع جديدة بعد إعادة الضبط الشهرية.'],
+  ] as const)('shows accurate at-limit messaging in %s', async (locale, message) => {
+    mocks.locale = locale;
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) {
+        return Promise.resolve({
+          data: [file],
+          pagination: { limit: 10, page: 1, total: 1, totalPages: 1 },
+        });
+      }
+      if (url === '/subjects') return Promise.resolve([]);
+      if (url === '/subscriptions/current') {
+        return Promise.resolve({
+          currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+          filesUsedThisMonth: 5,
+          monthlyFileLimit: 5,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    render(<FilesPage />);
+
+    const allowance = await screen.findByRole('region', {
+      name: locale === 'ar' ? 'حد الرفع الشهري' : 'Monthly upload allowance',
+    });
+    expect(within(allowance).getByText(message)).not.toBeNull();
+    expect(allowance.textContent).not.toMatch(/delete|remove|upgrade|احذف|ترقية|رقِّ/i);
+    expect(within(allowance).queryByRole('link')).toBeNull();
+  });
+
+  it('normalizes over-limit usage and handles a missing reset date defensively', async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) {
+        return Promise.resolve({
+          data: [file],
+          pagination: { limit: 10, page: 1, total: 1, totalPages: 1 },
+        });
+      }
+      if (url === '/subjects') return Promise.resolve([]);
+      if (url === '/subscriptions/current') {
+        return Promise.resolve({
+          currentPeriodEnd: null,
+          filesUsedThisMonth: 7,
+          monthlyFileLimit: 5,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    render(<FilesPage />);
+
+    const allowance = await screen.findByRole('region', {
+      name: 'Monthly upload allowance',
+    });
+    expect(within(allowance).getByText('Uploads remaining this month: 0')).not.toBeNull();
+    expect(within(allowance).getByText('Reset date unavailable')).not.toBeNull();
+    const progress = within(allowance).getByRole('progressbar', {
+      name: 'Monthly upload allowance',
+    });
+    expect(progress.getAttribute('aria-valuenow')).toBe('5');
+    expect(progress.getAttribute('aria-valuemax')).toBe('5');
+  });
+
+  it('keeps the files page available when allowance data is malformed', async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) {
+        return Promise.resolve({
+          data: [file],
+          pagination: { limit: 10, page: 1, total: 1, totalPages: 1 },
+        });
+      }
+      if (url === '/subjects') return Promise.resolve([]);
+      if (url === '/subscriptions/current') {
+        return Promise.resolve({ filesUsedThisMonth: -1, monthlyFileLimit: '5' });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    render(<FilesPage />);
+
+    expect(await screen.findByText('physics.pdf')).not.toBeNull();
+    expect(
+      await screen.findByText('Monthly upload allowance is temporarily unavailable.'),
+    ).not.toBeNull();
+  });
+
+  it('keeps the files page available when allowance retrieval fails', async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) {
+        return Promise.resolve({
+          data: [file],
+          pagination: { limit: 10, page: 1, total: 1, totalPages: 1 },
+        });
+      }
+      if (url === '/subjects') return Promise.resolve([]);
+      if (url === '/subscriptions/current') return Promise.reject(new Error('unavailable'));
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    render(<FilesPage />);
+
+    expect(await screen.findByText('physics.pdf')).not.toBeNull();
+    expect(
+      await screen.findByText('Monthly upload allowance is temporarily unavailable.'),
+    ).not.toBeNull();
   });
 
   it('keeps destructive cancel safe and returns focus to its trigger', async () => {
