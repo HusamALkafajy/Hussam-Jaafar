@@ -124,4 +124,61 @@ describe('StructuredLogger', () => {
     );
     expect(output.mock.calls[0][0]).not.toContain(email);
   });
+
+  it('removes OAuth query data from complete serialized request logs', () => {
+    const output = jest.spyOn(console, 'error').mockImplementation();
+    const logger = new StructuredLogger(true, 'OAuth');
+    const authorizationCode = ['oauth-code', Date.now(), Math.random()].join('-');
+    const state = ['oauth-state', Date.now(), Math.random()].join('-');
+    const csrf = ['csrf', Date.now(), Math.random()].join('-');
+    const callbackPath =
+      '/api/auth/google/callback?code=' + authorizationCode + '&state=' + state;
+    const callbackUrl = 'http://localhost:4000' + callbackPath;
+    const cause = new Error('OAuth code=' + authorizationCode + ' OAuth state=' + state);
+    const error = new Error('Callback failed at ' + callbackUrl) as Error & { cause?: unknown };
+    error.cause = cause;
+
+    logger.error(
+      {
+        event: 'oauth.callback.failure',
+        method: 'GET',
+        path: callbackPath,
+        statusCode: 401,
+        durationMs: 12,
+        nested: {
+          url: callbackUrl,
+          query: { code: authorizationCode, state },
+          headers: {
+            authorization: 'Bearer ' + authorizationCode,
+            cookie: 'refresh_token=' + state,
+            'x-csrf-token': csrf,
+          },
+        },
+      },
+      error,
+    );
+
+    const serialized = output.mock.calls[0][0] as string;
+    const entry = JSON.parse(serialized);
+
+    for (const canary of [authorizationCode, state, csrf]) {
+      expect(serialized).not.toContain(canary);
+    }
+    expect(entry.message).toEqual(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/api/auth/google/callback',
+        statusCode: 401,
+        durationMs: 12,
+      }),
+    );
+    expect(entry.message.nested.url).toBe('http://localhost:4000/api/auth/google/callback');
+    expect(entry.message.nested.query).toBe('[REDACTED]');
+    expect(entry.context[0].message).toBe(
+      'Callback failed at http://localhost:4000/api/auth/google/callback',
+    );
+    expect(entry.context[0].cause.message).toBe(
+      'OAuth code=[REDACTED] OAuth state=[REDACTED]',
+    );
+  });
 });
