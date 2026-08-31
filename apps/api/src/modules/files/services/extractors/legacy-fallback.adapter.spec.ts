@@ -1,17 +1,35 @@
+import { Test, TestingModule } from '@nestjs/testing';
 import { LegacyFallbackAdapter } from './legacy-fallback.adapter';
 import { AiService } from '../../../ai/ai.service';
 import { MissingTextLayerError } from '../../contracts/document-extractor';
 
 describe('LegacyFallbackAdapter', () => {
+  let moduleRef: TestingModule;
   let adapter: LegacyFallbackAdapter;
   let mockAiService: jest.Mocked<AiService>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockAiService = {
       extractText: jest.fn(),
     } as any;
 
-    adapter = new LegacyFallbackAdapter(mockAiService);
+    moduleRef = await Test.createTestingModule({
+      providers: [
+        LegacyFallbackAdapter,
+        { provide: AiService, useValue: mockAiService },
+      ],
+    }).compile();
+
+    adapter = moduleRef.get(LegacyFallbackAdapter);
+  });
+
+  afterEach(async () => {
+    await moduleRef.close();
+  });
+
+  it('resolves its required AiService dependency through Nest metadata', () => {
+    expect(Reflect.getMetadata('design:paramtypes', LegacyFallbackAdapter)).toEqual([AiService]);
+    expect((adapter as any).aiService).toBe(mockAiService);
   });
 
   it('should route pdf to aiService and map to ExtractedDocument', async () => {
@@ -50,6 +68,18 @@ describe('LegacyFallbackAdapter', () => {
       mimeType: 'application/pdf',
       fileType: 'pdf'
     })).rejects.toThrow(MissingTextLayerError);
+  });
+
+  it('preserves provider errors from the controlled AI boundary', async () => {
+    const providerError = new Error('controlled provider failure');
+    mockAiService.extractText.mockRejectedValue(providerError);
+
+    await expect(adapter.extract({
+      fileId: '123',
+      filePath: '/tmp/test.jpg',
+      mimeType: 'image/jpeg',
+      fileType: 'image',
+    })).rejects.toBe(providerError);
   });
 
   it('should throw Error for unsupported legacy type', async () => {
