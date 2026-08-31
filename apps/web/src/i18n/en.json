@@ -259,6 +259,8 @@
     ,"ocrRequiredDescription": "This PDF has no usable text layer. You can still view the original document, but learning features will remain unavailable until OCR support is added."
     ,"pdfLoading": "Loading original document…"
     ,"pdfLoadFailed": "The original PDF could not be loaded. Please try again."
+    ,"pdfMissing": "The original PDF is no longer available. Return to My Files or upload it again."
+    ,"pdfInvalid": "The original file is not a valid PDF. Upload a new copy to continue."
     ,"pdfPreviousPage": "Previous page"
     ,"pdfNextPage": "Next page"
     ,"pdfZoomIn": "Zoom in"

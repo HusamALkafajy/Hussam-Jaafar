@@ -489,7 +489,7 @@ export default function FilesPage() {
                         <FileText className="size-6" aria-hidden="true" />
                       </span>
                       <div className="min-w-0 space-y-1">
-                        <h3 className="block truncate text-sm font-bold text-foreground">
+                        <h3 dir="auto" className="block truncate text-sm font-bold text-foreground [unicode-bidi:plaintext]">
                           {file.titleSource === 'fallback'
                             ? t('files.untitledDocument')
                             : file.title ?? file.originalName}

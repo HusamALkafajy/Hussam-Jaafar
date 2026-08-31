@@ -632,7 +632,8 @@ describe('files and legacy navigation semantics', () => {
   });
 
   it('uses the persisted document title consistently on card and detail surfaces', async () => {
-    const titledFile = { ...file, title: 'Physics Foundations', titleSource: 'metadata' };
+    const intendedTitle = 'تعلم n8n من الصفر إلى الاحتراف';
+    const titledFile = { ...file, title: intendedTitle, titleSource: 'metadata' };
     mocks.apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/files?')) return Promise.resolve({ data: [titledFile], pagination: { limit: 10, page: 1, total: 1, totalPages: 1 } });
       if (url === '/subjects') return Promise.resolve([]);
@@ -642,7 +643,9 @@ describe('files and legacy navigation semantics', () => {
       return Promise.resolve([]);
     });
     const { unmount } = render(<FilesPage />);
-    expect(await screen.findByText('Physics Foundations')).not.toBeNull();
+    const cardTitle = await screen.findByText(intendedTitle);
+    expect(cardTitle.getAttribute('dir')).toBe('auto');
+    expect(cardTitle.className).toContain('[unicode-bidi:plaintext]');
     unmount();
 
     const params = Object.assign(Promise.resolve({ id: 'file-1' }), {
@@ -654,7 +657,10 @@ describe('files and legacy navigation semantics', () => {
         <FileDetailPage params={params} />
       </Suspense>,
     );
-    expect(await screen.findByText('Physics Foundations')).not.toBeNull();
+    const detailTitle = await screen.findByText(intendedTitle);
+    expect(detailTitle.getAttribute('dir')).toBe('auto');
+    expect(detailTitle.className).toContain('[unicode-bidi:plaintext]');
+    expect(detailTitle.className).toContain('text-foreground');
   });
 
   it('announces upload progress with meaningful accessible values', async () => {
