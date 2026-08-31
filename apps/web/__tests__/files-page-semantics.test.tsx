@@ -1,5 +1,6 @@
 import React, { Suspense } from 'react';
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -15,6 +16,7 @@ import FileDetailPage from '../src/app/(dashboard)/files/[id]/page';
 import { UploadQueue } from '../src/components/upload/upload-queue';
 import { Button } from '../src/components/ui/button';
 import { SidebarNavButton } from '../src/components/ui/sidebar-nav';
+import { ApiError, QuotaError } from '../src/lib/api-client';
 
 const mocks = vi.hoisted(() => ({
   apiDelete: vi.fn(),
@@ -26,13 +28,17 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
 }));
 
-vi.mock('../src/lib/api-client', () => ({
-  api: {
-    delete: (...args: unknown[]) => mocks.apiDelete(...args),
-    get: (...args: unknown[]) => mocks.apiGet(...args),
-    post: (...args: unknown[]) => mocks.apiPost(...args),
-  },
-}));
+vi.mock('../src/lib/api-client', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/lib/api-client')>();
+  return {
+    ...original,
+    api: {
+      delete: (...args: unknown[]) => mocks.apiDelete(...args),
+      get: (...args: unknown[]) => mocks.apiGet(...args),
+      post: (...args: unknown[]) => mocks.apiPost(...args),
+    },
+  };
+});
 
 vi.mock('sonner', () => ({
   toast: {
@@ -72,6 +78,7 @@ const translations: Record<string, string> = {
   'files.monthlyUploadsUsed': 'Monthly uploads used: {used} / {limit}',
   'files.noSubject': 'No Subject',
   'files.openFile': 'Open {fileName}',
+  'files.quotaExceeded': 'You have reached your monthly upload limit. New uploads become available after the monthly reset.',
   'files.searchPlaceholder': 'Search files',
   'files.startUpload': 'Start Upload & Analysis',
   'files.statusCompleted': 'Completed',
@@ -160,6 +167,47 @@ const file = {
   processingStatus: 'completed',
 };
 
+const belowLimitAllowance = {
+  currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+  filesUsedThisMonth: 2,
+  monthlyFileLimit: 5,
+};
+
+const atLimitAllowance = {
+  currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+  filesUsedThisMonth: 5,
+  monthlyFileLimit: 5,
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
+function mockAllowanceRequests(...responses: unknown[]) {
+  let allowanceRequest = 0;
+  mocks.apiGet.mockImplementation((url: string) => {
+    if (url.startsWith('/files?')) {
+      return Promise.resolve({
+        data: [file],
+        pagination: { limit: 10, page: 1, total: 1, totalPages: 1 },
+      });
+    }
+    if (url === '/subjects') return Promise.resolve([]);
+    if (url === '/subscriptions/current') {
+      const response = responses[Math.min(allowanceRequest, responses.length - 1)];
+      allowanceRequest += 1;
+      return response instanceof Error ? Promise.reject(response) : Promise.resolve(response);
+    }
+    return Promise.reject(new Error(`Unexpected GET ${url}`));
+  });
+}
+
 function expectNoNestedInteractive(container: HTMLElement) {
   expect(
     container.querySelectorAll('a a, a button, button a, button button'),
@@ -172,6 +220,12 @@ function accessibleDescription(element: HTMLElement) {
     .filter(Boolean)
     .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
     .join(' ');
+}
+
+function pageUploadAction() {
+  const action = document.querySelector<HTMLButtonElement>('[data-slot="dialog-trigger"]');
+  if (!action) throw new Error('Page upload action was not rendered');
+  return action;
 }
 
 describe('files and legacy navigation semantics', () => {
@@ -325,6 +379,280 @@ describe('files and legacy navigation semantics', () => {
     expect(within(allowance).queryByRole('link')).toBeNull();
   });
 
+  it('exposes a natively disabled described upload action and blocks mouse and keyboard at the cap', async () => {
+    mockAllowanceRequests(atLimitAllowance);
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    const allowance = await screen.findByRole('region', {
+      name: 'Monthly upload allowance',
+    });
+    const uploadAction = pageUploadAction();
+
+    expect(uploadAction.disabled).toBe(true);
+    expect(uploadAction.getAttribute('aria-disabled')).not.toBe('false');
+    expect(accessibleDescription(uploadAction)).toBe(
+      'Monthly upload limit reached. New uploads become available after the monthly reset.',
+    );
+    expect(within(allowance).getByText(/Monthly upload limit reached/)).not.toBeNull();
+
+    await user.click(uploadAction);
+    uploadAction.blur();
+    await user.tab();
+    expect(document.activeElement).not.toBe(uploadAction);
+    await user.keyboard('{Enter} ');
+    expect(screen.queryByRole('dialog', { name: 'Upload File' })).toBeNull();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it('disables every page upload trigger when an at-cap account has no files', async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/files?')) {
+        return Promise.resolve({
+          data: [],
+          pagination: { limit: 10, page: 1, total: 0, totalPages: 1 },
+        });
+      }
+      if (url === '/subjects') return Promise.resolve([]);
+      if (url === '/subscriptions/current') return Promise.resolve(atLimitAllowance);
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Upload File' })).toHaveLength(2);
+    });
+    const actions = screen.getAllByRole('button', { name: 'Upload File' });
+    expect(actions).toHaveLength(2);
+    for (const action of actions) {
+      expect((action as HTMLButtonElement).disabled).toBe(true);
+      expect(accessibleDescription(action)).toBe(
+        'Monthly upload limit reached. New uploads become available after the monthly reset.',
+      );
+      await user.click(action);
+    }
+    expect(screen.queryByRole('dialog', { name: 'Upload File' })).toBeNull();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it('keeps an open modal stable but disables and guards submission when the cap becomes known', async () => {
+    const capResponse = deferred<typeof atLimitAllowance>();
+    mockAllowanceRequests(belowLimitAllowance, capResponse.promise);
+    const uploadId = vi.fn(() => '11111111-1111-4111-8111-111111111111');
+    vi.stubGlobal('crypto', { randomUUID: uploadId });
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Upload File' });
+    const title = screen.getByLabelText('Document title (optional)') as HTMLInputElement;
+    const fileInput = screen.getByLabelText(/Choose a file/) as HTMLInputElement;
+    await user.type(title, 'Preserved title');
+    await user.upload(fileInput, new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }));
+
+    window.dispatchEvent(new Event('focus'));
+    capResponse.resolve(atLimitAllowance);
+
+    const submit = screen.getByRole('button', {
+      name: 'Start Upload & Analysis',
+    }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(true));
+    expect(within(dialog).getByText(/Monthly upload limit reached/)).not.toBeNull();
+    expect(accessibleDescription(submit)).toContain('Monthly upload limit reached');
+    expect(title.value).toBe('Preserved title');
+    expect(fileInput.files).toHaveLength(1);
+
+    fireEvent.submit(submit.closest('form')!);
+    expect(uploadId).not.toHaveBeenCalled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Upload File' })).not.toBeNull();
+  });
+
+  it('latches a structured monthly files rejection and prevents repeated upload IDs and requests', async () => {
+    mockAllowanceRequests(belowLimitAllowance);
+    const uploadId = vi.fn(() => '11111111-1111-4111-8111-111111111111');
+    vi.stubGlobal('crypto', { randomUUID: uploadId });
+    mocks.apiPost.mockRejectedValueOnce(
+      new QuotaError('safe', 'QUOTA_EXCEEDED', 'files', 5, 5, 'free'),
+    );
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      expect.stringContaining('You have reached your monthly upload limit.'),
+    );
+    const submit = screen.getByRole('button', {
+      name: 'Start Upload & Analysis',
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(pageUploadAction().disabled).toBe(true);
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+    expect(uploadId).toHaveBeenCalledOnce();
+
+    await user.click(submit);
+    fireEvent.submit(submit.closest('form')!);
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+    expect(uploadId).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      'a non-files quota',
+      new QuotaError('safe', 'QUOTA_EXCEEDED', 'tokens', 100, 100, 'free'),
+    ],
+    [
+      'a storage failure',
+      new ApiError('safe', 503, 'http', 'UPLOAD_STORAGE_FAILED'),
+    ],
+  ])('does not latch %s', async (_label, error) => {
+    mockAllowanceRequests(belowLimitAllowance);
+    mocks.apiPost.mockRejectedValue(error);
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+    await screen.findByRole('alert');
+
+    const submit = screen.getByRole('button', {
+      name: 'Start Upload & Analysis',
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    expect(pageUploadAction().disabled).toBe(false);
+    await user.click(submit);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+  });
+
+  it('unlocks a rejection latch only after an authoritative below-limit refresh', async () => {
+    mockAllowanceRequests(belowLimitAllowance, belowLimitAllowance);
+    mocks.apiPost.mockRejectedValueOnce(
+      new QuotaError('safe', 'QUOTA_EXCEEDED', 'files', 5, 5, 'free'),
+    );
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+    await screen.findByRole('alert');
+
+    const submit = screen.getByRole('button', {
+      name: 'Start Upload & Analysis',
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    expect(pageUploadAction().disabled).toBe(false);
+  });
+
+  it('revalidates at the monthly boundary and unlocks only from a fresh period response', async () => {
+    const resetAt = new Date(Date.now() + 2_000).toISOString();
+    const currentPeriod = { ...belowLimitAllowance, currentPeriodEnd: resetAt };
+    const newPeriod = {
+      ...belowLimitAllowance,
+      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      filesUsedThisMonth: 0,
+    };
+    mockAllowanceRequests(currentPeriod, newPeriod);
+    mocks.apiPost.mockRejectedValueOnce(
+      new QuotaError('safe', 'QUOTA_EXCEEDED', 'files', 5, 5, 'free'),
+    );
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+    await screen.findByRole('alert');
+
+    const submit = screen.getByRole('button', {
+      name: 'Start Upload & Analysis',
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await waitFor(() => expect(submit.disabled).toBe(false), { timeout: 3_000 });
+  });
+
+  it('preserves a server-derived latch when reset revalidation is unavailable', async () => {
+    const resetAt = new Date(Date.now() + 80).toISOString();
+    mockAllowanceRequests(
+      { ...belowLimitAllowance, currentPeriodEnd: resetAt },
+      new Error('unavailable'),
+    );
+    mocks.apiPost.mockRejectedValueOnce(
+      new QuotaError('safe', 'QUOTA_EXCEEDED', 'files', 5, 5, 'free'),
+    );
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Start Upload & Analysis' }));
+    await screen.findByRole('alert');
+
+    const submit = screen.getByRole('button', {
+      name: 'Start Upload & Analysis',
+    }) as HTMLButtonElement;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(submit.disabled).toBe(true);
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+  });
+
+  it('guards handler re-entry while the first upload request remains active', async () => {
+    mockAllowanceRequests(belowLimitAllowance);
+    const uploadResponse = deferred<{ id: string }>();
+    const uploadId = vi.fn(() => '11111111-1111-4111-8111-111111111111');
+    vi.stubGlobal('crypto', { randomUUID: uploadId });
+    mocks.apiPost.mockReturnValue(uploadResponse.promise);
+    const user = userEvent.setup();
+    render(<FilesPage />);
+
+    await screen.findByText('physics.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload File' }));
+    await user.upload(
+      screen.getByLabelText(/Choose a file/),
+      new File(['%PDF'], 'lesson.pdf', { type: 'application/pdf' }),
+    );
+    const form = screen.getByRole('button', { name: 'Start Upload & Analysis' }).closest('form')!;
+
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+    expect(uploadId).toHaveBeenCalledOnce();
+
+    uploadResponse.resolve({ id: 'new-file' });
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/files/new-file'));
+  });
+
   it('normalizes over-limit usage and handles a missing reset date defensively', async () => {
     mocks.apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/files?')) {
@@ -359,6 +687,7 @@ describe('files and legacy navigation semantics', () => {
   });
 
   it('keeps the files page available when allowance data is malformed', async () => {
+    const user = userEvent.setup();
     mocks.apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/files?')) {
         return Promise.resolve({
@@ -379,9 +708,14 @@ describe('files and legacy navigation semantics', () => {
     expect(
       await screen.findByText('Monthly upload allowance is temporarily unavailable.'),
     ).not.toBeNull();
+    const uploadAction = screen.getByRole('button', { name: 'Upload File' }) as HTMLButtonElement;
+    expect(uploadAction.disabled).toBe(false);
+    await user.click(uploadAction);
+    expect(await screen.findByRole('dialog', { name: 'Upload File' })).not.toBeNull();
   });
 
   it('keeps the files page available when allowance retrieval fails', async () => {
+    const user = userEvent.setup();
     mocks.apiGet.mockImplementation((url: string) => {
       if (url.startsWith('/files?')) {
         return Promise.resolve({
@@ -400,6 +734,10 @@ describe('files and legacy navigation semantics', () => {
     expect(
       await screen.findByText('Monthly upload allowance is temporarily unavailable.'),
     ).not.toBeNull();
+    const uploadAction = screen.getByRole('button', { name: 'Upload File' }) as HTMLButtonElement;
+    expect(uploadAction.disabled).toBe(false);
+    await user.click(uploadAction);
+    expect(await screen.findByRole('dialog', { name: 'Upload File' })).not.toBeNull();
   });
 
   it('keeps destructive cancel safe and returns focus to its trigger', async () => {
