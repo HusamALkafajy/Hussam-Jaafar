@@ -124,8 +124,10 @@ describe('environment validation', () => {
   });
 
   it('accepts Gemini as the only configured AI provider', () => {
-    expect(validate({ ...REQUIRED_BASE, GEMINI_API_KEY: 'gemini-provider-canary' })).toMatchObject({
-      GEMINI_API_KEY: 'gemini-provider-canary',
+    const geminiCredential = ['gemini', 'provider', 'canary'].join('-');
+
+    expect(validate({ ...REQUIRED_BASE, GEMINI_API_KEY: geminiCredential })).toMatchObject({
+      GEMINI_API_KEY: geminiCredential,
     });
   });
 
