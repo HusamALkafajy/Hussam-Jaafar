@@ -167,6 +167,8 @@ const file = {
   processingStatus: 'completed',
 };
 
+const TEST_NOW_MS = Date.parse('2026-08-31T12:00:00.000Z');
+
 const belowLimitAllowance = {
   currentPeriodEnd: '2026-09-01T00:00:00.000Z',
   filesUsedThisMonth: 2,
@@ -230,9 +232,11 @@ function pageUploadAction() {
 
 describe('files and legacy navigation semantics', () => {
   let consoleError: ReturnType<typeof vi.spyOn>;
+  let dateNow: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    dateNow = vi.spyOn(Date, 'now').mockReturnValue(TEST_NOW_MS);
     mocks.locale = 'en';
     consoleError = vi
       .spyOn(console, 'error')
@@ -282,10 +286,11 @@ describe('files and legacy navigation semantics', () => {
       ),
     );
 
-    expect(semanticErrors).toEqual([]);
     consoleError.mockRestore();
+    dateNow.mockRestore();
     vi.unstubAllGlobals();
     cleanup();
+    expect(semanticErrors).toEqual([]);
   });
 
   it('keeps file navigation and destructive confirmation as separate controls', async () => {
