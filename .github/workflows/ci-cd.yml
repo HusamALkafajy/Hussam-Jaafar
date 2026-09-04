@@ -105,6 +105,8 @@ jobs:
           mkdir -p "$STORAGE_ROOT"
           echo "STORAGE_PATH=$STORAGE_ROOT" >> "$GITHUB_ENV"
           echo "CI_REDIS_CONTAINER=studyai-ci-redis-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "CI_REDIS_CONFIG=$RUNNER_TEMP/studyai-ci-redis.conf" >> "$GITHUB_ENV"
+          echo "CI_REDIS_AUTH_FILE=$RUNNER_TEMP/studyai-ci-redis.env" >> "$GITHUB_ENV"
           echo "CI_API_CONTAINER=studyai-ci-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
           echo "CI_API_IMAGE=studyai-ci-api:${GITHUB_SHA}" >> "$GITHUB_ENV"
 
@@ -115,35 +117,120 @@ jobs:
           RUNTIME_VALUE="$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('hex'))")"
           echo "::add-mask::$RUNTIME_VALUE"
 
-          REDIS_CONFIG="$RUNNER_TEMP/studyai-ci-redis.conf"
-          REDIS_AUTH_FILE="$RUNNER_TEMP/studyai-ci-redis.env"
+          REDIS_IMAGE="redis@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c"
+          REDIS_CONFIG="$CI_REDIS_CONFIG"
+          REDIS_AUTH_FILE="$CI_REDIS_AUTH_FILE"
           umask 077
           printf 'bind 0.0.0.0\nprotected-mode yes\nport 6379\nrequirepass %s\n' "$RUNTIME_VALUE" > "$REDIS_CONFIG"
           printf 'REDISCLI_AUTH=%s\n' "$RUNTIME_VALUE" > "$REDIS_AUTH_FILE"
           chmod 600 "$REDIS_CONFIG" "$REDIS_AUTH_FILE"
+
+          REDIS_RUNTIME_IDENTITY="$(
+            docker run --rm --entrypoint sh "$REDIS_IMAGE" -c \
+              'printf "%s:%s" "$(id -u redis)" "$(id -g redis)"'
+          )"
+          if [[ ! "$REDIS_RUNTIME_IDENTITY" =~ ^[1-9][0-9]*:[0-9]+$ ]]; then
+            echo "Pinned Redis image did not expose a valid non-root runtime identity." >&2
+            exit 1
+          fi
+          IFS=: read -r REDIS_RUNTIME_UID REDIS_RUNTIME_GID <<< "$REDIS_RUNTIME_IDENTITY"
+          sudo chown "$REDIS_RUNTIME_UID:$REDIS_RUNTIME_GID" "$REDIS_CONFIG"
+          chmod 600 "$REDIS_CONFIG"
 
           docker run --detach \
             --name "$CI_REDIS_CONTAINER" \
             --publish 127.0.0.1:6379:6379 \
             --env-file "$REDIS_AUTH_FILE" \
             --mount "type=bind,src=$REDIS_CONFIG,dst=/usr/local/etc/redis/redis.conf,readonly" \
-            redis@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c \
+            "$REDIS_IMAGE" \
             redis-server /usr/local/etc/redis/redis.conf >/dev/null
 
+          report_redis_failure() {
+            set +e
+            local running exit_code oom_killed docker_error mount_contract
+            running="$(docker container inspect --format '{{.State.Running}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            exit_code="$(docker container inspect --format '{{.State.ExitCode}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            oom_killed="$(docker container inspect --format '{{.State.OOMKilled}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            docker_error="$(docker container inspect --format '{{.State.Error}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            mount_contract="$(
+              docker container inspect --format \
+                '{{range .Mounts}}{{if eq .Destination "/usr/local/etc/redis/redis.conf"}}{{.Type}}|{{.Destination}}|{{.RW}}{{end}}{{end}}' \
+                "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable
+            )"
+
+            if [[ "$docker_error" == *"$RUNTIME_VALUE"* ]]; then
+              docker_error='[rejected: disposable credential detected]'
+            fi
+
+            printf 'Redis readiness failure category: %s\n' "${REDIS_FAILURE_CATEGORY:-unknown}" >&2
+            printf 'Redis container running: %s\n' "$running" >&2
+            printf 'Redis container exit code: %s\n' "$exit_code" >&2
+            printf 'Redis container OOM killed: %s\n' "$oom_killed" >&2
+            printf 'Redis Docker error: %s\n' "${docker_error:-none}" >&2
+            printf 'Redis configured runtime user: %s:%s\n' "$REDIS_RUNTIME_UID" "$REDIS_RUNTIME_GID" >&2
+            printf 'Redis configuration mount type|destination|writable: %s\n' "${mount_contract:-missing}" >&2
+
+            while IFS= read -r line; do
+              if [[ "$line" == *"$RUNTIME_VALUE"* ]] ||
+                [[ "$line" == *requirepass* ]] ||
+                [[ "$line" == *REDISCLI_AUTH* ]] ||
+                [[ "$line" == *redis://* ]]; then
+                echo "Redis diagnostic line rejected by the credential filter." >&2
+              else
+                printf 'Redis log: %s\n' "$line" >&2
+              fi
+            done < <(docker logs --tail 40 "$CI_REDIS_CONTAINER" 2>&1)
+          }
+
+          REDIS_READY=false
+          REDIS_FAILURE_CATEGORY=readiness-timeout
           for attempt in $(seq 1 30); do
-            if docker exec "$CI_REDIS_CONTAINER" redis-cli ping 2>/dev/null | grep -qx PONG; then
+            if ! docker container inspect "$CI_REDIS_CONTAINER" >/dev/null 2>&1; then
+              REDIS_FAILURE_CATEGORY=container-missing
               break
             fi
+            if [ "$(docker container inspect --format '{{.State.Running}}' "$CI_REDIS_CONTAINER")" != true ]; then
+              REDIS_FAILURE_CATEGORY=container-exited-before-readiness
+              break
+            fi
+            if PROBE_OUTPUT="$(docker exec "$CI_REDIS_CONTAINER" redis-cli ping 2>&1)"; then
+              if [ "$PROBE_OUTPUT" = PONG ]; then
+                REDIS_READY=true
+                REDIS_FAILURE_CATEGORY=none
+                break
+              fi
+              REDIS_FAILURE_CATEGORY=authenticated-probe-unexpected-response
+            elif grep -q 'NOAUTH' <<< "$PROBE_OUTPUT"; then
+              REDIS_FAILURE_CATEGORY=authenticated-probe-rejected
+            else
+              REDIS_FAILURE_CATEGORY=authenticated-probe-execution-failed
+            fi
             if [ "$attempt" -eq 30 ]; then
-              echo "Authenticated Redis did not become ready." >&2
-              exit 1
+              break
             fi
             sleep 1
           done
+          unset PROBE_OUTPUT
+
+          if [ "$REDIS_READY" != true ]; then
+            report_redis_failure
+            exit 1
+          fi
+
+          REDIS_PROCESS_UID="$(docker exec --user 0 "$CI_REDIS_CONTAINER" awk '/^Uid:/{print $2}' /proc/1/status)"
+          REDIS_PROCESS_GID="$(docker exec --user 0 "$CI_REDIS_CONTAINER" awk '/^Gid:/{print $2}' /proc/1/status)"
+          if [ "$REDIS_PROCESS_UID:$REDIS_PROCESS_GID" != "$REDIS_RUNTIME_IDENTITY" ]; then
+            REDIS_FAILURE_CATEGORY=runtime-identity-mismatch
+            report_redis_failure
+            exit 1
+          fi
 
           docker exec --env REDISCLI_AUTH= "$CI_REDIS_CONTAINER" redis-cli ping \
             > "$RUNNER_TEMP/studyai-ci-redis-unauth.log" 2>&1 || true
-          grep -q 'NOAUTH' "$RUNNER_TEMP/studyai-ci-redis-unauth.log"
+          if ! grep -q 'NOAUTH' "$RUNNER_TEMP/studyai-ci-redis-unauth.log"; then
+            echo "Unauthenticated Redis rejection was not proven." >&2
+            exit 1
+          fi
           if grep -qx PONG "$RUNNER_TEMP/studyai-ci-redis-unauth.log"; then
             echo "Unauthenticated Redis access unexpectedly succeeded." >&2
             exit 1
@@ -152,8 +239,6 @@ jobs:
 
           echo "REDIS_PASSWORD=$RUNTIME_VALUE" >> "$GITHUB_ENV"
           echo "REDIS_URL=redis://:${RUNTIME_VALUE}@127.0.0.1:6379" >> "$GITHUB_ENV"
-          echo "CI_REDIS_CONFIG=$REDIS_CONFIG" >> "$GITHUB_ENV"
-          echo "CI_REDIS_AUTH_FILE=$REDIS_AUTH_FILE" >> "$GITHUB_ENV"
 
       - name: Verify PostgreSQL and Redis readiness
         shell: bash
@@ -443,6 +528,16 @@ jobs:
             "$RUNNER_TEMP/api-integration-tests.json"
           rm -rf "${STORAGE_PATH:-$RUNNER_TEMP/studyai-ci-uploads}"
 
+          for TASK_FILE in \
+            "${CI_REDIS_CONFIG:-}" \
+            "${CI_REDIS_AUTH_FILE:-}" \
+            "${CI_API_ENV_FILE:-}"; do
+            if [ -n "$TASK_FILE" ] && [ -e "$TASK_FILE" ]; then
+              echo "Disposable task file residue remains." >&2
+              exit 1
+            fi
+          done
+
           if [ -n "${CI_API_CONTAINER:-}" ] && docker container inspect "$CI_API_CONTAINER" >/dev/null 2>&1; then
             echo "Disposable API container residue remains." >&2
             exit 1
@@ -451,7 +546,7 @@ jobs:
             echo "Disposable Redis container residue remains." >&2
             exit 1
           fi
-          if ss -ltn | grep -Eq ":(${CI_API_PORT}|${CI_WEB_PORT})[[:space:]]"; then
+          if ss -ltn | grep -Eq ":(${CI_API_PORT}|${CI_WEB_PORT}|${REDIS_PORT})[[:space:]]"; then
             echo "Disposable listener residue remains." >&2
             exit 1
           fi
