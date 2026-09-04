@@ -125,6 +125,16 @@ jobs:
           printf 'REDISCLI_AUTH=%s\n' "$RUNTIME_VALUE" > "$REDIS_AUTH_FILE"
           chmod 600 "$REDIS_CONFIG" "$REDIS_AUTH_FILE"
 
+          RUNNER_IDENTITY="$(id -u):$(id -g)"
+          if [ "$(stat --printf '%u:%g:%a:%F:%n' -- "$REDIS_CONFIG")" != "$RUNNER_IDENTITY:600:regular file:$REDIS_CONFIG" ]; then
+            echo "Redis configuration pre-transfer contract mismatch." >&2
+            exit 1
+          fi
+          if [ "$(stat --printf '%u:%g:%a:%F:%n' -- "$REDIS_AUTH_FILE")" != "$RUNNER_IDENTITY:600:regular file:$REDIS_AUTH_FILE" ]; then
+            echo "Redis authentication-file contract mismatch." >&2
+            exit 1
+          fi
+
           REDIS_RUNTIME_IDENTITY="$(
             docker run --rm --entrypoint sh "$REDIS_IMAGE" -c \
               'printf "%s:%s" "$(id -u redis)" "$(id -g redis)"'
@@ -135,7 +145,10 @@ jobs:
           fi
           IFS=: read -r REDIS_RUNTIME_UID REDIS_RUNTIME_GID <<< "$REDIS_RUNTIME_IDENTITY"
           sudo chown "$REDIS_RUNTIME_UID:$REDIS_RUNTIME_GID" "$REDIS_CONFIG"
-          chmod 600 "$REDIS_CONFIG"
+          if [ "$(stat --printf '%u:%g:%a:%F:%n' -- "$REDIS_CONFIG")" != "$REDIS_RUNTIME_IDENTITY:600:regular file:$REDIS_CONFIG" ]; then
+            echo "Redis configuration ownership contract mismatch." >&2
+            exit 1
+          fi
 
           docker run --detach \
             --name "$CI_REDIS_CONTAINER" \
