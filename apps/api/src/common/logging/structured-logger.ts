@@ -3,23 +3,28 @@ import { requestContext } from '../request-context';
 
 const REDACTED = '[REDACTED]';
 const SENSITIVE_KEY =
-  /(password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key|email|jwt|prompt|raw.?response|response.?text)/i;
+  /(password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key|email|jwt|prompt|raw.?response|response.?text|csrf|query|string.?params|search.?params)/i;
+const URL_WITH_QUERY = /((?:https?:\/\/|\/)[^\s"'<>?]+)\?[^\s"'<>]*/gi;
 const DATABASE_OR_CACHE_URL =
   /\b(?:postgres(?:ql)?|redis(?:s)?|mysql|mariadb|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi;
 const CREDENTIAL_URL =
   /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:[^@/\s]+@[^\s"'<>]+/gi;
 const EMAIL_ADDRESS = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const JWT_TOKEN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+const SENSITIVE_INLINE_VALUE =
+  /((?:oauth.?code|oauth.?state|csrf(?:.?token)?|x-csrf-token|client.?secret)\s*[:=]\s*)(Bearer\s+[^\s,;]+|"[^"]*"|'[^']*'|[^\s,;]+)/gi;
 
 type LogLevel = 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal';
 
 export function redactLogValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === 'string') {
     return value
+      .replace(URL_WITH_QUERY, '$1')
       .replace(DATABASE_OR_CACHE_URL, REDACTED)
       .replace(CREDENTIAL_URL, REDACTED)
       .replace(EMAIL_ADDRESS, REDACTED)
       .replace(JWT_TOKEN, REDACTED)
+      .replace(SENSITIVE_INLINE_VALUE, '$1' + REDACTED)
       .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED}`)
       .replace(
         /((?:password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key)\s*[:=]\s*)(Bearer\s+[^\s,;]+|"[^"]*"|'[^']*'|[^\s,;]+)/gi,

@@ -2,7 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { once, EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import { of } from 'rxjs';
-import { FilesController } from './files.controller';
+import { buildInlineContentDisposition, FilesController } from './files.controller';
 import { FilesService } from './files.service';
 
 type CapturedResponse = Writable & {
@@ -142,6 +142,33 @@ describe('FilesController original-content Range contract', () => {
     expect(response.capturedHeaders.get('content-length')).toBe(String(source.length));
     expect(body).toEqual(source);
     expect(storageProvider.download).toHaveBeenCalledWith('documents', file.storageKey, undefined);
+  });
+
+  it('serializes a mixed Arabic and Latin filename as an ASCII-safe inline header', async () => {
+    const { controller, service } = createHarness();
+    const response = createResponse();
+    service.findById.mockResolvedValueOnce({
+      ...file,
+      originalName: 'تعلم n8n من الصفر إلى الاحتراف.pdf',
+    });
+
+    await invoke(controller, response);
+
+    const disposition = response.capturedHeaders.get('content-disposition');
+    expect(disposition).toMatch(/^inline; filename="[\x20-\x7e]+"; filename\*=UTF-8''/);
+    expect(disposition).not.toContain('تعلم');
+    expect(decodeURIComponent(disposition!.split("filename*=UTF-8''")[1])).toBe(
+      'تعلم n8n من الصفر إلى الاحتراف.pdf',
+    );
+  });
+
+  it('removes header controls, quotes, slashes, and invalid Unicode from download names', () => {
+    const disposition = buildInlineContentDisposition('unsafe\r\n"\\\ud800.pdf');
+
+    expect(disposition).toBe(
+      "inline; filename=\"unsafe_____.pdf\"; filename*=UTF-8''unsafe_____.pdf",
+    );
+    expect(disposition).not.toMatch(/[\r\n]/);
   });
 
   it('does not disclose the protected size when ownership lookup fails', async () => {

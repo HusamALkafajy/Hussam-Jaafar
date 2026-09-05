@@ -230,7 +230,14 @@
     "untitledDocument": "Untitled document",
     "deleteSuccess": "File deleted successfully.",
     "deleteFailure": "Could not delete the file. Try again.",
-    "quotaExceeded": "Your storage limit has been reached. Remove a file or upgrade your plan before uploading.",
+    "quotaExceeded": "You have reached your monthly upload limit. New uploads become available after the monthly reset.",
+    "monthlyUploadAllowance": "Monthly upload allowance",
+    "monthlyUploadsUsed": "Monthly uploads used: {used} / {limit}",
+    "monthlyUploadsRemaining": "Uploads remaining this month: {remaining}",
+    "monthlyUploadsReset": "Resets on {date}",
+    "monthlyUploadsResetUnavailable": "Reset date unavailable",
+    "monthlyUploadLimitReached": "Monthly upload limit reached. New uploads become available after the monthly reset.",
+    "monthlyUploadUsageUnavailable": "Monthly upload allowance is temporarily unavailable.",
     "uploadNetworkFailure": "Upload failed. Check your connection and try again.",
     "sessionExpired": "Your session expired. Sign in again before uploading.",
     "uploadStorageFailure": "The file could not be stored. Try again shortly.",
@@ -259,6 +266,8 @@
     ,"ocrRequiredDescription": "This PDF has no usable text layer. You can still view the original document, but learning features will remain unavailable until OCR support is added."
     ,"pdfLoading": "Loading original document…"
     ,"pdfLoadFailed": "The original PDF could not be loaded. Please try again."
+    ,"pdfMissing": "The original PDF is no longer available. Return to My Files or upload it again."
+    ,"pdfInvalid": "The original file is not a valid PDF. Upload a new copy to continue."
     ,"pdfPreviousPage": "Previous page"
     ,"pdfNextPage": "Next page"
     ,"pdfZoomIn": "Zoom in"

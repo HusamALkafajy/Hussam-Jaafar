@@ -47,6 +47,38 @@ const EXPLANATION_SYSTEM_PROMPT =
   'Ensure the language of all values matches the requested language (Arabic or English).';
 
 
+type ProviderFailureReason =
+  | 'provider_authentication_failed'
+  | 'provider_credit_required'
+  | 'provider_rate_limited'
+  | 'provider_request_rejected'
+  | 'provider_timeout'
+  | 'provider_unavailable'
+  | 'provider_response_invalid'
+  | 'provider_failure';
+
+type ProviderOperation =
+  | 'summary'
+  | 'explain'
+  | 'chat'
+  | 'flashcards'
+  | 'exam'
+  | 'extraction'
+  | 'completion'
+  | 'stream';
+
+type ProviderName = 'openrouter' | 'gemini';
+
+class ProviderFailureError extends Error {
+  constructor(
+    readonly reason: ProviderFailureReason,
+    readonly status?: number,
+  ) {
+    super(reason);
+    this.name = 'ProviderFailureError';
+  }
+}
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -96,19 +128,19 @@ export class AiService {
     if (useGeminiSdk && geminiApiKey) {
       this.geminiClient = new GoogleGenerativeAI(geminiApiKey);
       this.geminiModel  = this.defaultModel;
-      this.logger.log(
-        `[AiService] PROVIDER=GeminiSDK  model=${this.geminiModel}  ` +
-        '(PDF/image â†’ @google/generative-ai inlineData; text calls â†’ Google compat REST)',
-      );
+      this.logger.log('ai_provider_configured', {
+        event: 'ai_provider_configured',
+        provider: 'gemini',
+      });
     } else if (this.apiKey) {
-      this.logger.log(
-        `[AiService] PROVIDER=OpenRouter  endpoint=${this.baseUrl}/chat/completions  model=${this.defaultModel}`,
-      );
+      this.logger.log('ai_provider_configured', {
+        event: 'ai_provider_configured',
+        provider: 'openrouter',
+      });
     } else {
-      this.logger.warn(
-        '[AiService] PROVIDER=MockMode â€” no API key found. ' +
-        'Set OPENROUTER_API_KEY (preferred) or GEMINI_API_KEY in apps/api/.env.',
-      );
+      this.logger.warn('ai_provider_mock_mode', {
+        event: 'ai_provider_mock_mode',
+      });
     }
   }
 
@@ -200,35 +232,113 @@ export class AiService {
     return result;
   }
 
+  private getTrustedProviderStatus(error: unknown): number | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+
+    const candidate = error as Record<string, unknown>;
+    for (const key of ['status', 'statusCode', 'status_code']) {
+      const value = candidate[key];
+      if (typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599) {
+        return value;
+      }
+    }
+
+    return undefined;
+  }
+
+  private classifyProviderFailure(error: unknown): ProviderFailureError {
+    if (error instanceof ProviderFailureError) return error;
+
+    const status = this.getTrustedProviderStatus(error);
+    const errorName =
+      error && typeof error === 'object' && typeof (error as { name?: unknown }).name === 'string'
+        ? (error as { name: string }).name
+        : undefined;
+
+    if (errorName === 'AbortError' || errorName === 'TimeoutError') {
+      return new ProviderFailureError('provider_timeout', status);
+    }
+
+    switch (status) {
+      case 401:
+      case 403:
+        return new ProviderFailureError('provider_authentication_failed', status);
+      case 402:
+        return new ProviderFailureError('provider_credit_required', status);
+      case 429:
+        return new ProviderFailureError('provider_rate_limited', status);
+      case 400:
+        return new ProviderFailureError('provider_request_rejected', status);
+      case 500:
+      case 502:
+      case 503:
+        return new ProviderFailureError('provider_unavailable', status);
+      default:
+        return new ProviderFailureError('provider_failure', status);
+    }
+  }
+
+  private logProviderFailure(
+    operation: ProviderOperation,
+    error: unknown,
+    provider: ProviderName = 'openrouter',
+    retryCount?: number,
+  ): ProviderFailureError {
+    const failure = this.classifyProviderFailure(error);
+    this.logger.error('ai_provider_failure', {
+      event: 'ai_provider_failure',
+      provider,
+      operation,
+      reason: failure.reason,
+      ...(failure.status !== undefined ? { status: failure.status } : {}),
+      ...(retryCount !== undefined ? { retryCount } : {}),
+    });
+    return failure;
+  }
+
+  private throwProviderOperationFailure(
+    operation: ProviderOperation,
+    error: unknown,
+    provider: ProviderName = 'openrouter',
+  ): never {
+    const failure = this.logProviderFailure(operation, error, provider);
+    const messages: Record<ProviderOperation, string> = {
+      summary: 'Summary generation failed.',
+      explain: 'Explanation generation failed.',
+      chat: 'Document chat generation failed.',
+      flashcards: 'Flashcard generation failed.',
+      exam: 'Exam generation failed.',
+      extraction: 'Document text extraction failed.',
+      completion: 'AI completion failed.',
+      stream: 'AI stream generation failed.',
+    };
+
+    throw new InternalServerErrorException({
+      message: messages[operation],
+      code: failure.reason,
+    });
+  }
+
   private async runWithRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay = 1000): Promise<T> {
     let delay = initialDelay;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         return await fn();
-      } catch (error: any) {
-        const errorMsg = String(error.message || error).toLowerCase();
-        const statusCode = error.status || error.statusCode || error.status_code || 0;
-
-        const isRetryable =
-          statusCode === 503 ||
-          statusCode === 429 ||
-          errorMsg.includes('503') ||
-          errorMsg.includes('429') ||
-          errorMsg.includes('service unavailable') ||
-          errorMsg.includes('resource exhausted') ||
-          errorMsg.includes('rate limit') ||
-          errorMsg.includes('quota') ||
-          errorMsg.includes('high demand') ||
-          errorMsg.includes('overloaded');
+      } catch (error: unknown) {
+        const failure = this.classifyProviderFailure(error);
+        const isRetryable = failure.status === 503 || failure.status === 429;
 
         if (isRetryable && attempt < maxRetries) {
-          this.logger.warn(
-            `OpenRouter API returned retryable error (attempt ${attempt}/${maxRetries}): ${error.message || error}. Retrying in ${delay}ms...`
-          );
+          this.logger.warn('ai_provider_retry', {
+            event: 'ai_provider_retry',
+            reason: failure.reason,
+            status: failure.status,
+            retryCount: attempt,
+          });
           await new Promise((resolve) => setTimeout(resolve, delay));
           delay *= 2; // Exponential backoff
         } else {
-          throw error;
+          throw failure;
         }
       }
     }
@@ -272,26 +382,33 @@ export class AiService {
 
 
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        let errorMsg = res.statusText;
-        try {
-          const errorJson = await res.json();
-          errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
-        } catch (e) {}
-        throw new Error(`OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`);
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        throw this.classifyProviderFailure(error);
       }
 
-      const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) {
-        throw new Error('Invalid or empty response from OpenRouter API');
+      if (!res.ok) {
+        throw this.classifyProviderFailure({ status: res.status });
+      }
+
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch {
+        throw new ProviderFailureError('provider_response_invalid');
+      }
+
+      const content = (data as { choices?: Array<{ message?: { content?: unknown } }> })
+        ?.choices?.[0]?.message?.content;
+      if (typeof content !== 'string' || !content) {
+        throw new ProviderFailureError('provider_response_invalid');
       }
 
       return content;
@@ -303,6 +420,7 @@ export class AiService {
   public callOpenRouterStream(
     messages: Array<{ role: string; content: any }>,
     maxTokensOverride?: number,
+    operation: ProviderOperation = 'stream',
   ): Observable<MessageEvent> {
     const store = requestContext.getStore();
     const userId = (store?.user as any)?.id;
@@ -316,11 +434,10 @@ export class AiService {
         checkQuota(userId).catch(err => subscriber.error(err));
       }
 
-      // Guard: warn and abort early if API key is missing
       if (!this.apiKey) {
-        const msg = '[AiService] callOpenRouterStream: No API key configured. Set OPENROUTER_API_KEY or GEMINI_API_KEY.';
-        this.logger.error(msg);
-        subscriber.error(new Error(msg));
+        const failure = new ProviderFailureError('provider_failure');
+        this.logProviderFailure(operation, failure);
+        subscriber.error(failure);
         return;
       }
 
@@ -341,9 +458,11 @@ export class AiService {
 
       const controller = new AbortController();
 
-      this.logger.debug(
-        `[AiService] callOpenRouterStream → POST ${url} (model=${this.defaultModel}, max_tokens=${maxTokensOverride ?? AiService.OPENROUTER_MAX_TOKENS})`,
-      );
+      this.logger.debug('ai_provider_request_started', {
+        event: 'ai_provider_request_started',
+        provider: 'openrouter',
+        operation,
+      });
 
       fetch(url, {
         method: 'POST',
@@ -353,21 +472,17 @@ export class AiService {
       })
         .then(async (res) => {
           if (!res.ok) {
-            let errorMsg = res.statusText || '(no status text)';
-            try {
-              const errorJson = await res.json();
-              errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
-            } catch (e) {
-              // response body may not be JSON — keep statusText
-            }
-            const fullError = `OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`;
-            this.logger.error(`[AiService] callOpenRouterStream: ${fullError} | url=${url}`);
-            subscriber.error(new Error(fullError));
+            const failure = this.logProviderFailure(operation, { status: res.status });
+            subscriber.error(failure);
             return;
           }
 
           if (!res.body) {
-            subscriber.error(new Error('No response body from OpenRouter'));
+            const failure = this.logProviderFailure(
+              operation,
+              new ProviderFailureError('provider_response_invalid'),
+            );
+            subscriber.error(failure);
             return;
           }
 
@@ -407,19 +522,16 @@ export class AiService {
                 }
               }
               subscriber.complete();
-            } catch (err) {
-              subscriber.error(err);
+            } catch (error) {
+              const failure = this.logProviderFailure(operation, error);
+              subscriber.error(failure);
             }
           };
           read();
         })
-        .catch((err: any) => {
-          // Network-level failure (DNS, timeout, connection refused, invalid URL, etc.)
-          const cause = err?.cause ? ` | cause: ${String(err.cause)}` : '';
-          this.logger.error(
-            `[AiService] callOpenRouterStream: Network-level fetch error — ${err?.message ?? String(err)}${cause} | url=${url}`,
-          );
-          subscriber.error(err);
+        .catch((error: unknown) => {
+          const failure = this.logProviderFailure(operation, error);
+          subscriber.error(failure);
         });
 
       return () => {
@@ -434,7 +546,7 @@ export class AiService {
       { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
       { role: 'user', content: getSummaryUserPrompt(safeText, level, language) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
     ];
-    return this.callOpenRouterStream(messages);
+    return this.callOpenRouterStream(messages, undefined, 'summary');
   }
 
   chatWithDocumentStream(text: string, question: string, history: any[]): Observable<MessageEvent> {
@@ -447,7 +559,7 @@ export class AiService {
       ...formattedHistory,
       { role: 'user', content: getChatUserPrompt(question) + '\n\nNOTE: Please provide the response in plain text or markdown, not JSON, so it can be streamed.' }
     ];
-    return this.callOpenRouterStream(messages);
+    return this.callOpenRouterStream(messages, undefined, 'chat');
   }
 
   async getEmbedding(text: string): Promise<number[]> {
@@ -624,9 +736,11 @@ export class AiService {
    *   2. The gemini-1.5-flash fallback model (handles copyright triggers differently).
    */
   private async extractTextWithGeminiSdk(filePath: string, mimeType: string): Promise<string> {
-    this.logger.log(
-      `[Gemini SDK] Reading file ${filePath} (${mimeType}) for native SDK processing...`,
-    );
+    this.logger.log('ai_provider_request_started', {
+      event: 'ai_provider_request_started',
+      provider: 'gemini',
+      operation: 'extraction',
+    });
 
     const fileBuffer = await fs.readFile(filePath);
     const base64Data = fileBuffer.toString('base64');
@@ -644,9 +758,12 @@ export class AiService {
 
     // â”€â”€ Attempt 1: primary model, anti-recitation prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try {
-      this.logger.log(
-        `[Gemini SDK] Attempt 1 â€” model "${this.geminiModel}" with anti-recitation prompt...`,
-      );
+      this.logger.debug('ai_provider_attempt_started', {
+        event: 'ai_provider_attempt_started',
+        provider: 'gemini',
+        operation: 'extraction',
+        retryCount: 0,
+      });
 
       const result = await this.runWithRetry(() =>
         buildModel(this.geminiModel).generateContent([
@@ -667,10 +784,12 @@ export class AiService {
 
       if (finishReason === 'RECITATION') {
         // Do NOT throw yet â€” fall through to Attempt 2.
-        this.logger.warn(
-          `[Gemini SDK] RECITATION block on primary model "${this.geminiModel}". ` +
-          `Falling back to "${this.recitationFallbackModel}" with stricter paraphrase prompt...`,
-        );
+        this.logger.warn('ai_provider_fallback', {
+          event: 'ai_provider_fallback',
+          provider: 'gemini',
+          operation: 'extraction',
+          reason: 'provider_request_rejected',
+        });
       } else {
         const text = result.response.text();
         if (!text) {
@@ -678,21 +797,17 @@ export class AiService {
             `Gemini SDK returned empty text (finishReason: ${finishReason ?? 'unknown'}).`,
           );
         }
-        this.logger.log(`[Gemini SDK] Attempt 1 successful for ${filePath}.`);
+        this.logger.log('ai_provider_request_completed', {
+          event: 'ai_provider_request_completed',
+          provider: 'gemini',
+          operation: 'extraction',
+        });
         return text;
       }
     } catch (err: any) {
       // Only rethrow non-RECITATION errors from attempt 1 â€” RECITATION
       // is handled by falling through to attempt 2 (already logged above).
-      if (!err?.message?.includes('RECITATION')) {
-        this.logger.error('[Gemini SDK] Attempt 1 failed with non-RECITATION error:', err);
-        throw new InternalServerErrorException(
-          `Gemini SDK text extraction failed: ${err.message}`,
-        );
-      }
-      this.logger.warn(
-        `[Gemini SDK] Caught RECITATION in attempt 1 error: ${err.message}`,
-      );
+      this.throwProviderOperationFailure('extraction', err, 'gemini');
     }
 
     // â”€â”€ Attempt 2: fallback model + even stricter prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -700,9 +815,12 @@ export class AiService {
     // attribution heuristic and are less likely to trigger RECITATION on
     // the same content than gemini-2.5-flash.
     try {
-      this.logger.log(
-        `[Gemini SDK] Attempt 2 â€” fallback model "${this.recitationFallbackModel}"...`,
-      );
+      this.logger.debug('ai_provider_attempt_started', {
+        event: 'ai_provider_attempt_started',
+        provider: 'gemini',
+        operation: 'extraction',
+        retryCount: 1,
+      });
 
       const stricterPrompt =
         'You are a document analyser. Your task is to restructure and reformat the attached ' +
@@ -724,10 +842,12 @@ export class AiService {
         // Both attempts blocked â€” return a graceful degradation payload so
         // the file is marked COMPLETED (not stuck in PROCESSING) and the
         // user sees a useful message instead of a spinner forever.
-        this.logger.error(
-          `[Gemini SDK] RECITATION persisted on fallback model for ${filePath}. ` +
-          'Returning degradation notice so file is marked COMPLETED.',
-        );
+        this.logger.error('ai_provider_degradation', {
+          event: 'ai_provider_degradation',
+          provider: 'gemini',
+          operation: 'extraction',
+          reason: 'provider_request_rejected',
+        });
         return (
           '> **Note:** The AI was unable to extract the full text of this document due to ' +
           'content recitation restrictions. You can still use the document for Chat and Exam ' +
@@ -743,15 +863,14 @@ export class AiService {
         );
       }
 
-      this.logger.log(
-        `[Gemini SDK] Attempt 2 successful for ${filePath} using fallback model.`,
-      );
+      this.logger.log('ai_provider_request_completed', {
+        event: 'ai_provider_request_completed',
+        provider: 'gemini',
+        operation: 'extraction',
+      });
       return text;
-    } catch (error: any) {
-      this.logger.error('[Gemini SDK] Attempt 2 (fallback) failed:', error);
-      throw new InternalServerErrorException(
-        `Gemini SDK text extraction failed after all retries: ${error.message}`,
-      );
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('extraction', error, 'gemini');
     }
   }
 
@@ -761,14 +880,20 @@ export class AiService {
    */
   private async extractTextWithOpenRouter(filePath: string, mimeType: string): Promise<string> {
     try {
-      this.logger.log(
-        `[OpenRouter] Reading file ${filePath} (${mimeType}) for REST processing...`,
-      );
+      this.logger.log('ai_provider_request_started', {
+        event: 'ai_provider_request_started',
+        provider: 'openrouter',
+        operation: 'extraction',
+      });
       const fileBuffer = await fs.readFile(filePath);
       const base64Data = fileBuffer.toString('base64');
       const dataUrl = `data:${mimeType};base64,${base64Data}`;
 
-      this.logger.log(`[OpenRouter] Analyzing file using model ${this.defaultModel}...`);
+      this.logger.debug('ai_provider_request_dispatched', {
+        event: 'ai_provider_request_dispatched',
+        provider: 'openrouter',
+        operation: 'extraction',
+      });
 
       const messages = [
         { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
@@ -789,11 +914,8 @@ export class AiService {
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, false, 10 * 60 * 1000, 8192));
       return responseText;
-    } catch (error: any) {
-      this.logger.error('[OpenRouter] extractText failed:', error);
-      throw new InternalServerErrorException(
-        `OpenRouter API text extraction failed: ${error.message}`,
-      );
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('extraction', error);
     }
   }
 
@@ -809,9 +931,8 @@ export class AiService {
       messages.push({ role: 'user', content: prompt });
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, jsonMode));
       return jsonMode ? this.cleanJson(responseText) : responseText;
-    } catch (error: any) {
-      this.logger.error('Error in getCompletion:', error);
-      throw new InternalServerErrorException(`AI completion failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('completion', error);
     }
   }
 
@@ -834,9 +955,8 @@ export class AiService {
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       return JSON.parse(this.cleanJson(responseText));
-    } catch (error: any) {
-      this.logger.error('Error in generateSummary:', error);
-      throw new InternalServerErrorException(`Summary generation failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('summary', error);
     }
   }
 
@@ -910,11 +1030,8 @@ export class AiService {
     // 4. Parse â€” throws SyntaxError naturally if still malformed
     try {
       return JSON.parse(result) as T;
-    } catch (error) {
-      this.logger.error('AI response JSON parsing failed', error, {
-        responseLength: raw.length,
-      });
-      throw new Error('Explanation generation failed: The AI response was too long and got truncated. Please try again with a shorter section.');
+    } catch {
+      throw new ProviderFailureError('provider_response_invalid');
     }
   }
 
@@ -949,9 +1066,10 @@ export class AiService {
         });
 
         if (cached) {
-          this.logger.log(
-            `[generateExplanation] Cache HIT â€” fileId=${fileId} level=${level} lang=${language}`,
-          );
+          this.logger.log('ai_explanation_cache_hit', {
+            event: 'ai_explanation_cache_hit',
+            operation: 'explain',
+          });
           return {
             content: cached.content,
             examples: cached.examples ?? [],
@@ -959,12 +1077,15 @@ export class AiService {
           };
         }
 
-        this.logger.log(
-          `[generateExplanation] Cache MISS â€” calling OpenRouter for fileId=${fileId}`,
-        );
-      } catch (cacheErr: any) {
-        // Non-fatal: log and continue to generate fresh
-        this.logger.warn(`[generateExplanation] Cache lookup failed: ${cacheErr.message}`);
+        this.logger.log('ai_explanation_cache_miss', {
+          event: 'ai_explanation_cache_miss',
+          operation: 'explain',
+        });
+      } catch {
+        this.logger.warn('ai_explanation_cache_unavailable', {
+          event: 'ai_explanation_cache_unavailable',
+          operation: 'explain',
+        });
       }
     }
 
@@ -972,10 +1093,11 @@ export class AiService {
     const safeText = this.truncateContent(text, 'explanation text');
     const userPrompt = getExplanationUserPrompt(safeText, level, language);
 
-    this.logger.log(
-      `[generateExplanation] Sending request â€” ` +
-      `fileId=${fileId ?? 'n/a'}, level=${level}, lang=${language}, contentLen=${text?.length ?? 0}`,
-    );
+    this.logger.debug('ai_provider_request_prepared', {
+      event: 'ai_provider_request_prepared',
+      provider: 'openrouter',
+      operation: 'explain',
+    });
 
     const messages = [
       { role: 'system', content: EXPLANATION_SYSTEM_PROMPT },
@@ -989,14 +1111,15 @@ export class AiService {
         this.callOpenRouter(messages, /* jsonMode= */ true),
       );
 
-      this.logger.debug(
-        `[generateExplanation] Raw OpenRouter response length: ${responseText?.length}`,
-      );
+      this.logger.debug('ai_provider_response_received', {
+        event: 'ai_provider_response_received',
+        provider: 'openrouter',
+        operation: 'explain',
+      });
 
       parsed = this.sanitizeAndParseJson(responseText);
-    } catch (error: any) {
-      this.logger.error(`[generateExplanation] OpenRouter call or JSON parse failed: ${error?.message || error}`, error?.stack);
-      throw new InternalServerErrorException(`Explanation generation failed: ${error?.message || 'Unknown error'}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('explain', error);
     }
 
     // â”€â”€ 4. Persist to DB (non-fatal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1011,10 +1134,15 @@ export class AiService {
           examples: parsed.examples ?? [],
           comprehensionQuestions: parsed.comprehensionQuestions ?? [],
         });
-        this.logger.log(`[generateExplanation] Explanation persisted for fileId=${fileId}`);
-      } catch (dbErr: any) {
-        // Non-fatal: caller still receives the freshly-generated result
-        this.logger.warn(`[generateExplanation] DB insert failed (non-fatal): ${dbErr.message}`);
+        this.logger.log('ai_explanation_persisted', {
+          event: 'ai_explanation_persisted',
+          operation: 'explain',
+        });
+      } catch {
+        this.logger.warn('ai_explanation_persistence_unavailable', {
+          event: 'ai_explanation_persistence_unavailable',
+          operation: 'explain',
+        });
       }
     }
 
@@ -1053,9 +1181,8 @@ export class AiService {
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true, 15 * 60 * 1000));
       return JSON.parse(this.cleanJson(responseText));
-    } catch (error: any) {
-      this.logger.error('Error in generateExam:', error);
-      throw new InternalServerErrorException(`Exam generation failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('exam', error);
     }
   }
 
@@ -1079,9 +1206,8 @@ export class AiService {
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       return JSON.parse(this.cleanJson(responseText));
-    } catch (error: any) {
-      this.logger.error('Error in generateFlashcards:', error);
-      throw new InternalServerErrorException(`Flashcards generation failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('flashcards', error);
     }
   }
 
@@ -1107,9 +1233,8 @@ export class AiService {
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       return JSON.parse(this.cleanJson(responseText));
-    } catch (error: any) {
-      this.logger.error('Error in chatWithDocument:', error);
-      throw new InternalServerErrorException(`Document Q&A failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('chat', error);
     }
   }
 
@@ -1133,9 +1258,8 @@ export class AiService {
       // Tutor uses standard text output, not JSON, because it needs to generate rich Markdown text
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, false));
       return responseText;
-    } catch (error: any) {
-      this.logger.error('Error in chatWithTutor:', error);
-      throw new InternalServerErrorException(`Pedagogical Tutor Q&A failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('chat', error);
     }
   }
 
@@ -1203,9 +1327,8 @@ export class AiService {
         this.callOpenRouter(messages, true, 15 * 60 * 1000),
       );
       return JSON.parse(this.cleanJson(responseText));
-    } catch (error: any) {
-      this.logger.error('Error in generateExamFeedback:', error);
-      throw new InternalServerErrorException(`Exam feedback generation failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('exam', error);
     }
   }
 
@@ -1240,9 +1363,8 @@ export class AiService {
 
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       return JSON.parse(this.cleanJson(responseText));
-    } catch (error: any) {
-      this.logger.error('Error in generateAdaptiveQuestion:', error);
-      throw new InternalServerErrorException(`Adaptive question generation failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('exam', error);
     }
   }
 
@@ -1268,9 +1390,8 @@ Return JSON: { "summary": "..." }`;
       ];
       const responseText = await this.runWithRetry(() => this.callOpenRouter(messages, true));
       return JSON.parse(this.cleanJson(responseText));
-    } catch (error: any) {
-      this.logger.error('Error in generateNoteSummary:', error);
-      throw new InternalServerErrorException(`Note summary generation failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('summary', error);
     }
   }
 
@@ -1300,9 +1421,8 @@ Return JSON array: [{ "question": "...", "answer": "...", "type": "mcq" | "short
       const parsed = JSON.parse(this.cleanJson(responseText));
       // Handle both { questions: [...] } and direct array responses
       return Array.isArray(parsed) ? parsed : (parsed.questions ?? []);
-    } catch (error: any) {
-      this.logger.error('Error in generateNoteQuizQuestions:', error);
-      throw new InternalServerErrorException(`Note quiz generation failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.throwProviderOperationFailure('exam', error);
     }
   }
 }
