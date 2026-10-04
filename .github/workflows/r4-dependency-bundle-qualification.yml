@@ -33,7 +33,7 @@ jobs:
           '@ | ConvertFrom-Json
           $TaskExpectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34'
           $TaskFrozenCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab'
-          $TaskExpectedParent = 'aa49c2106b672de489ffc504ee353bbc2c9a963b'
+          $TaskExpectedParent = '84e029c4c72a435c0627bb02e5c982f34bee8961'
           $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
           $TaskWorkspace = Join-Path $env:RUNNER_TEMP 'studyai-r4-workspace'
           $TaskEvidence = Join-Path $TaskRoot 'evidence'
@@ -279,7 +279,7 @@ jobs:
           const expected = [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
           const expectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
           const expectedInputCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab';
-          const expectedWorkflowParent = 'aa49c2106b672de489ffc504ee353bbc2c9a963b';
+          const expectedWorkflowParent = '84e029c4c72a435c0627bb02e5c982f34bee8961';
           const work = path.join(process.env.RUNNER_TEMP, 'studyai-r4-workspace');
           const task = path.join(process.env.RUNNER_TEMP, 'studyai-r4-control');
           const store = path.join(task, 'store');
@@ -769,7 +769,23 @@ jobs:
            ensure(Buffer.byteLength(text)<=max&&!/[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_|Bearer\s/.test(text),'OUTPUT_POLICY');
            fs.writeFileSync(file,text,{encoding:'utf8',flag:'wx'});return digest(Buffer.from(text));
           }
-          function output(key,value){ensure(/^[a-z_]+$/.test(key)&&/^[a-z0-9]{64}$/.test(value),'OUTPUT_VALUE');fs.appendFileSync(process.env.GITHUB_OUTPUT,key+'='+value+'\n');}
+          const allowedOutputKeys=new Set(['metadata_sha256','manifest_sha256']);
+          const publishedBundleOutputs=new Map();
+          let bundleBuildStage='STORE_SCAN';
+          const bundleBuildStages=new Set(['STORE_SCAN','MANIFEST_BUILD','METADATA_BUILD','BUNDLE_VALIDATION','OUTPUT_PUBLICATION']);
+          const bundleBuildFailureCodes=new Set(['OUTPUT_VALUE','STORE_EMPTY_DIRECTORY','ARCHIVE_HASH','BUNDLE_ALREADY_EXISTS','CLOSED_SCHEMA','MANIFEST_HASH','STORE_INTEGRITY','STORE_COUNTS','BUNDLE_TOP_LEVEL','BUNDLE_ENTRY_TYPE','REPORT_POLICY','FETCH_NOT_PASS','FETCH_NOT_QUIESCENT','INPUT_AGGREGATE','REPARSE_BOUNDARY','TASK_PROCESS_REMAINS','NODE_IDENTITY','METADATA_HASH']);
+          function output(key,value){
+           ensure(allowedOutputKeys.has(key)&&/^[a-f0-9]{64}$/.test(value)&&!publishedBundleOutputs.has(key),'OUTPUT_VALUE');
+           fs.appendFileSync(process.env.GITHUB_OUTPUT,key+'='+value+'\n');publishedBundleOutputs.set(key,value);
+          }
+          function recordBundleBuild(status,failure){
+           const category=failure&&failure.message==='OUTPUT_POLICY'?'REPORT_POLICY':failure&&bundleBuildFailureCodes.has(failure.message)?failure.message:failure?'BOUNDED_BUNDLE_BUILD_FAILURE':null;
+           const record={schemaVersion:1,scope:'REMOTE_R4_BUNDLE_BUILD_STAGE',status,failureStage:failure&&bundleBuildStages.has(bundleBuildStage)?bundleBuildStage:null,failureCategory:category,outputPublication:publishedBundleOutputs.size===2?'PASS':'FAIL',complete:true};
+           try{safeWrite(path.join(task,'evidence','bundle-build-stage.json'),record);}catch{
+           record.status='FAIL';record.failureStage=bundleBuildStage;record.failureCategory='REPORT_POLICY';process.exitCode=1;
+          }
+           console.log('BUNDLE_BUILD_STAGE_REPORT='+JSON.stringify(record));
+          }
           function buildBundle(){
            const fetched=JSON.parse(fs.readFileSync(path.join(task,'evidence','remote-r4-acquisition.json'),'utf8'));
            ensure(fetched.classification==='REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS'&&fetched.attempts===1&&fetched.retries===0&&fetched.exitCode===0&&fetched.integrity&&fetched.complete,'FETCH_NOT_PASS');
@@ -778,16 +794,21 @@ jobs:
            const before=inputRows();ensure(aggregate(before)===inputAggregate,'INPUT_AGGREGATE');
            const sourceStore=path.join(task,'store');noReparse(sourceStore);
            const inventory=scan(sourceStore);ensure(inventory.files.length>0&&inventory.emptyDirectories===0,'STORE_EMPTY_DIRECTORY');
+           bundleBuildStage='MANIFEST_BUILD';
            const bundle=path.join(task,'bundle');ensure(!fs.existsSync(bundle),'BUNDLE_ALREADY_EXISTS');fs.mkdirSync(bundle);
            fs.renameSync(sourceStore,path.join(bundle,'pnpm-store'));
            const manifestText=serializeManifest(inventory.files);fs.writeFileSync(path.join(bundle,'store-manifest.jsonl'),manifestText,{encoding:'utf8',flag:'wx'});
            ensure(hashFile(path.join(task,'pnpm-9.15.0.tgz'))===archiveHash,'ARCHIVE_HASH');
            fs.copyFileSync(path.join(task,'pnpm-9.15.0.tgz'),path.join(bundle,'pnpm-9.15.0.tgz'),fs.constants.COPYFILE_EXCL);
+           bundleBuildStage='METADATA_BUILD';
            const n=runtime();
            const metadata={schemaVersion:1,scope:'R4_FROZEN_PNPM_STORE_BUNDLE',workflowCommit:process.env.GITHUB_SHA,workflowRunId:process.env.GITHUB_RUN_ID,frozenInputCommit:inputCommit,frozenInputAggregate:inputAggregate,nodeVersion:n.version,nodeArchitecture:n.architecture,nodeSHA256:n.executableSHA256,openssl:n.openssl,fips:n.fips,pnpmVersion:'9.15.0',pnpmCliSHA256:cliHash,pnpmArchiveSHA256:archiveHash,fetchArgumentContract:fetchContract,fetchAttempts:1,fetchRetries:0,fetchExitCode:0,storeFileCount:inventory.files.length,storeDirectoryCount:inventory.directories,storeLogicalBytes:inventory.logicalBytes,storeManifestSHA256:digest(Buffer.from(manifestText)),storeReparsePoints:0,lifecycleScripts:0,createdFor:'LOCAL_E_OFFLINE_INSTALL_QUALIFICATION'};
            validateMetadata(metadata);const metadataSHA256=safeWrite(path.join(bundle,'bundle-metadata.json'),metadata);
+           bundleBuildStage='BUNDLE_VALIDATION';
            const checked=validateBundle(bundle,metadataSHA256,metadata.storeManifestSHA256);
+           bundleBuildStage='OUTPUT_PUBLICATION';
            output('metadata_sha256',checked.metadataSHA256);output('manifest_sha256',checked.manifest.sha256);
+           ensure(publishedBundleOutputs.size===2&&publishedBundleOutputs.get('metadata_sha256')===checked.metadataSHA256&&publishedBundleOutputs.get('manifest_sha256')===checked.manifest.sha256,'OUTPUT_VALUE');
            console.log('BUNDLE_PREUPLOAD_VERIFICATION_PASS');
           }
           async function verifyOffline(){
@@ -842,7 +863,9 @@ jobs:
           }
           module.exports={buildBundle,verifyOffline,validateMetadata,safePath,readManifest,compareStore,serializeManifest,metadataKeys};
           
-          try { buildBundle(); } catch { console.log('REMOTE_DEPENDENCY_BUNDLE_BUILD_OR_PACKAGING_FAILURE'); process.exitCode=1; }
+          try { buildBundle(); recordBundleBuild('PASS',null); } catch(e) {
+          recordBundleBuild('FAIL',e);console.log('REMOTE_DEPENDENCY_BUNDLE_BUILD_FAILURE');process.exitCode=1;
+          }
           '@
           $TaskScriptPath = Join-Path $env:RUNNER_TEMP 'studyai-r4-control\bundle-build.cjs'
           [IO.File]::WriteAllText($TaskScriptPath, $TaskScript, [Text.UTF8Encoding]::new($false))
@@ -943,11 +966,12 @@ jobs:
            $TaskBundle = Join-Path $TaskRoot 'bundle'
            $TaskMetadataPath = Join-Path $TaskBundle 'bundle-metadata.json'
            $TaskAcquisitionPath = Join-Path $TaskEvidence 'remote-r4-acquisition.json'
+           $TaskStagePath = Join-Path $TaskEvidence 'bundle-build-stage.json'
            $TaskBuildReport = [ordered]@{
              schemaVersion=1;scope='REMOTE_R4_BUNDLE_BUILD';workflowCommit=$env:GITHUB_SHA;workflowRunId=$env:GITHUB_RUN_ID
              classification='REMOTE_DEPENDENCY_BUNDLE_BUILD_FAILURE';fetchAttempts=0;fetchRetries=0;fetchExitCode=$null
              bundleMetadataSHA256=$null;storeManifestSHA256=$null;storeFileCount=0;storeDirectoryCount=0;storeLogicalBytes=0
-             artifactId=$null;artifactDigest=$null;artifactUrl=$null;complete=$true
+             artifactId=$null;artifactDigest=$null;artifactUrl=$null;failureStage=$null;failureCategory=$null;outputPublication='NOT_REACHED';complete=$true
            }
            if (Test-Path -LiteralPath $TaskAcquisitionPath -PathType Leaf) {
              $TaskAcquisition = Get-Content -LiteralPath $TaskAcquisitionPath -Raw | ConvertFrom-Json
@@ -964,7 +988,22 @@ jobs:
              $TaskBuildReport.storeLogicalBytes=$TaskMetadata.storeLogicalBytes
              $TaskBuildReport.classification='REMOTE_DEPENDENCY_BUNDLE_TRANSFER_INTEGRITY_FAILURE'
            }
-           if ($env:TASK_ARTIFACT_ID -match '^[0-9]{1,20}$' -and $env:TASK_ARTIFACT_DIGEST -match '^[a-f0-9]{64}$' -and
+           if (Test-Path -LiteralPath $TaskStagePath -PathType Leaf) {
+             $TaskStageRecord=Get-Content -LiteralPath $TaskStagePath -Raw | ConvertFrom-Json
+             $TaskStageKeys=@('schemaVersion','scope','status','failureStage','failureCategory','outputPublication','complete')
+             if (@($TaskStageRecord.PSObject.Properties).Count -ne 7 -or @($TaskStageRecord.PSObject.Properties.Name | Where-Object { $_ -notin $TaskStageKeys }).Count -ne 0 -or
+                 $TaskStageRecord.schemaVersion -ne 1 -or $TaskStageRecord.scope -ne 'REMOTE_R4_BUNDLE_BUILD_STAGE' -or $TaskStageRecord.status -notin @('PASS','FAIL') -or
+                 $TaskStageRecord.outputPublication -notin @('PASS','FAIL') -or $TaskStageRecord.complete -ne $true) { throw 'BUILD_STAGE_CLOSED_SCHEMA' }
+             $TaskSafeStages=@('STORE_SCAN','MANIFEST_BUILD','METADATA_BUILD','BUNDLE_VALIDATION','OUTPUT_PUBLICATION')
+             $TaskSafeCategories=@('OUTPUT_VALUE','STORE_EMPTY_DIRECTORY','ARCHIVE_HASH','BUNDLE_ALREADY_EXISTS','CLOSED_SCHEMA','MANIFEST_HASH','STORE_INTEGRITY','STORE_COUNTS','BUNDLE_TOP_LEVEL','BUNDLE_ENTRY_TYPE','REPORT_POLICY','FETCH_NOT_PASS','FETCH_NOT_QUIESCENT','INPUT_AGGREGATE','REPARSE_BOUNDARY','TASK_PROCESS_REMAINS','NODE_IDENTITY','METADATA_HASH','BOUNDED_BUNDLE_BUILD_FAILURE')
+             if (($null -ne $TaskStageRecord.failureStage -and $TaskStageRecord.failureStage -notin $TaskSafeStages) -or
+                 ($null -ne $TaskStageRecord.failureCategory -and $TaskStageRecord.failureCategory -notin $TaskSafeCategories)) { throw 'BUILD_STAGE_REPORT_POLICY' }
+             $TaskBuildReport.failureStage=$TaskStageRecord.failureStage
+             $TaskBuildReport.failureCategory=$TaskStageRecord.failureCategory
+             $TaskBuildReport.outputPublication=$TaskStageRecord.outputPublication
+             if ($TaskStageRecord.status -eq 'FAIL') { $TaskBuildReport.classification='REMOTE_DEPENDENCY_BUNDLE_BUILD_FAILURE' }
+           }
+           if ($TaskBuildReport.outputPublication -eq 'PASS' -and $null -eq $TaskBuildReport.failureCategory -and $env:TASK_ARTIFACT_ID -match '^[0-9]{1,20}$' -and $env:TASK_ARTIFACT_DIGEST -match '^[a-f0-9]{64}$' -and
                $env:TASK_ARTIFACT_URL -match '^https://github\.com/HusamALkafajy/Hussam-Jaafar/actions/runs/[0-9]+/artifacts/[0-9]+$') {
              $TaskBuildReport.artifactId=$env:TASK_ARTIFACT_ID
              $TaskBuildReport.artifactDigest=$env:TASK_ARTIFACT_DIGEST
@@ -1013,7 +1052,7 @@ jobs:
           '@ | ConvertFrom-Json
           $TaskExpectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34'
           $TaskFrozenCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab'
-          $TaskExpectedParent = 'aa49c2106b672de489ffc504ee353bbc2c9a963b'
+          $TaskExpectedParent = '84e029c4c72a435c0627bb02e5c982f34bee8961'
           $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
           $TaskWorkspace = Join-Path $env:RUNNER_TEMP 'studyai-r4-workspace'
           $TaskEvidence = Join-Path $TaskRoot 'evidence'
@@ -1413,7 +1452,23 @@ jobs:
            ensure(Buffer.byteLength(text)<=max&&!/[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_|Bearer\s/.test(text),'OUTPUT_POLICY');
            fs.writeFileSync(file,text,{encoding:'utf8',flag:'wx'});return digest(Buffer.from(text));
           }
-          function output(key,value){ensure(/^[a-z_]+$/.test(key)&&/^[a-z0-9]{64}$/.test(value),'OUTPUT_VALUE');fs.appendFileSync(process.env.GITHUB_OUTPUT,key+'='+value+'\n');}
+          const allowedOutputKeys=new Set(['metadata_sha256','manifest_sha256']);
+          const publishedBundleOutputs=new Map();
+          let bundleBuildStage='STORE_SCAN';
+          const bundleBuildStages=new Set(['STORE_SCAN','MANIFEST_BUILD','METADATA_BUILD','BUNDLE_VALIDATION','OUTPUT_PUBLICATION']);
+          const bundleBuildFailureCodes=new Set(['OUTPUT_VALUE','STORE_EMPTY_DIRECTORY','ARCHIVE_HASH','BUNDLE_ALREADY_EXISTS','CLOSED_SCHEMA','MANIFEST_HASH','STORE_INTEGRITY','STORE_COUNTS','BUNDLE_TOP_LEVEL','BUNDLE_ENTRY_TYPE','REPORT_POLICY','FETCH_NOT_PASS','FETCH_NOT_QUIESCENT','INPUT_AGGREGATE','REPARSE_BOUNDARY','TASK_PROCESS_REMAINS','NODE_IDENTITY','METADATA_HASH']);
+          function output(key,value){
+           ensure(allowedOutputKeys.has(key)&&/^[a-f0-9]{64}$/.test(value)&&!publishedBundleOutputs.has(key),'OUTPUT_VALUE');
+           fs.appendFileSync(process.env.GITHUB_OUTPUT,key+'='+value+'\n');publishedBundleOutputs.set(key,value);
+          }
+          function recordBundleBuild(status,failure){
+           const category=failure&&failure.message==='OUTPUT_POLICY'?'REPORT_POLICY':failure&&bundleBuildFailureCodes.has(failure.message)?failure.message:failure?'BOUNDED_BUNDLE_BUILD_FAILURE':null;
+           const record={schemaVersion:1,scope:'REMOTE_R4_BUNDLE_BUILD_STAGE',status,failureStage:failure&&bundleBuildStages.has(bundleBuildStage)?bundleBuildStage:null,failureCategory:category,outputPublication:publishedBundleOutputs.size===2?'PASS':'FAIL',complete:true};
+           try{safeWrite(path.join(task,'evidence','bundle-build-stage.json'),record);}catch{
+           record.status='FAIL';record.failureStage=bundleBuildStage;record.failureCategory='REPORT_POLICY';process.exitCode=1;
+          }
+           console.log('BUNDLE_BUILD_STAGE_REPORT='+JSON.stringify(record));
+          }
           function buildBundle(){
            const fetched=JSON.parse(fs.readFileSync(path.join(task,'evidence','remote-r4-acquisition.json'),'utf8'));
            ensure(fetched.classification==='REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS'&&fetched.attempts===1&&fetched.retries===0&&fetched.exitCode===0&&fetched.integrity&&fetched.complete,'FETCH_NOT_PASS');
@@ -1422,16 +1477,21 @@ jobs:
            const before=inputRows();ensure(aggregate(before)===inputAggregate,'INPUT_AGGREGATE');
            const sourceStore=path.join(task,'store');noReparse(sourceStore);
            const inventory=scan(sourceStore);ensure(inventory.files.length>0&&inventory.emptyDirectories===0,'STORE_EMPTY_DIRECTORY');
+           bundleBuildStage='MANIFEST_BUILD';
            const bundle=path.join(task,'bundle');ensure(!fs.existsSync(bundle),'BUNDLE_ALREADY_EXISTS');fs.mkdirSync(bundle);
            fs.renameSync(sourceStore,path.join(bundle,'pnpm-store'));
            const manifestText=serializeManifest(inventory.files);fs.writeFileSync(path.join(bundle,'store-manifest.jsonl'),manifestText,{encoding:'utf8',flag:'wx'});
            ensure(hashFile(path.join(task,'pnpm-9.15.0.tgz'))===archiveHash,'ARCHIVE_HASH');
            fs.copyFileSync(path.join(task,'pnpm-9.15.0.tgz'),path.join(bundle,'pnpm-9.15.0.tgz'),fs.constants.COPYFILE_EXCL);
+           bundleBuildStage='METADATA_BUILD';
            const n=runtime();
            const metadata={schemaVersion:1,scope:'R4_FROZEN_PNPM_STORE_BUNDLE',workflowCommit:process.env.GITHUB_SHA,workflowRunId:process.env.GITHUB_RUN_ID,frozenInputCommit:inputCommit,frozenInputAggregate:inputAggregate,nodeVersion:n.version,nodeArchitecture:n.architecture,nodeSHA256:n.executableSHA256,openssl:n.openssl,fips:n.fips,pnpmVersion:'9.15.0',pnpmCliSHA256:cliHash,pnpmArchiveSHA256:archiveHash,fetchArgumentContract:fetchContract,fetchAttempts:1,fetchRetries:0,fetchExitCode:0,storeFileCount:inventory.files.length,storeDirectoryCount:inventory.directories,storeLogicalBytes:inventory.logicalBytes,storeManifestSHA256:digest(Buffer.from(manifestText)),storeReparsePoints:0,lifecycleScripts:0,createdFor:'LOCAL_E_OFFLINE_INSTALL_QUALIFICATION'};
            validateMetadata(metadata);const metadataSHA256=safeWrite(path.join(bundle,'bundle-metadata.json'),metadata);
+           bundleBuildStage='BUNDLE_VALIDATION';
            const checked=validateBundle(bundle,metadataSHA256,metadata.storeManifestSHA256);
+           bundleBuildStage='OUTPUT_PUBLICATION';
            output('metadata_sha256',checked.metadataSHA256);output('manifest_sha256',checked.manifest.sha256);
+           ensure(publishedBundleOutputs.size===2&&publishedBundleOutputs.get('metadata_sha256')===checked.metadataSHA256&&publishedBundleOutputs.get('manifest_sha256')===checked.manifest.sha256,'OUTPUT_VALUE');
            console.log('BUNDLE_PREUPLOAD_VERIFICATION_PASS');
           }
           async function verifyOffline(){
