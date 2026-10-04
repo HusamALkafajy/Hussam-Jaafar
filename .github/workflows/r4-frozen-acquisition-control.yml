@@ -20,23 +20,23 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           fetch-tags: false
           persist-credentials: false
           submodules: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-          /apps/api/package.json
-          /apps/web/package.json
-          /package.json
-          /packages/ast/package.json
-          /packages/database/package.json
-          /packages/domain/package.json
-          /packages/infrastructure/package.json
-          /packages/infrastructure/src/prisma-client/package.json
-          /packages/types/package.json
-          /pnpm-lock.yaml
-          /pnpm-workspace.yaml
+            /apps/api/package.json
+            /apps/web/package.json
+            /package.json
+            /packages/ast/package.json
+            /packages/database/package.json
+            /packages/domain/package.json
+            /packages/infrastructure/package.json
+            /packages/infrastructure/src/prisma-client/package.json
+            /packages/types/package.json
+            /pnpm-lock.yaml
+            /pnpm-workspace.yaml
       - name: Configure Node 22.22.3 x64
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -96,6 +96,7 @@ jobs:
           const expected = [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
           const expectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
           const expectedInputCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab';
+          const expectedWorkflowParent = 'aa0705ec8d27cf107be053dbabdb780fe9d609ad';
           const work = process.env.GITHUB_WORKSPACE;
           const task = path.join(process.env.RUNNER_TEMP, 'studyai-r4-control');
           const store = path.join(task, 'store');
@@ -257,7 +258,8 @@ jobs:
             const git = a => cp.execFileSync('git', a,
               { cwd: work, encoding: 'utf8', stdio: ['ignore','pipe','pipe'], timeout: 10000, maxBuffer: 65536 }).trim();
             if (git(['rev-parse','HEAD']) !== result.commit ||
-                git(['rev-parse','HEAD^']) !== expectedInputCommit) throw new Error('COMMIT');
+                git(['rev-parse','HEAD^']) !== expectedWorkflowParent ||
+                git(['rev-parse','HEAD^^']) !== expectedInputCommit) throw new Error('COMMIT');
             result.before = inputs(); result.aggregateBefore = aggregate(result.before);
             if (result.aggregateBefore !== expectedAggregate) throw new Error('AGGREGATE');
             result.pnpm.entrySHA256 = hash(fs.readFileSync(cli));
