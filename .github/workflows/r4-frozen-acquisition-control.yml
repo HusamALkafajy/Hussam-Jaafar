@@ -1,0 +1,353 @@
+name: R4 Frozen Windows Acquisition Control
+on:
+  push:
+    branches:
+      - diagnostic/r4-frozen-acquisition-20261004
+    paths:
+      - .github/workflows/r4-frozen-acquisition-control.yml
+permissions:
+  contents: read
+jobs:
+  acquisition:
+    if: github.run_attempt == 1
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout exact diagnostic commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          fetch-tags: false
+          persist-credentials: false
+          submodules: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+          /apps/api/package.json
+          /apps/web/package.json
+          /package.json
+          /packages/ast/package.json
+          /packages/database/package.json
+          /packages/domain/package.json
+          /packages/infrastructure/package.json
+          /packages/infrastructure/src/prisma-client/package.json
+          /packages/types/package.json
+          /pnpm-lock.yaml
+          /pnpm-workspace.yaml
+      - name: Configure Node 22.22.3 x64
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.22.3
+          architecture: x64
+          check-latest: false
+      - name: Qualify portable pnpm 9.15.0 without installation
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
+            New-Item -ItemType Directory -Path $TaskRoot -ErrorAction Stop | Out-Null
+            $TaskTool = Join-Path $TaskRoot 'pnpm'
+            New-Item -ItemType Directory -Path $TaskTool -ErrorAction Stop | Out-Null
+            $TaskMetadata = Invoke-RestMethod -Uri 'https://registry.npmjs.org/pnpm/9.15.0' -TimeoutSec 60
+            if ($TaskMetadata.name -cne 'pnpm' -or $TaskMetadata.version -cne '9.15.0' -or
+                $TaskMetadata.dist.tarball -cne 'https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz' -or
+                $TaskMetadata.dist.integrity -notmatch '^sha512-[A-Za-z0-9+/=]+$') { throw [InvalidOperationException]::new() }
+            $TaskArchive = Join-Path $TaskRoot 'pnpm-9.15.0.tgz'
+            Invoke-WebRequest -Uri 'https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz' -OutFile $TaskArchive -TimeoutSec 120
+            $TaskArchiveItem = Get-Item -LiteralPath $TaskArchive -Force
+            if ($TaskArchiveItem.Length -gt 16777216) { throw [InvalidOperationException]::new() }
+            $TaskHasher = [Security.Cryptography.SHA512]::Create()
+            try { $TaskIntegrity = 'sha512-' + [Convert]::ToBase64String($TaskHasher.ComputeHash([IO.File]::ReadAllBytes($TaskArchive))) }
+            finally { $TaskHasher.Dispose() }
+            if ($TaskIntegrity -cne $TaskMetadata.dist.integrity) { throw [InvalidOperationException]::new() }
+            $TaskTar = Join-Path $env:SystemRoot 'System32\tar.exe'
+            $TaskEntries = @(& $TaskTar -tzf $TaskArchive 2>&1)
+            if ($LASTEXITCODE -ne 0 -or $TaskEntries.Count -gt 10000) { throw [InvalidOperationException]::new() }
+            foreach ($TaskEntry in $TaskEntries) {
+              $TaskName = $TaskEntry.ToString()
+              if ($TaskName -notmatch '^package(?:/|$)' -or $TaskName -match '(?:^|/)\.\.(?:/|$)|\\|^[A-Za-z]:') { throw [InvalidOperationException]::new() }
+            }
+            $TaskTypes = @(& $TaskTar -tvzf $TaskArchive 2>&1)
+            if ($LASTEXITCODE -ne 0 -or @($TaskTypes | Where-Object { $_.ToString() -notmatch '^[-d]' }).Count -gt 0) { throw [InvalidOperationException]::new() }
+            $TaskExtraction = @(& $TaskTar -xzf $TaskArchive -C $TaskTool 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw [InvalidOperationException]::new() }
+            if (@(Get-ChildItem -LiteralPath $TaskTool -Recurse -Force | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -gt 0) { throw [InvalidOperationException]::new() }
+            $TaskEntryPath = Join-Path $TaskTool 'package\bin\pnpm.cjs'
+            if ((Get-FileHash -LiteralPath $TaskEntryPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne '98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090') { throw [InvalidOperationException]::new() }
+            $TaskArchiveHash = (Get-FileHash -LiteralPath $TaskArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText((Join-Path $TaskRoot 'pnpm-archive-sha256.txt'), $TaskArchiveHash, [Text.UTF8Encoding]::new($false))
+            Write-Output 'PNPM_PORTABLE_915_SETUP_PASS'
+          } catch {
+            Write-Output 'PNPM_PORTABLE_915_SETUP_FAILURE'
+            exit 1
+          }
+      - name: One bounded frozen acquisition
+        timeout-minutes: 23
+        run: |
+          $TaskScript = @'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const cp = require('node:child_process');
+          const expected = [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
+          const expectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
+          const expectedInputCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab';
+          const work = process.env.GITHUB_WORKSPACE;
+          const task = path.join(process.env.RUNNER_TEMP, 'studyai-r4-control');
+          const store = path.join(task, 'store');
+          const evidence = path.join(task, 'evidence');
+          const cli = path.join(task, 'pnpm', 'package', 'bin', 'pnpm.cjs');
+          const hash = b => crypto.createHash('sha256').update(b).digest('hex');
+          const result = {
+            schemaVersion: 1, scope: 'FROZEN_PACKAGE_ACQUISITION_INPUTS_ONLY',
+            classification: 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_DIFFERENT_FAILURE',
+            failureCategory: 'REMOTE_OTHER_ACQUISITION_FAILURE', failureStage: 'PREFLIGHT',
+            commit: process.env.GITHUB_SHA, inputCommit: expectedInputCommit,
+            runId: process.env.GITHUB_RUN_ID, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            runner: { label: 'windows-2025', os: process.platform, architecture: process.arch,
+              imageOS: process.env.ImageOS || null, imageVersion: process.env.ImageVersion || null,
+              windowsBuild: require('node:os').release() },
+            node: { version: process.version, architecture: process.arch, openssl: process.versions.openssl,
+              executableSHA256: hash(fs.readFileSync(process.execPath)), fips: crypto.getFips() },
+            pnpm: { version: null, entrySHA256: null, flagSupport: false, archiveSHA256: null },
+            before: [], after: [], aggregateBefore: null, aggregateAfter: null,
+            attempts: 0, retries: 0, exitCode: null, durationMs: 0,
+            lifecycleScripts: 0, lifecycleScriptsDisabled: true,
+            lifecycle: { spawned: false, exitObserved: false, closeObserved: false,
+              stdoutEnd: false, stderrEnd: false, signal: null, watchdog: false, outputLimit: false,
+              stdoutBytes: 0, stderrBytes: 0, treeTermination: false },
+            store: { role: 'FRESH_RUNNER_LOCAL_STORE', initiallyEmpty: false, files: 0, directories: 0, logicalBytes: 0, reparsePoints: 0 },
+            disk: { freeBefore: null, freeAfter: null },
+            failure: { pnpmCodes: [], nodeCodes: [], errno: null, syscall: null,
+              httpStatus: null, registryHost: 'registry.npmjs.org', package: null, version: null },
+            childEnvironmentNames: ['SystemRoot', 'WINDIR', 'TEMP', 'TMP'],
+            command: [], rawOutputForwarded: 0, storeUploaded: false,
+            integrity: false, complete: false
+          };
+          function inputs() {
+            return expected.map(e => {
+              const p = path.join(work, e.path), st = fs.lstatSync(p);
+              if (!st.isFile() || st.isSymbolicLink()) throw new Error('INPUT_TYPE');
+              const bytes = fs.readFileSync(p), sha256 = hash(bytes);
+              if (bytes.length !== e.bytes || sha256 !== e.sha256) throw new Error('INPUT_HASH');
+              return { path: e.path, bytes: bytes.length, sha256 };
+            });
+          }
+          function aggregate(rows) {
+            return hash(Buffer.from(rows.map(r => r.path + '|' + r.bytes + '|' + r.sha256).join('\n') + '\n'));
+          }
+          function storeInventory(root) {
+            const out = { files: 0, directories: 0, logicalBytes: 0, reparsePoints: 0 };
+            const pending = [root];
+            while (pending.length) {
+              const dir = pending.pop();
+              for (const name of fs.readdirSync(dir)) {
+                const p = path.join(dir, name), st = fs.lstatSync(p);
+                if (st.isSymbolicLink()) { out.reparsePoints++; continue; }
+                if (st.isDirectory()) { out.directories++; pending.push(p); }
+                else if (st.isFile()) { out.files++; out.logicalBytes += st.size; }
+                else throw new Error('STORE_TYPE');
+              }
+            }
+            return out;
+          }
+          async function child(args, timeout) {
+            const record = { spawned: false, exitObserved: false, closeObserved: false,
+              stdoutEnd: false, stderrEnd: false, signal: null, watchdog: false, outputLimit: false,
+              stdoutBytes: 0, stderrBytes: 0, treeTermination: false };
+            const env = {};
+            for (const name of result.childEnvironmentNames) {
+              if (!process.env[name]) throw new Error('ENVIRONMENT');
+              env[name] = process.env[name];
+            }
+            const chunks = { stdout: [], stderr: [] };
+            const started = Date.now();
+            return await new Promise(resolve => {
+              let settled = false, code = null, timer = null, childProcess;
+              function terminate() {
+                if (childProcess.pid) {
+                  const killed = cp.spawnSync(path.join(process.env.SystemRoot, 'System32', 'taskkill.exe'),
+                    ['/PID', String(childProcess.pid), '/T', '/F'],
+                    { windowsHide: true, shell: false, stdio: 'ignore', timeout: 15000 });
+                  record.treeTermination = killed.status === 0;
+                }
+              }
+              function finish() {
+                if (settled) return; settled = true; clearTimeout(timer);
+                resolve({ record, code, durationMs: Date.now() - started,
+                  stdout: Buffer.concat(chunks.stdout).toString('utf8'),
+                  stderr: Buffer.concat(chunks.stderr).toString('utf8') });
+              }
+              childProcess = cp.spawn(process.execPath, [cli, ...args],
+                { cwd: work, env, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+              childProcess.on('spawn', () => { record.spawned = true; });
+              childProcess.on('error', () => { finish(); });
+              childProcess.on('exit', (exitCode, signal) => {
+                code = exitCode; record.exitObserved = true;
+                record.signal = signal === null ? null : 'SIGNAL_OBSERVED';
+              });
+              for (const name of ['stdout', 'stderr']) {
+                const stream = childProcess[name];
+                stream.on('data', b => {
+                  record[name + 'Bytes'] += b.length;
+                  if (record[name + 'Bytes'] <= 8388608) chunks[name].push(b);
+                  else if (!record.outputLimit) { record.outputLimit = true; terminate(); }
+                });
+                stream.on('end', () => { record[name + 'End'] = true; });
+                stream.on('error', () => { record.outputLimit = true; terminate(); });
+              }
+              childProcess.on('close', () => { record.closeObserved = true; finish(); });
+              timer = setTimeout(() => { record.watchdog = true; terminate(); }, timeout);
+            });
+          }
+          function freeSpace(root) {
+            try {
+              const drive = path.parse(root).root.slice(0,2);
+              if (!/^[A-Za-z]:$/.test(drive)) return null;
+              const command = "$TaskDisk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='" + drive + "'\"; [Console]::Write($TaskDisk.FreeSpace)";
+              const value = cp.execFileSync(path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'),
+                ['-NoProfile','-NonInteractive','-Command',command],
+                { windowsHide: true, shell: false, stdio: ['ignore','pipe','pipe'], encoding: 'utf8', timeout: 15000, maxBuffer: 4096 }).trim();
+              return /^[0-9]{1,16}$/.test(value) ? Number(value) : null;
+            } catch { return null; }
+          }
+          function processComplete(x) {
+            return x.record.spawned && x.record.exitObserved && x.record.closeObserved &&
+              x.record.stdoutEnd && x.record.stderrEnd && x.record.signal === null &&
+              !x.record.watchdog && !x.record.outputLimit;
+          }
+          function failures(x) {
+            const text = x.stdout + '\n' + x.stderr;
+            result.failure.pnpmCodes = [...new Set(text.match(/\bERR_PNPM_[A-Z0-9_]{1,64}\b/g) || [])].slice(0,8);
+            const allowed = ['ECONNRESET','ENOTFOUND','EAI_AGAIN','ETIMEDOUT','EACCES','EPERM','ENOSPC',
+              'ERR_SSL_CIPHER_OPERATION_FAILED','ERR_TLS_CERT_ALTNAME_INVALID','CERT_HAS_EXPIRED',
+              'UNABLE_TO_VERIFY_LEAF_SIGNATURE','UNABLE_TO_GET_ISSUER_CERT_LOCALLY','ERR_OSSL_EVP_BAD_DECRYPT'];
+            result.failure.nodeCodes = allowed.filter(v => text.includes(v));
+            for (const line of text.split('\n')) {
+              let row; try { row = JSON.parse(line); } catch { continue; }
+              if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+              const err = row.err || row.error || row;
+              if (Number.isInteger(err.errno) && Math.abs(err.errno) <= 65536) result.failure.errno = err.errno;
+              if (['read','write','connect','getaddrinfo','open','rename','unlink'].includes(err.syscall)) result.failure.syscall = err.syscall;
+              const status = err.status || err.statusCode || row.status || row.statusCode;
+              if (Number.isInteger(status) && status >= 100 && status <= 599) result.failure.httpStatus = status;
+              if (row.level === 'error' || row.err || row.error) {
+                const packageName = row.packageName || err.packageName;
+                const packageVersion = row.packageVersion || err.packageVersion;
+                if (typeof packageName === 'string' && /^(@[a-z0-9._-]+\/)?[a-z0-9._-]{1,100}$/i.test(packageName)) result.failure.package = packageName;
+                if (typeof packageVersion === 'string' && /^[0-9][A-Za-z0-9.+-]{0,63}$/.test(packageVersion)) result.failure.version = packageVersion;
+              }
+            }
+            const codes = result.failure.nodeCodes;
+            if (codes.includes('ECONNRESET')) result.failureCategory = 'REMOTE_ECONNRESET';
+            else if (codes.some(c => /SSL|TLS|CERT|ISSUER|SIGNATURE|OSSL/.test(c))) result.failureCategory = 'REMOTE_SSL_FAILURE';
+            else if (codes.includes('ENOTFOUND') || codes.includes('EAI_AGAIN')) result.failureCategory = 'REMOTE_DNS_FAILURE';
+            else if (result.failure.httpStatus >= 400 || result.failure.pnpmCodes.some(c => /FETCH_(4|5)[0-9]{2}/.test(c))) result.failureCategory = 'REMOTE_HTTP_FAILURE';
+            else if (codes.some(c => ['EACCES','EPERM','ENOSPC'].includes(c))) result.failureCategory = 'REMOTE_FILESYSTEM_FAILURE';
+            if (result.failureCategory === 'REMOTE_ECONNRESET') result.classification = 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_ECONNRESET';
+          }
+          async function main() {
+            if (result.runAttempt !== 1 || process.platform !== 'win32' || process.arch !== 'x64' ||
+                process.version !== 'v22.22.3' ||
+                result.node.executableSHA256 !== '780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b') throw new Error('RUNTIME');
+            const git = a => cp.execFileSync('git', a,
+              { cwd: work, encoding: 'utf8', stdio: ['ignore','pipe','pipe'], timeout: 10000, maxBuffer: 65536 }).trim();
+            if (git(['rev-parse','HEAD']) !== result.commit ||
+                git(['rev-parse','HEAD^']) !== expectedInputCommit) throw new Error('COMMIT');
+            result.before = inputs(); result.aggregateBefore = aggregate(result.before);
+            if (result.aggregateBefore !== expectedAggregate) throw new Error('AGGREGATE');
+            result.pnpm.entrySHA256 = hash(fs.readFileSync(cli));
+            if (result.pnpm.entrySHA256 !== '98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090') throw new Error('PNPM_ENTRY');
+            result.pnpm.archiveSHA256 = fs.readFileSync(path.join(task,'pnpm-archive-sha256.txt'),'utf8').trim();
+            const version = await child(['--version'], 60000);
+            if (!processComplete(version) || version.code !== 0 || version.stdout.trim() !== '9.15.0') throw new Error('PNPM_VERSION');
+            result.pnpm.version = '9.15.0';
+            fs.mkdirSync(store, { recursive: false });
+            const args = ['fetch','--frozen-lockfile','--ignore-scripts','--store-dir',store,
+              '--package-import-method=copy','--registry=https://registry.npmjs.org','--fetch-retries=0',
+              '--fetch-timeout=60000','--network-concurrency=1','--verify-store-integrity=true','--reporter=ndjson'];
+            result.command = args.map(x => x === store ? 'FRESH_RUNNER_LOCAL_STORE' : x);
+            const help = await child([...args,'--help'], 60000);
+            if (!processComplete(help) || help.code !== 0 || !/fetch/i.test(help.stdout)) throw new Error('FLAG_SUPPORT');
+            result.pnpm.flagSupport = true;
+            const initial = storeInventory(store);
+            result.store.initiallyEmpty = initial.files === 0 && initial.directories === 0 && initial.reparsePoints === 0;
+            if (!result.store.initiallyEmpty) throw new Error('STORE_NOT_EMPTY');
+            result.disk.freeBefore = freeSpace(store);
+            result.failureStage = 'ACQUISITION'; result.attempts = 1;
+            const execution = await child(args, 1200000);
+            result.exitCode = execution.code; result.durationMs = execution.durationMs; result.lifecycle = execution.record;
+            failures(execution);
+            result.failureStage = 'POST_VALIDATION';
+            result.after = inputs(); result.aggregateAfter = aggregate(result.after);
+            result.integrity = result.aggregateAfter === expectedAggregate &&
+              JSON.stringify(result.before) === JSON.stringify(result.after);
+            Object.assign(result.store, storeInventory(store));
+            result.disk.freeAfter = freeSpace(store);
+            if (execution.code === 0 && processComplete(execution) && result.integrity &&
+                result.store.files > 0 && result.store.reparsePoints === 0) {
+              result.classification = 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS';
+              result.failureCategory = null; result.failureStage = null;
+            } else if (result.failureCategory === 'REMOTE_ECONNRESET') {
+              result.failureStage = 'ACQUISITION';
+            }
+          }
+          const permittedKeys = ['schemaVersion','scope','classification','failureCategory','failureStage','commit','inputCommit',
+            'runId','runAttempt','runner','node','pnpm','before','after','aggregateBefore','aggregateAfter','attempts','retries',
+            'exitCode','durationMs','lifecycleScripts','lifecycleScriptsDisabled','lifecycle','store','disk','failure',
+            'childEnvironmentNames','command','rawOutputForwarded','storeUploaded','integrity','complete'];
+          function validateReport() {
+            if (JSON.stringify(Object.keys(result).sort()) !== JSON.stringify(permittedKeys.slice().sort())) throw new Error('REPORT_FIELDS');
+            if (!/^[0-9a-f]{40}$/.test(result.commit) || !/^[0-9]{1,20}$/.test(result.runId) ||
+                !/^v22\.22\.3$/.test(result.node.version) || !/^[0-9A-Za-z.+-]{1,40}$/.test(result.node.openssl)) throw new Error('REPORT_IDENTITY');
+            for (const value of [result.runner.imageOS, result.runner.imageVersion, result.runner.windowsBuild]) {
+              if (value !== null && !/^[A-Za-z0-9._-]{1,64}$/.test(value)) throw new Error('RUNNER_IDENTITY');
+            }
+            if (!['REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS','REMOTE_R4_FULL_LOCKFILE_ACQUISITION_ECONNRESET','REMOTE_R4_FULL_LOCKFILE_ACQUISITION_DIFFERENT_FAILURE'].includes(result.classification)) throw new Error('REPORT_CLASS');
+            if (result.attempts < 0 || result.attempts > 1 || result.retries !== 0 || result.rawOutputForwarded !== 0 ||
+                result.storeUploaded || result.lifecycleScripts !== 0) throw new Error('REPORT_COUNTER');
+            for (const rows of [result.before, result.after]) {
+              if (rows.some(r => !expected.some(e => e.path === r.path) || !/^[0-9a-f]{64}$/.test(r.sha256) || !Number.isSafeInteger(r.bytes))) throw new Error('REPORT_INPUT');
+            }
+            const text = JSON.stringify(result);
+            if (Buffer.byteLength(text) > 32768 || /[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_/.test(text)) throw new Error('REPORT_POLICY');
+            return text + '\n';
+          }
+          (async () => {
+            try { await main(); } catch {
+              if (result.failureStage === 'POST_VALIDATION') {
+                result.failureCategory = 'REMOTE_OTHER_ACQUISITION_FAILURE';
+                result.classification = 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_DIFFERENT_FAILURE';
+              }
+            }
+            result.complete = true;
+            let text;
+            try { text = validateReport(); } catch {
+              process.stdout.write('R4_OUTPUT_POLICY_FAILURE\n'); process.exitCode = 1; return;
+            }
+            fs.mkdirSync(evidence, { recursive: true });
+            fs.writeFileSync(path.join(evidence,'remote-r4-acquisition.json'), text, { encoding: 'utf8', flag: 'wx' });
+            process.stdout.write('R4_SANITIZED_REPORT=' + text);
+            process.stdout.write('R4_EVIDENCE_SHA256=' + hash(Buffer.from(text)) + '\n');
+            process.exitCode = result.classification === 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS' ? 0 : 1;
+          })();
+          
+          '@
+          $TaskScriptPath = Join-Path $env:RUNNER_TEMP 'studyai-r4-control\acquire.cjs'
+          [IO.File]::WriteAllText($TaskScriptPath, $TaskScript, [Text.UTF8Encoding]::new($false))
+          $TaskNode = (Get-Command node.exe -CommandType Application -ErrorAction Stop).Source
+          & $TaskNode $TaskScriptPath
+          exit $LASTEXITCODE
+      - name: Upload small sanitized evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r4-frozen-acquisition-evidence
+          path: ${{ runner.temp }}/studyai-r4-control/evidence/remote-r4-acquisition.json
+          if-no-files-found: warn
+          retention-days: 7
+          include-hidden-files: false
