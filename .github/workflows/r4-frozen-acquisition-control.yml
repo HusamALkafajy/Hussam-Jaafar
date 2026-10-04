@@ -16,27 +16,189 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - name: Checkout exact diagnostic commit
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 3
-          fetch-tags: false
-          persist-credentials: false
-          submodules: false
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /apps/api/package.json
-            /apps/web/package.json
-            /package.json
-            /packages/ast/package.json
-            /packages/database/package.json
-            /packages/domain/package.json
-            /packages/infrastructure/package.json
-            /packages/infrastructure/src/prisma-client/package.json
-            /packages/types/package.json
-            /pnpm-lock.yaml
-            /pnpm-workspace.yaml
+      - name: Materialize exact R4 frozen inputs
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $TaskExpected = @'
+          [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7","blobSha":"d4a1c1f029a36807f0c640bc7efe325d64ea1193"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2","blobSha":"fbb602947fbe977734f69c6957bf87d4d98504e8"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d","blobSha":"e99db4f64fe55fc06c4ec3c10672ba9d33441b36"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b","blobSha":"63a5863eb7e7b4a0fbab59d70ce1e07e3bf2296d"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6","blobSha":"b77e4f49e4822ecfe935fecf05162df0773f2f75"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b","blobSha":"c0b92e5ed130f14ea3305d5148c69d075f51e938"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d","blobSha":"7285990f84983b85656c55a2608b3d8c08b04ff9"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd","blobSha":"1a3876d1f03bb68e094fad8f6dea36eb483e9d4a"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143","blobSha":"62ab2009fd485641e94a3857a75ec287a5b20d84"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9","blobSha":"5964362a80c4387504ec51e6607faffb621f4741"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee","blobSha":"d3817ca5622bbb28795422093b2aa2e4dc5530d1"}]
+          '@ | ConvertFrom-Json
+          $TaskExpectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34'
+          $TaskFrozenCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab'
+          $TaskExpectedParent = '16308a359950900cd36de416befe4500805e7b94'
+          $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
+          $TaskWorkspace = Join-Path $env:RUNNER_TEMP 'studyai-r4-workspace'
+          $TaskEvidence = Join-Path $TaskRoot 'evidence'
+          $TaskClock = [Diagnostics.Stopwatch]::StartNew()
+          $TaskHttpStatus = $null
+          $TaskStage = 'WORKSPACE_BOUNDARY'
+          $TaskHttpClient = $null
+          $TaskEvidenceOwned = $false
+          $TaskState = [ordered]@{
+            schemaVersion = 1; classification = 'REMOTE_R4_DATA_DELIVERY_FAILURE'
+            workflowCommit = $env:GITHUB_SHA; expectedParent = $TaskExpectedParent
+            observedParent = $null; frozenInputCommit = $TaskFrozenCommit
+            rootInitiallyClean = $false; fileCount = 0; inputHashMatches = 0
+            aggregate = $null; unexpectedFiles = 0; unexpectedDirectories = 0
+            reparsePoints = 0; inputs = @(); failureCategory = $null; failureStage = $null
+            httpStatus = $null; durationMs = 0; complete = $false
+          }
+          function Get-TaskHash {
+            param([byte[]]$TaskBytes, [string]$TaskAlgorithm = 'SHA256')
+            $TaskDigest = if ($TaskAlgorithm -eq 'SHA1') { [Security.Cryptography.SHA1]::Create() } else { [Security.Cryptography.SHA256]::Create() }
+            try { return ([BitConverter]::ToString($TaskDigest.ComputeHash($TaskBytes))).Replace('-','').ToLowerInvariant() }
+            finally { $TaskDigest.Dispose() }
+          }
+          function Assert-TaskNoReparse {
+            param([string]$TaskPath)
+            $TaskCursor = [IO.Path]::GetFullPath($TaskPath)
+            while ($TaskCursor) {
+              if (Test-Path -LiteralPath $TaskCursor) {
+                $TaskItem = Get-Item -LiteralPath $TaskCursor -Force
+                if (($TaskItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REPARSE_BOUNDARY' }
+              }
+              $TaskParent = [IO.Path]::GetDirectoryName($TaskCursor)
+              if ($TaskParent -eq $TaskCursor) { break }
+              $TaskCursor = $TaskParent
+            }
+          }
+          function Get-TaskGitHubJson {
+            param([string]$TaskUri, [int]$TaskMaximumBytes)
+            if (-not $TaskUri.StartsWith('https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/',[StringComparison]::Ordinal)) { throw 'API_HOST_BOUNDARY' }
+            $TaskCancellation = [Threading.CancellationTokenSource]::new()
+            $TaskCancellation.CancelAfter(30000)
+            $TaskResponse = $null; $TaskStream = $null; $TaskMemory = [IO.MemoryStream]::new()
+            try {
+              $TaskResponse = $TaskHttpClient.GetAsync($TaskUri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$TaskCancellation.Token).GetAwaiter().GetResult()
+              $script:TaskHttpStatus = [int]$TaskResponse.StatusCode
+              if (-not $TaskResponse.IsSuccessStatusCode) { throw 'API_HTTP_FAILURE' }
+              if ($TaskResponse.Content.Headers.ContentLength -and $TaskResponse.Content.Headers.ContentLength -gt $TaskMaximumBytes) { throw 'API_RESPONSE_LIMIT' }
+              $TaskStream = $TaskResponse.Content.ReadAsStreamAsync($TaskCancellation.Token).GetAwaiter().GetResult()
+              $TaskBuffer = [byte[]]::new(8192)
+              while (($TaskRead = $TaskStream.ReadAsync($TaskBuffer,0,$TaskBuffer.Length,$TaskCancellation.Token).GetAwaiter().GetResult()) -gt 0) {
+                if ($TaskMemory.Length + $TaskRead -gt $TaskMaximumBytes) { throw 'API_RESPONSE_LIMIT' }
+                $TaskMemory.Write($TaskBuffer,0,$TaskRead)
+              }
+              $TaskJson = [Text.UTF8Encoding]::new($false,$true).GetString($TaskMemory.ToArray())
+              return ($TaskJson | ConvertFrom-Json -Depth 64)
+            } finally {
+              if ($null -ne $TaskStream) { $TaskStream.Dispose() }
+              if ($null -ne $TaskResponse) { $TaskResponse.Dispose() }
+              $TaskMemory.Dispose(); $TaskCancellation.Dispose()
+            }
+          }
+          function Write-TaskSafeJson {
+            param([string]$TaskDestination, [object]$TaskRecord)
+            $TaskJson = ($TaskRecord | ConvertTo-Json -Depth 16 -Compress) + [char]10
+            $TaskBytes = [Text.UTF8Encoding]::new($false).GetBytes($TaskJson)
+            if ($TaskBytes.Length -gt 32768 -or [Regex]::IsMatch($TaskJson,'[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_')) { throw 'REPORT_POLICY' }
+            [IO.File]::WriteAllBytes($TaskDestination,$TaskBytes)
+          }
+          try {
+            if ($env:GITHUB_REPOSITORY -cne 'HusamALkafajy/Hussam-Jaafar' -or -not [Regex]::IsMatch($env:GITHUB_SHA,'^[a-f0-9]{40}$') -or $env:GITHUB_RUN_ATTEMPT -ne '1') { throw 'TRIGGER_IDENTITY' }
+            Assert-TaskNoReparse $env:RUNNER_TEMP
+            Assert-TaskNoReparse $TaskRoot
+            Assert-TaskNoReparse $TaskWorkspace
+            if (Test-Path -LiteralPath $TaskRoot) { throw 'CONTROL_ROOT_ALREADY_EXISTS' }
+            if (Test-Path -LiteralPath $TaskWorkspace) {
+              if (-not (Test-Path -LiteralPath $TaskWorkspace -PathType Container) -or @(Get-ChildItem -LiteralPath $TaskWorkspace -Force).Count -ne 0) { throw 'WORKSPACE_NOT_EMPTY' }
+            } else { [IO.Directory]::CreateDirectory($TaskWorkspace) | Out-Null }
+            $TaskState.rootInitiallyClean = $true
+            [IO.Directory]::CreateDirectory($TaskEvidence) | Out-Null
+            $TaskEvidenceOwned = $true
+            if ([string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { throw 'API_TOKEN_UNAVAILABLE' }
+            $TaskHandler = [Net.Http.HttpClientHandler]::new()
+            $TaskHandler.AllowAutoRedirect = $false
+            $TaskHttpClient = [Net.Http.HttpClient]::new($TaskHandler)
+            $TaskHttpClient.DefaultRequestHeaders.Add('User-Agent','studyai-r4-frozen-input-control')
+            $TaskHttpClient.DefaultRequestHeaders.Add('Accept','application/vnd.github+json')
+            $TaskHttpClient.DefaultRequestHeaders.Add('X-GitHub-Api-Version','2022-11-28')
+            $TaskHttpClient.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$env:GITHUB_TOKEN)
+            $TaskStage = 'API_WORKFLOW_PARENT'
+            $TaskCommit = Get-TaskGitHubJson ("https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/git/commits/" + $env:GITHUB_SHA) 65536
+            if ($TaskCommit.sha -cne $env:GITHUB_SHA -or @($TaskCommit.parents).Count -ne 1 -or $TaskCommit.parents[0].sha -cne $TaskExpectedParent) { throw 'WORKFLOW_PARENT_MISMATCH' }
+            $TaskState.observedParent = $TaskCommit.parents[0].sha
+            $TaskRows = [Collections.Generic.List[object]]::new()
+            $TaskAllowedDirectories = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($TaskInputRecord in $TaskExpected) {
+              $TaskStage = 'API_BLOB_MATERIALIZATION'
+              $TaskRelative = [string]$TaskInputRecord.path
+              $TaskSegments = $TaskRelative.Split('/')
+              if ($TaskSegments.Count -eq 0 -or $TaskRelative.StartsWith('/') -or [IO.Path]::IsPathRooted($TaskRelative) -or [Regex]::IsMatch($TaskRelative,'[:\\]') -or @($TaskSegments | Where-Object { $_ -in @('','.', '..') }).Count -ne 0) { throw 'INPUT_PATH_BOUNDARY' }
+              $TaskEscaped = ($TaskSegments | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
+              $TaskBlob = Get-TaskGitHubJson ("https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/contents/" + $TaskEscaped + "?ref=" + $TaskFrozenCommit) ([Math]::Ceiling([double]$TaskInputRecord.bytes * 1.5) + 16384)
+              if ($TaskBlob.type -cne 'file' -or $TaskBlob.encoding -cne 'base64' -or $TaskBlob.path -cne $TaskRelative -or $TaskBlob.size -ne $TaskInputRecord.bytes -or $TaskBlob.sha -cne $TaskInputRecord.blobSha) { throw 'API_BLOB_IDENTITY' }
+              $TaskBytes = [Convert]::FromBase64String($TaskBlob.content)
+              $TaskHeader = [Text.Encoding]::UTF8.GetBytes('blob ' + $TaskBytes.Length + [char]0)
+              $TaskBlobHash = Get-TaskHash -TaskBytes ([byte[]]($TaskHeader + $TaskBytes)) -TaskAlgorithm 'SHA1'
+              $TaskHash = Get-TaskHash $TaskBytes
+              if ($TaskBytes.Length -ne $TaskInputRecord.bytes -or $TaskHash -cne $TaskInputRecord.sha256 -or $TaskBlobHash -cne $TaskInputRecord.blobSha) { throw 'API_BLOB_HASH' }
+              $TaskDestination = [IO.Path]::GetFullPath((Join-Path $TaskWorkspace $TaskRelative))
+              if (-not $TaskDestination.StartsWith([IO.Path]::GetFullPath($TaskWorkspace) + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'INPUT_PATH_ESCAPE' }
+              Assert-TaskNoReparse $TaskDestination
+              $TaskDirectory = [IO.Path]::GetDirectoryName($TaskDestination)
+              [IO.Directory]::CreateDirectory($TaskDirectory) | Out-Null
+              for ($TaskSegmentIndex = 1; $TaskSegmentIndex -lt $TaskSegments.Count; $TaskSegmentIndex++) { [void]$TaskAllowedDirectories.Add(($TaskSegments[0..($TaskSegmentIndex - 1)] -join '/')) }
+              if (Test-Path -LiteralPath $TaskDestination) { throw 'INPUT_DESTINATION_EXISTS' }
+              [IO.File]::WriteAllBytes($TaskDestination,$TaskBytes)
+              $TaskItem = Get-Item -LiteralPath $TaskDestination -Force
+              Assert-TaskNoReparse $TaskDestination
+              $TaskWrittenHash = (Get-FileHash -LiteralPath $TaskDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($TaskItem.PSIsContainer -or $TaskItem.Length -ne $TaskInputRecord.bytes -or $TaskWrittenHash -cne $TaskInputRecord.sha256) { throw 'WRITTEN_INPUT_HASH' }
+              $TaskRows.Add([ordered]@{path=$TaskRelative;bytes=[long]$TaskItem.Length;sha256=$TaskWrittenHash;blobSha=$TaskBlobHash})
+              $TaskState.inputs = @($TaskRows.ToArray())
+              $TaskState.fileCount = $TaskRows.Count
+              $TaskState.inputHashMatches = $TaskRows.Count
+            }
+            $TaskStage = 'MATERIALIZED_INVENTORY'
+            $TaskEntries = @(Get-ChildItem -LiteralPath $TaskWorkspace -Force -Recurse)
+            foreach ($TaskEntry in $TaskEntries) {
+              $TaskEntryRelative = [IO.Path]::GetRelativePath($TaskWorkspace,$TaskEntry.FullName).Replace('\','/')
+              if (($TaskEntry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $TaskState.reparsePoints++ }
+              elseif ($TaskEntry.PSIsContainer) { if (-not $TaskAllowedDirectories.Contains($TaskEntryRelative)) { $TaskState.unexpectedDirectories++ } }
+              elseif (-not ($TaskExpected.path -ccontains $TaskEntryRelative)) { $TaskState.unexpectedFiles++ }
+            }
+            $TaskLines = @($TaskRows.ToArray() | ForEach-Object { $_.path + '|' + $_.bytes + '|' + $_.sha256 })
+            $TaskState.aggregate = Get-TaskHash ([Text.Encoding]::UTF8.GetBytes(($TaskLines -join [char]10) + [char]10))
+            if ($TaskState.fileCount -ne 11 -or $TaskState.aggregate -cne $TaskExpectedAggregate -or $TaskState.unexpectedFiles -ne 0 -or $TaskState.unexpectedDirectories -ne 0 -or $TaskState.reparsePoints -ne 0) { throw 'MATERIALIZED_INVENTORY_MISMATCH' }
+            $TaskState.classification = 'REMOTE_R4_DATA_MATERIALIZATION_PASS'
+          } catch {
+            $TaskFailureCode = $_.Exception.Message
+            $TaskAllowedFailures = @('REPARSE_BOUNDARY','API_HOST_BOUNDARY','API_HTTP_FAILURE','API_RESPONSE_LIMIT','TRIGGER_IDENTITY','CONTROL_ROOT_ALREADY_EXISTS','WORKSPACE_NOT_EMPTY','API_TOKEN_UNAVAILABLE','WORKFLOW_PARENT_MISMATCH','INPUT_PATH_BOUNDARY','API_BLOB_IDENTITY','API_BLOB_HASH','INPUT_PATH_ESCAPE','INPUT_DESTINATION_EXISTS','WRITTEN_INPUT_HASH','MATERIALIZED_INVENTORY_MISMATCH')
+            $TaskState.failureCategory = if ($TaskAllowedFailures -ccontains $TaskFailureCode) { $TaskFailureCode } else { 'API_OR_MATERIALIZATION_EXECUTION_FAILURE' }
+            $TaskState.failureStage = $TaskStage
+            if ($TaskState.failureCategory -in @('API_BLOB_IDENTITY','API_BLOB_HASH','WRITTEN_INPUT_HASH','MATERIALIZED_INVENTORY_MISMATCH')) { $TaskState.classification = 'REMOTE_R4_DATA_MATERIALIZATION_MISMATCH' }
+          } finally {
+            if ($null -ne $TaskHttpClient) { $TaskHttpClient.Dispose() }
+            $TaskClock.Stop()
+            $TaskState.durationMs = $TaskClock.ElapsedMilliseconds
+            $TaskState.httpStatus = $TaskHttpStatus
+            $TaskState.complete = $true
+          }
+          if ($TaskEvidenceOwned -and (Test-Path -LiteralPath $TaskEvidence -PathType Container)) {
+            Write-TaskSafeJson (Join-Path $TaskRoot 'materialization-state.json') $TaskState
+            $TaskPartial = [ordered]@{
+              schemaVersion=1;scope='FROZEN_PACKAGE_ACQUISITION_INPUTS_ONLY'
+              classification=$TaskState.classification;failureCategory=$TaskState.failureCategory
+              failureStage='DATA_MATERIALIZATION';commit=$env:GITHUB_SHA;inputCommit=$TaskFrozenCommit
+              runId=$env:GITHUB_RUN_ID;runAttempt=[int]$env:GITHUB_RUN_ATTEMPT
+              materialization=$TaskState;runner=@{label='windows-2025';os='win32';architecture=$null;imageOS=$null;imageVersion=$null;windowsBuild=$null}
+              node=$null;pnpm=$null;before=@();after=@();aggregateBefore=$null;aggregateAfter=$null
+              attempts=0;retries=0;exitCode=$null;durationMs=0;lifecycleScripts=0;lifecycleScriptsDisabled=$true
+              lifecycle=@{spawned=$false;exitObserved=$false;closeObserved=$false;stdoutEnd=$false;stderrEnd=$false;signal=$null;watchdog=$false;outputLimit=$false;stdoutBytes=0;stderrBytes=0;treeTermination=$false}
+              store=@{role='FRESH_RUNNER_LOCAL_STORE';initiallyEmpty=$false;files=0;directories=0;logicalBytes=0;reparsePoints=0}
+              disk=@{freeBefore=$null;freeAfter=$null}
+              failure=@{pnpmCodes=@();nodeCodes=@();errno=$null;syscall=$null;httpStatus=$TaskHttpStatus;registryHost='registry.npmjs.org';package=$null;version=$null}
+              childEnvironmentNames=@('SystemRoot','WINDIR','TEMP','TMP');command=@();rawOutputForwarded=0
+              storeUploaded=$false;integrity=$false;complete=$true
+            }
+            Write-TaskSafeJson (Join-Path $TaskEvidence 'remote-r4-acquisition.json') $TaskPartial
+          }
+          if ($TaskState.classification -cne 'REMOTE_R4_DATA_MATERIALIZATION_PASS') { Write-Output 'R4_DATA_DELIVERY_FAILURE'; exit 1 }
+          Write-Output 'R4_DATA_MATERIALIZATION_PASS'
       - name: Configure Node 22.22.3 x64
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -96,8 +258,8 @@ jobs:
           const expected = [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
           const expectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
           const expectedInputCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab';
-          const expectedWorkflowParent = 'aa0705ec8d27cf107be053dbabdb780fe9d609ad';
-          const work = process.env.GITHUB_WORKSPACE;
+          const expectedWorkflowParent = '16308a359950900cd36de416befe4500805e7b94';
+          const work = path.join(process.env.RUNNER_TEMP, 'studyai-r4-workspace');
           const task = path.join(process.env.RUNNER_TEMP, 'studyai-r4-control');
           const store = path.join(task, 'store');
           const evidence = path.join(task, 'evidence');
@@ -108,6 +270,7 @@ jobs:
             classification: 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_DIFFERENT_FAILURE',
             failureCategory: 'REMOTE_OTHER_ACQUISITION_FAILURE', failureStage: 'PREFLIGHT',
             commit: process.env.GITHUB_SHA, inputCommit: expectedInputCommit,
+            materialization: null,
             runId: process.env.GITHUB_RUN_ID, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
             runner: { label: 'windows-2025', os: process.platform, architecture: process.arch,
               imageOS: process.env.ImageOS || null, imageVersion: process.env.ImageVersion || null,
@@ -251,15 +414,34 @@ jobs:
             else if (codes.some(c => ['EACCES','EPERM','ENOSPC'].includes(c))) result.failureCategory = 'REMOTE_FILESYSTEM_FAILURE';
             if (result.failureCategory === 'REMOTE_ECONNRESET') result.classification = 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_ECONNRESET';
           }
+          function validateMaterialization(r) {
+            const keys = ["schemaVersion","classification","workflowCommit","expectedParent","observedParent","frozenInputCommit","rootInitiallyClean","fileCount","inputHashMatches","aggregate","unexpectedFiles","unexpectedDirectories","reparsePoints","inputs","failureCategory","failureStage","httpStatus","durationMs","complete"];
+            const blobs = {"apps/api/package.json":"d4a1c1f029a36807f0c640bc7efe325d64ea1193","apps/web/package.json":"fbb602947fbe977734f69c6957bf87d4d98504e8","package.json":"e99db4f64fe55fc06c4ec3c10672ba9d33441b36","packages/ast/package.json":"63a5863eb7e7b4a0fbab59d70ce1e07e3bf2296d","packages/database/package.json":"b77e4f49e4822ecfe935fecf05162df0773f2f75","packages/domain/package.json":"c0b92e5ed130f14ea3305d5148c69d075f51e938","packages/infrastructure/package.json":"7285990f84983b85656c55a2608b3d8c08b04ff9","packages/infrastructure/src/prisma-client/package.json":"1a3876d1f03bb68e094fad8f6dea36eb483e9d4a","packages/types/package.json":"62ab2009fd485641e94a3857a75ec287a5b20d84","pnpm-lock.yaml":"5964362a80c4387504ec51e6607faffb621f4741","pnpm-workspace.yaml":"d3817ca5622bbb28795422093b2aa2e4dc5530d1"};
+            if (!r || JSON.stringify(Object.keys(r).sort()) !== JSON.stringify(keys.slice().sort()) ||
+                r.schemaVersion !== 1 || r.classification !== 'REMOTE_R4_DATA_MATERIALIZATION_PASS' ||
+                r.workflowCommit !== result.commit || r.expectedParent !== expectedWorkflowParent ||
+                r.observedParent !== expectedWorkflowParent || r.frozenInputCommit !== expectedInputCommit ||
+                r.rootInitiallyClean !== true || r.complete !== true || r.fileCount !== 11 ||
+                r.inputHashMatches !== 11 || r.aggregate !== expectedAggregate ||
+                r.unexpectedFiles !== 0 || r.unexpectedDirectories !== 0 || r.reparsePoints !== 0 ||
+                r.failureCategory !== null || r.failureStage !== null || r.httpStatus !== 200 ||
+                !Number.isSafeInteger(r.durationMs) || r.durationMs < 0 || r.durationMs > 300000 ||
+                !Array.isArray(r.inputs) || r.inputs.length !== expected.length) throw new Error('MATERIALIZATION_CONTRACT');
+            r.inputs.forEach((row,i) => {
+              const e = expected[i];
+              if (JSON.stringify(Object.keys(row).sort()) !== JSON.stringify(['blobSha','bytes','path','sha256']) ||
+                  row.path !== e.path || row.bytes !== e.bytes || row.sha256 !== e.sha256 ||
+                  row.blobSha !== blobs[e.path]) throw new Error('MATERIALIZATION_INPUT');
+            });
+            if (aggregate(r.inputs) !== expectedAggregate) throw new Error('MATERIALIZATION_AGGREGATE');
+          }
           async function main() {
             if (result.runAttempt !== 1 || process.platform !== 'win32' || process.arch !== 'x64' ||
                 process.version !== 'v22.22.3' ||
                 result.node.executableSHA256 !== '780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b') throw new Error('RUNTIME');
-            const git = a => cp.execFileSync('git', a,
-              { cwd: work, encoding: 'utf8', stdio: ['ignore','pipe','pipe'], timeout: 10000, maxBuffer: 65536 }).trim();
-            if (git(['rev-parse','HEAD']) !== result.commit ||
-                git(['rev-parse','HEAD^']) !== expectedWorkflowParent ||
-                git(['rev-parse','HEAD^^']) !== expectedInputCommit) throw new Error('COMMIT');
+            const delivered = JSON.parse(fs.readFileSync(path.join(task, 'materialization-state.json'), 'utf8'));
+            validateMaterialization(delivered);
+            result.materialization = delivered;
             result.before = inputs(); result.aggregateBefore = aggregate(result.before);
             if (result.aggregateBefore !== expectedAggregate) throw new Error('AGGREGATE');
             result.pnpm.entrySHA256 = hash(fs.readFileSync(cli));
@@ -298,7 +480,7 @@ jobs:
               result.failureStage = 'ACQUISITION';
             }
           }
-          const permittedKeys = ['schemaVersion','scope','classification','failureCategory','failureStage','commit','inputCommit',
+          const permittedKeys = ['schemaVersion','scope','classification','failureCategory','failureStage','commit','inputCommit','materialization',
             'runId','runAttempt','runner','node','pnpm','before','after','aggregateBefore','aggregateAfter','attempts','retries',
             'exitCode','durationMs','lifecycleScripts','lifecycleScriptsDisabled','lifecycle','store','disk','failure',
             'childEnvironmentNames','command','rawOutputForwarded','storeUploaded','integrity','complete'];
