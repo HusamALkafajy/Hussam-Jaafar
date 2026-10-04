@@ -1,0 +1,1592 @@
+name: R4 Dependency Bundle Qualification
+on:
+  push:
+    branches:
+      - diagnostic/r4-frozen-acquisition-20261004
+    paths:
+      - .github/workflows/r4-dependency-bundle-qualification.yml
+permissions:
+  contents: read
+jobs:
+  build_dependency_bundle:
+    if: github.run_attempt == 1
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      artifact_id: ${{ steps.bundle-upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.bundle-upload.outputs.artifact-digest }}
+      metadata_sha256: ${{ steps.bundle-manifest.outputs.metadata_sha256 }}
+      manifest_sha256: ${{ steps.bundle-manifest.outputs.manifest_sha256 }}
+    steps:
+      - name: Materialize exact R4 frozen inputs
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $TaskExpected = @'
+          [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7","blobSha":"d4a1c1f029a36807f0c640bc7efe325d64ea1193"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2","blobSha":"fbb602947fbe977734f69c6957bf87d4d98504e8"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d","blobSha":"e99db4f64fe55fc06c4ec3c10672ba9d33441b36"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b","blobSha":"63a5863eb7e7b4a0fbab59d70ce1e07e3bf2296d"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6","blobSha":"b77e4f49e4822ecfe935fecf05162df0773f2f75"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b","blobSha":"c0b92e5ed130f14ea3305d5148c69d075f51e938"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d","blobSha":"7285990f84983b85656c55a2608b3d8c08b04ff9"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd","blobSha":"1a3876d1f03bb68e094fad8f6dea36eb483e9d4a"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143","blobSha":"62ab2009fd485641e94a3857a75ec287a5b20d84"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9","blobSha":"5964362a80c4387504ec51e6607faffb621f4741"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee","blobSha":"d3817ca5622bbb28795422093b2aa2e4dc5530d1"}]
+          '@ | ConvertFrom-Json
+          $TaskExpectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34'
+          $TaskFrozenCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab'
+          $TaskExpectedParent = 'aa49c2106b672de489ffc504ee353bbc2c9a963b'
+          $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
+          $TaskWorkspace = Join-Path $env:RUNNER_TEMP 'studyai-r4-workspace'
+          $TaskEvidence = Join-Path $TaskRoot 'evidence'
+          $TaskClock = [Diagnostics.Stopwatch]::StartNew()
+          $TaskHttpStatus = $null
+          $TaskStage = 'WORKSPACE_BOUNDARY'
+          $TaskHttpClient = $null
+          $TaskEvidenceOwned = $false
+          $TaskState = [ordered]@{
+            schemaVersion = 1; classification = 'REMOTE_R4_DATA_DELIVERY_FAILURE'
+            workflowCommit = $env:GITHUB_SHA; expectedParent = $TaskExpectedParent
+            observedParent = $null; frozenInputCommit = $TaskFrozenCommit
+            rootInitiallyClean = $false; fileCount = 0; inputHashMatches = 0
+            aggregate = $null; unexpectedFiles = 0; unexpectedDirectories = 0
+            reparsePoints = 0; inputs = @(); failureCategory = $null; failureStage = $null
+            httpStatus = $null; durationMs = 0; complete = $false
+          }
+          function Get-TaskHash {
+            param([byte[]]$TaskBytes, [string]$TaskAlgorithm = 'SHA256')
+            $TaskDigest = if ($TaskAlgorithm -eq 'SHA1') { [Security.Cryptography.SHA1]::Create() } else { [Security.Cryptography.SHA256]::Create() }
+            try { return ([BitConverter]::ToString($TaskDigest.ComputeHash($TaskBytes))).Replace('-','').ToLowerInvariant() }
+            finally { $TaskDigest.Dispose() }
+          }
+          function Assert-TaskNoReparse {
+            param([string]$TaskPath)
+            $TaskCursor = [IO.Path]::GetFullPath($TaskPath)
+            while ($TaskCursor) {
+              if (Test-Path -LiteralPath $TaskCursor) {
+                $TaskItem = Get-Item -LiteralPath $TaskCursor -Force
+                if (($TaskItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REPARSE_BOUNDARY' }
+              }
+              $TaskParent = [IO.Path]::GetDirectoryName($TaskCursor)
+              if ($TaskParent -eq $TaskCursor) { break }
+              $TaskCursor = $TaskParent
+            }
+          }
+          function Get-TaskGitHubJson {
+            param([string]$TaskUri, [int]$TaskMaximumBytes)
+            if (-not $TaskUri.StartsWith('https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/',[StringComparison]::Ordinal)) { throw 'API_HOST_BOUNDARY' }
+            $TaskCancellation = [Threading.CancellationTokenSource]::new()
+            $TaskCancellation.CancelAfter(30000)
+            $TaskResponse = $null; $TaskStream = $null; $TaskMemory = [IO.MemoryStream]::new()
+            try {
+              $TaskResponse = $TaskHttpClient.GetAsync($TaskUri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$TaskCancellation.Token).GetAwaiter().GetResult()
+              $script:TaskHttpStatus = [int]$TaskResponse.StatusCode
+              if (-not $TaskResponse.IsSuccessStatusCode) { throw 'API_HTTP_FAILURE' }
+              if ($TaskResponse.Content.Headers.ContentLength -and $TaskResponse.Content.Headers.ContentLength -gt $TaskMaximumBytes) { throw 'API_RESPONSE_LIMIT' }
+              $TaskStream = $TaskResponse.Content.ReadAsStreamAsync($TaskCancellation.Token).GetAwaiter().GetResult()
+              $TaskBuffer = [byte[]]::new(8192)
+              while (($TaskRead = $TaskStream.ReadAsync($TaskBuffer,0,$TaskBuffer.Length,$TaskCancellation.Token).GetAwaiter().GetResult()) -gt 0) {
+                if ($TaskMemory.Length + $TaskRead -gt $TaskMaximumBytes) { throw 'API_RESPONSE_LIMIT' }
+                $TaskMemory.Write($TaskBuffer,0,$TaskRead)
+              }
+              $TaskJson = [Text.UTF8Encoding]::new($false,$true).GetString($TaskMemory.ToArray())
+              return ($TaskJson | ConvertFrom-Json -Depth 64)
+            } finally {
+              if ($null -ne $TaskStream) { $TaskStream.Dispose() }
+              if ($null -ne $TaskResponse) { $TaskResponse.Dispose() }
+              $TaskMemory.Dispose(); $TaskCancellation.Dispose()
+            }
+          }
+          function Write-TaskSafeJson {
+            param([string]$TaskDestination, [object]$TaskRecord)
+            $TaskJson = ($TaskRecord | ConvertTo-Json -Depth 16 -Compress) + [char]10
+            $TaskBytes = [Text.UTF8Encoding]::new($false).GetBytes($TaskJson)
+            if ($TaskBytes.Length -gt 32768 -or [Regex]::IsMatch($TaskJson,'[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_')) { throw 'REPORT_POLICY' }
+            [IO.File]::WriteAllBytes($TaskDestination,$TaskBytes)
+          }
+          try {
+            if ($env:GITHUB_REPOSITORY -cne 'HusamALkafajy/Hussam-Jaafar' -or -not [Regex]::IsMatch($env:GITHUB_SHA,'^[a-f0-9]{40}$') -or $env:GITHUB_RUN_ATTEMPT -ne '1') { throw 'TRIGGER_IDENTITY' }
+            Assert-TaskNoReparse $env:RUNNER_TEMP
+            Assert-TaskNoReparse $TaskRoot
+            Assert-TaskNoReparse $TaskWorkspace
+            if (Test-Path -LiteralPath $TaskRoot) { throw 'CONTROL_ROOT_ALREADY_EXISTS' }
+            if (Test-Path -LiteralPath $TaskWorkspace) {
+              if (-not (Test-Path -LiteralPath $TaskWorkspace -PathType Container) -or @(Get-ChildItem -LiteralPath $TaskWorkspace -Force).Count -ne 0) { throw 'WORKSPACE_NOT_EMPTY' }
+            } else { [IO.Directory]::CreateDirectory($TaskWorkspace) | Out-Null }
+            $TaskState.rootInitiallyClean = $true
+            [IO.Directory]::CreateDirectory($TaskEvidence) | Out-Null
+            $TaskEvidenceOwned = $true
+            if ([string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { throw 'API_TOKEN_UNAVAILABLE' }
+            $TaskHandler = [Net.Http.HttpClientHandler]::new()
+            $TaskHandler.AllowAutoRedirect = $false
+            $TaskHttpClient = [Net.Http.HttpClient]::new($TaskHandler)
+            $TaskHttpClient.DefaultRequestHeaders.Add('User-Agent','studyai-r4-frozen-input-control')
+            $TaskHttpClient.DefaultRequestHeaders.Add('Accept','application/vnd.github+json')
+            $TaskHttpClient.DefaultRequestHeaders.Add('X-GitHub-Api-Version','2022-11-28')
+            $TaskHttpClient.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$env:GITHUB_TOKEN)
+            $TaskStage = 'API_WORKFLOW_PARENT'
+            $TaskCommit = Get-TaskGitHubJson ("https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/git/commits/" + $env:GITHUB_SHA) 65536
+            if ($TaskCommit.sha -cne $env:GITHUB_SHA -or @($TaskCommit.parents).Count -ne 1 -or $TaskCommit.parents[0].sha -cne $TaskExpectedParent) { throw 'WORKFLOW_PARENT_MISMATCH' }
+            $TaskState.observedParent = $TaskCommit.parents[0].sha
+            $TaskRows = [Collections.Generic.List[object]]::new()
+            $TaskAllowedDirectories = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($TaskInputRecord in $TaskExpected) {
+              $TaskStage = 'API_BLOB_MATERIALIZATION'
+              $TaskRelative = [string]$TaskInputRecord.path
+              $TaskSegments = $TaskRelative.Split('/')
+              if ($TaskSegments.Count -eq 0 -or $TaskRelative.StartsWith('/') -or [IO.Path]::IsPathRooted($TaskRelative) -or [Regex]::IsMatch($TaskRelative,'[:\\]') -or @($TaskSegments | Where-Object { $_ -in @('','.', '..') }).Count -ne 0) { throw 'INPUT_PATH_BOUNDARY' }
+              $TaskEscaped = ($TaskSegments | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
+              $TaskBlob = Get-TaskGitHubJson ("https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/contents/" + $TaskEscaped + "?ref=" + $TaskFrozenCommit) ([Math]::Ceiling([double]$TaskInputRecord.bytes * 1.5) + 16384)
+              if ($TaskBlob.type -cne 'file' -or $TaskBlob.encoding -cne 'base64' -or $TaskBlob.path -cne $TaskRelative -or $TaskBlob.size -ne $TaskInputRecord.bytes -or $TaskBlob.sha -cne $TaskInputRecord.blobSha) { throw 'API_BLOB_IDENTITY' }
+              $TaskBytes = [Convert]::FromBase64String($TaskBlob.content)
+              $TaskHeader = [Text.Encoding]::UTF8.GetBytes('blob ' + $TaskBytes.Length + [char]0)
+              $TaskBlobHash = Get-TaskHash -TaskBytes ([byte[]]($TaskHeader + $TaskBytes)) -TaskAlgorithm 'SHA1'
+              $TaskHash = Get-TaskHash $TaskBytes
+              if ($TaskBytes.Length -ne $TaskInputRecord.bytes -or $TaskHash -cne $TaskInputRecord.sha256 -or $TaskBlobHash -cne $TaskInputRecord.blobSha) { throw 'API_BLOB_HASH' }
+              $TaskDestination = [IO.Path]::GetFullPath((Join-Path $TaskWorkspace $TaskRelative))
+              if (-not $TaskDestination.StartsWith([IO.Path]::GetFullPath($TaskWorkspace) + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'INPUT_PATH_ESCAPE' }
+              Assert-TaskNoReparse $TaskDestination
+              $TaskDirectory = [IO.Path]::GetDirectoryName($TaskDestination)
+              [IO.Directory]::CreateDirectory($TaskDirectory) | Out-Null
+              for ($TaskSegmentIndex = 1; $TaskSegmentIndex -lt $TaskSegments.Count; $TaskSegmentIndex++) { [void]$TaskAllowedDirectories.Add(($TaskSegments[0..($TaskSegmentIndex - 1)] -join '/')) }
+              if (Test-Path -LiteralPath $TaskDestination) { throw 'INPUT_DESTINATION_EXISTS' }
+              [IO.File]::WriteAllBytes($TaskDestination,$TaskBytes)
+              $TaskItem = Get-Item -LiteralPath $TaskDestination -Force
+              Assert-TaskNoReparse $TaskDestination
+              $TaskWrittenHash = (Get-FileHash -LiteralPath $TaskDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($TaskItem.PSIsContainer -or $TaskItem.Length -ne $TaskInputRecord.bytes -or $TaskWrittenHash -cne $TaskInputRecord.sha256) { throw 'WRITTEN_INPUT_HASH' }
+              $TaskRows.Add([ordered]@{path=$TaskRelative;bytes=[long]$TaskItem.Length;sha256=$TaskWrittenHash;blobSha=$TaskBlobHash})
+              $TaskState.inputs = @($TaskRows.ToArray())
+              $TaskState.fileCount = $TaskRows.Count
+              $TaskState.inputHashMatches = $TaskRows.Count
+            }
+            $TaskStage = 'MATERIALIZED_INVENTORY'
+            $TaskEntries = @(Get-ChildItem -LiteralPath $TaskWorkspace -Force -Recurse)
+            foreach ($TaskEntry in $TaskEntries) {
+              $TaskEntryRelative = [IO.Path]::GetRelativePath($TaskWorkspace,$TaskEntry.FullName).Replace('\','/')
+              if (($TaskEntry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $TaskState.reparsePoints++ }
+              elseif ($TaskEntry.PSIsContainer) { if (-not $TaskAllowedDirectories.Contains($TaskEntryRelative)) { $TaskState.unexpectedDirectories++ } }
+              elseif (-not ($TaskExpected.path -ccontains $TaskEntryRelative)) { $TaskState.unexpectedFiles++ }
+            }
+            $TaskLines = @($TaskRows.ToArray() | ForEach-Object { $_.path + '|' + $_.bytes + '|' + $_.sha256 })
+            $TaskState.aggregate = Get-TaskHash ([Text.Encoding]::UTF8.GetBytes(($TaskLines -join [char]10) + [char]10))
+            if ($TaskState.fileCount -ne 11 -or $TaskState.aggregate -cne $TaskExpectedAggregate -or $TaskState.unexpectedFiles -ne 0 -or $TaskState.unexpectedDirectories -ne 0 -or $TaskState.reparsePoints -ne 0) { throw 'MATERIALIZED_INVENTORY_MISMATCH' }
+            $TaskState.classification = 'REMOTE_R4_DATA_MATERIALIZATION_PASS'
+          } catch {
+            $TaskFailureCode = $_.Exception.Message
+            $TaskAllowedFailures = @('REPARSE_BOUNDARY','API_HOST_BOUNDARY','API_HTTP_FAILURE','API_RESPONSE_LIMIT','TRIGGER_IDENTITY','CONTROL_ROOT_ALREADY_EXISTS','WORKSPACE_NOT_EMPTY','API_TOKEN_UNAVAILABLE','WORKFLOW_PARENT_MISMATCH','INPUT_PATH_BOUNDARY','API_BLOB_IDENTITY','API_BLOB_HASH','INPUT_PATH_ESCAPE','INPUT_DESTINATION_EXISTS','WRITTEN_INPUT_HASH','MATERIALIZED_INVENTORY_MISMATCH')
+            $TaskState.failureCategory = if ($TaskAllowedFailures -ccontains $TaskFailureCode) { $TaskFailureCode } else { 'API_OR_MATERIALIZATION_EXECUTION_FAILURE' }
+            $TaskState.failureStage = $TaskStage
+            if ($TaskState.failureCategory -in @('API_BLOB_IDENTITY','API_BLOB_HASH','WRITTEN_INPUT_HASH','MATERIALIZED_INVENTORY_MISMATCH')) { $TaskState.classification = 'REMOTE_R4_DATA_MATERIALIZATION_MISMATCH' }
+          } finally {
+            if ($null -ne $TaskHttpClient) { $TaskHttpClient.Dispose() }
+            $TaskClock.Stop()
+            $TaskState.durationMs = $TaskClock.ElapsedMilliseconds
+            $TaskState.httpStatus = $TaskHttpStatus
+            $TaskState.complete = $true
+          }
+          if ($TaskEvidenceOwned -and (Test-Path -LiteralPath $TaskEvidence -PathType Container)) {
+            Write-TaskSafeJson (Join-Path $TaskRoot 'materialization-state.json') $TaskState
+            $TaskPartial = [ordered]@{
+              schemaVersion=1;scope='FROZEN_PACKAGE_ACQUISITION_INPUTS_ONLY'
+              classification=$TaskState.classification;failureCategory=$TaskState.failureCategory
+              failureStage='DATA_MATERIALIZATION';commit=$env:GITHUB_SHA;inputCommit=$TaskFrozenCommit
+              runId=$env:GITHUB_RUN_ID;runAttempt=[int]$env:GITHUB_RUN_ATTEMPT
+              materialization=$TaskState;runner=@{label='windows-2025';os='win32';architecture=$null;imageOS=$null;imageVersion=$null;windowsBuild=$null}
+              node=$null;pnpm=$null;before=@();after=@();aggregateBefore=$null;aggregateAfter=$null
+              attempts=0;retries=0;exitCode=$null;durationMs=0;lifecycleScripts=0;lifecycleScriptsDisabled=$true
+              lifecycle=@{spawned=$false;exitObserved=$false;closeObserved=$false;stdoutEnd=$false;stderrEnd=$false;signal=$null;watchdog=$false;outputLimit=$false;stdoutBytes=0;stderrBytes=0;treeTermination=$false}
+              store=@{role='FRESH_RUNNER_LOCAL_STORE';initiallyEmpty=$false;files=0;directories=0;logicalBytes=0;reparsePoints=0}
+              disk=@{freeBefore=$null;freeAfter=$null}
+              failure=@{pnpmCodes=@();nodeCodes=@();errno=$null;syscall=$null;httpStatus=$TaskHttpStatus;registryHost='registry.npmjs.org';package=$null;version=$null}
+              childEnvironmentNames=@('SystemRoot','WINDIR','TEMP','TMP');command=@();rawOutputForwarded=0
+              storeUploaded=$false;integrity=$false;complete=$true
+            }
+            Write-TaskSafeJson (Join-Path $TaskEvidence 'remote-r4-preflight.json') $TaskPartial
+          }
+          if ($TaskState.classification -cne 'REMOTE_R4_DATA_MATERIALIZATION_PASS') { Write-Output 'R4_DATA_DELIVERY_FAILURE'; exit 1 }
+          Write-Output 'R4_DATA_MATERIALIZATION_PASS'
+      - name: Configure Node 22.22.3 x64
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.22.3
+          architecture: x64
+          check-latest: false
+      - name: Qualify portable pnpm 9.15.0 without installation
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
+            if (-not (Test-Path -LiteralPath $TaskRoot -PathType Container)) { throw [InvalidOperationException]::new('CONTROL_ROOT_MISSING') }
+            $TaskRootItem = Get-Item -LiteralPath $TaskRoot -Force
+            if (-not $TaskRootItem.PSIsContainer -or ($TaskRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('CONTROL_ROOT_REPARSE') }
+            $TaskStatePath = Join-Path $TaskRoot 'materialization-state.json'
+            if (-not (Test-Path -LiteralPath $TaskStatePath -PathType Leaf)) { throw [InvalidOperationException]::new('MATERIALIZATION_STATE_MISSING') }
+            $TaskStateItem = Get-Item -LiteralPath $TaskStatePath -Force
+            if ($TaskStateItem.PSIsContainer -or ($TaskStateItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('MATERIALIZATION_STATE_INVALID') }
+            $TaskEvidencePath = Join-Path $TaskRoot 'evidence'
+            if (-not (Test-Path -LiteralPath $TaskEvidencePath -PathType Container)) { throw [InvalidOperationException]::new('EVIDENCE_DIRECTORY_MISSING') }
+            $TaskEvidenceItem = Get-Item -LiteralPath $TaskEvidencePath -Force
+            if (-not $TaskEvidenceItem.PSIsContainer -or ($TaskEvidenceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('EVIDENCE_DIRECTORY_INVALID') }
+            $TaskTool = Join-Path $TaskRoot 'pnpm'
+            if (Test-Path -LiteralPath $TaskTool) { throw [InvalidOperationException]::new('PNPM_TOOL_ALREADY_EXISTS') }
+            $TaskArchive = Join-Path $TaskRoot 'pnpm-9.15.0.tgz'
+            if (Test-Path -LiteralPath $TaskArchive) { throw [InvalidOperationException]::new('PNPM_ARCHIVE_ALREADY_EXISTS') }
+            $TaskRootEntries = @(Get-ChildItem -LiteralPath $TaskRoot -Force)
+            if ($TaskRootEntries.Count -ne 2 -or @($TaskRootEntries | Where-Object { $_.Name -cnotin @('materialization-state.json','evidence') }).Count -ne 0) { throw [InvalidOperationException]::new('CONTROL_ROOT_UNEXPECTED_STATE') }
+            [IO.Directory]::CreateDirectory($TaskTool) | Out-Null
+            $TaskMetadata = Invoke-RestMethod -Uri 'https://registry.npmjs.org/pnpm/9.15.0' -TimeoutSec 60
+            if ($TaskMetadata.name -cne 'pnpm' -or $TaskMetadata.version -cne '9.15.0' -or
+                $TaskMetadata.dist.tarball -cne 'https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz' -or
+                $TaskMetadata.dist.integrity -notmatch '^sha512-[A-Za-z0-9+/=]+$') { throw [InvalidOperationException]::new() }
+            $TaskArchive = Join-Path $TaskRoot 'pnpm-9.15.0.tgz'
+            Invoke-WebRequest -Uri 'https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz' -OutFile $TaskArchive -TimeoutSec 120
+            $TaskArchiveItem = Get-Item -LiteralPath $TaskArchive -Force
+            if ($TaskArchiveItem.Length -gt 16777216) { throw [InvalidOperationException]::new() }
+            $TaskHasher = [Security.Cryptography.SHA512]::Create()
+            try { $TaskIntegrity = 'sha512-' + [Convert]::ToBase64String($TaskHasher.ComputeHash([IO.File]::ReadAllBytes($TaskArchive))) }
+            finally { $TaskHasher.Dispose() }
+            if ($TaskIntegrity -cne $TaskMetadata.dist.integrity) { throw [InvalidOperationException]::new() }
+            $TaskTar = Join-Path $env:SystemRoot 'System32\tar.exe'
+            $TaskEntries = @(& $TaskTar -tzf $TaskArchive 2>&1)
+            if ($LASTEXITCODE -ne 0 -or $TaskEntries.Count -gt 10000) { throw [InvalidOperationException]::new() }
+            foreach ($TaskEntry in $TaskEntries) {
+              $TaskName = $TaskEntry.ToString()
+              if ($TaskName -notmatch '^package(?:/|$)' -or $TaskName -match '(?:^|/)\.\.(?:/|$)|\\|^[A-Za-z]:') { throw [InvalidOperationException]::new() }
+            }
+            $TaskTypes = @(& $TaskTar -tvzf $TaskArchive 2>&1)
+            if ($LASTEXITCODE -ne 0 -or @($TaskTypes | Where-Object { $_.ToString() -notmatch '^[-d]' }).Count -gt 0) { throw [InvalidOperationException]::new() }
+            $TaskExtraction = @(& $TaskTar -xzf $TaskArchive -C $TaskTool 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw [InvalidOperationException]::new() }
+            if (@(Get-ChildItem -LiteralPath $TaskTool -Recurse -Force | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -gt 0) { throw [InvalidOperationException]::new() }
+            $TaskEntryPath = Join-Path $TaskTool 'package\bin\pnpm.cjs'
+            if ((Get-FileHash -LiteralPath $TaskEntryPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne '98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090') { throw [InvalidOperationException]::new() }
+            $TaskArchiveHash = (Get-FileHash -LiteralPath $TaskArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($TaskArchiveHash -cne '09a8fe31a34fda706354680619f4002f4ccef6dadff93240d24ef6c831f0fd28') { throw 'PNPM_ARCHIVE_IDENTITY' }
+            [IO.File]::WriteAllText((Join-Path $TaskRoot 'pnpm-archive-sha256.txt'), $TaskArchiveHash, [Text.UTF8Encoding]::new($false))
+            Write-Output 'PNPM_PORTABLE_915_SETUP_PASS'
+          } catch {
+            Write-Output 'PNPM_PORTABLE_915_SETUP_FAILURE'
+            exit 1
+          }
+      - name: One bounded frozen acquisition
+        timeout-minutes: 23
+        run: |
+          $TaskScript = @'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const cp = require('node:child_process');
+          const expected = [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
+          const expectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
+          const expectedInputCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab';
+          const expectedWorkflowParent = 'aa49c2106b672de489ffc504ee353bbc2c9a963b';
+          const work = path.join(process.env.RUNNER_TEMP, 'studyai-r4-workspace');
+          const task = path.join(process.env.RUNNER_TEMP, 'studyai-r4-control');
+          const store = path.join(task, 'store');
+          const evidence = path.join(task, 'evidence');
+          const cli = path.join(task, 'pnpm', 'package', 'bin', 'pnpm.cjs');
+          const hash = b => crypto.createHash('sha256').update(b).digest('hex');
+          const result = {
+            schemaVersion: 1, scope: 'FROZEN_PACKAGE_ACQUISITION_INPUTS_ONLY',
+            classification: 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_DIFFERENT_FAILURE',
+            failureCategory: 'REMOTE_OTHER_ACQUISITION_FAILURE', failureStage: 'PREFLIGHT',
+            commit: process.env.GITHUB_SHA, inputCommit: expectedInputCommit,
+            materialization: null,
+            runId: process.env.GITHUB_RUN_ID, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            runner: { label: 'windows-2025', os: process.platform, architecture: process.arch,
+              imageOS: process.env.ImageOS || null, imageVersion: process.env.ImageVersion || null,
+              windowsBuild: require('node:os').release() },
+            node: { version: process.version, architecture: process.arch, openssl: process.versions.openssl,
+              executableSHA256: hash(fs.readFileSync(process.execPath)), fips: crypto.getFips() },
+            pnpm: { version: null, entrySHA256: null, flagSupport: false, archiveSHA256: null },
+            before: [], after: [], aggregateBefore: null, aggregateAfter: null,
+            attempts: 0, retries: 0, exitCode: null, durationMs: 0,
+            lifecycleScripts: 0, lifecycleScriptsDisabled: true,
+            lifecycle: { spawned: false, exitObserved: false, closeObserved: false,
+              stdoutEnd: false, stderrEnd: false, signal: null, watchdog: false, outputLimit: false,
+              stdoutBytes: 0, stderrBytes: 0, treeTermination: false },
+            store: { role: 'FRESH_RUNNER_LOCAL_STORE', initiallyEmpty: false, files: 0, directories: 0, logicalBytes: 0, reparsePoints: 0 },
+            disk: { freeBefore: null, freeAfter: null },
+            failure: { pnpmCodes: [], nodeCodes: [], errno: null, syscall: null,
+              httpStatus: null, registryHost: 'registry.npmjs.org', package: null, version: null },
+            childEnvironmentNames: ['SystemRoot', 'WINDIR', 'TEMP', 'TMP'],
+            command: [], rawOutputForwarded: 0, storeUploaded: false,
+            integrity: false, complete: false
+          };
+          function inputs() {
+            return expected.map(e => {
+              const p = path.join(work, e.path), st = fs.lstatSync(p);
+              if (!st.isFile() || st.isSymbolicLink()) throw new Error('INPUT_TYPE');
+              const bytes = fs.readFileSync(p), sha256 = hash(bytes);
+              if (bytes.length !== e.bytes || sha256 !== e.sha256) throw new Error('INPUT_HASH');
+              return { path: e.path, bytes: bytes.length, sha256 };
+            });
+          }
+          function aggregate(rows) {
+            return hash(Buffer.from(rows.map(r => r.path + '|' + r.bytes + '|' + r.sha256).join('\n') + '\n'));
+          }
+          function storeInventory(root) {
+            const out = { files: 0, directories: 0, logicalBytes: 0, reparsePoints: 0 };
+            const pending = [root];
+            while (pending.length) {
+              const dir = pending.pop();
+              for (const name of fs.readdirSync(dir)) {
+                const p = path.join(dir, name), st = fs.lstatSync(p);
+                if (st.isSymbolicLink()) { out.reparsePoints++; continue; }
+                if (st.isDirectory()) { out.directories++; pending.push(p); }
+                else if (st.isFile()) { out.files++; out.logicalBytes += st.size; }
+                else throw new Error('STORE_TYPE');
+              }
+            }
+            return out;
+          }
+          async function child(args, timeout) {
+            const record = { spawned: false, exitObserved: false, closeObserved: false,
+              stdoutEnd: false, stderrEnd: false, signal: null, watchdog: false, outputLimit: false,
+              stdoutBytes: 0, stderrBytes: 0, treeTermination: false };
+            const env = {};
+            for (const name of result.childEnvironmentNames) {
+              if (!process.env[name]) throw new Error('ENVIRONMENT');
+              env[name] = process.env[name];
+            }
+            const chunks = { stdout: [], stderr: [] };
+            const started = Date.now();
+            return await new Promise(resolve => {
+              let settled = false, code = null, timer = null, childProcess;
+              function terminate() {
+                if (childProcess.pid) {
+                  const killed = cp.spawnSync(path.join(process.env.SystemRoot, 'System32', 'taskkill.exe'),
+                    ['/PID', String(childProcess.pid), '/T', '/F'],
+                    { windowsHide: true, shell: false, stdio: 'ignore', timeout: 15000 });
+                  record.treeTermination = killed.status === 0;
+                }
+              }
+              function finish() {
+                if (settled) return; settled = true; clearTimeout(timer);
+                resolve({ record, code, durationMs: Date.now() - started,
+                  stdout: Buffer.concat(chunks.stdout).toString('utf8'),
+                  stderr: Buffer.concat(chunks.stderr).toString('utf8') });
+              }
+              childProcess = cp.spawn(process.execPath, [cli, ...args],
+                { cwd: work, env, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+              childProcess.on('spawn', () => { record.spawned = true; });
+              childProcess.on('error', () => { finish(); });
+              childProcess.on('exit', (exitCode, signal) => {
+                code = exitCode; record.exitObserved = true;
+                record.signal = signal === null ? null : 'SIGNAL_OBSERVED';
+              });
+              for (const name of ['stdout', 'stderr']) {
+                const stream = childProcess[name];
+                stream.on('data', b => {
+                  record[name + 'Bytes'] += b.length;
+                  if (record[name + 'Bytes'] <= 8388608) chunks[name].push(b);
+                  else if (!record.outputLimit) { record.outputLimit = true; terminate(); }
+                });
+                stream.on('end', () => { record[name + 'End'] = true; });
+                stream.on('error', () => { record.outputLimit = true; terminate(); });
+              }
+              childProcess.on('close', () => { record.closeObserved = true; finish(); });
+              timer = setTimeout(() => { record.watchdog = true; terminate(); }, timeout);
+            });
+          }
+          function freeSpace(root) {
+            try {
+              const drive = path.parse(root).root.slice(0,2);
+              if (!/^[A-Za-z]:$/.test(drive)) return null;
+              const command = "$TaskDisk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='" + drive + "'\"; [Console]::Write($TaskDisk.FreeSpace)";
+              const value = cp.execFileSync(path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'),
+                ['-NoProfile','-NonInteractive','-Command',command],
+                { windowsHide: true, shell: false, stdio: ['ignore','pipe','pipe'], encoding: 'utf8', timeout: 15000, maxBuffer: 4096 }).trim();
+              return /^[0-9]{1,16}$/.test(value) ? Number(value) : null;
+            } catch { return null; }
+          }
+          function processComplete(x) {
+            return x.record.spawned && x.record.exitObserved && x.record.closeObserved &&
+              x.record.stdoutEnd && x.record.stderrEnd && x.record.signal === null &&
+              !x.record.watchdog && !x.record.outputLimit;
+          }
+          function failures(x) {
+            const text = x.stdout + '\n' + x.stderr;
+            result.failure.pnpmCodes = [...new Set(text.match(/\bERR_PNPM_[A-Z0-9_]{1,64}\b/g) || [])].slice(0,8);
+            const allowed = ['ECONNRESET','ENOTFOUND','EAI_AGAIN','ETIMEDOUT','EACCES','EPERM','ENOSPC',
+              'ERR_SSL_CIPHER_OPERATION_FAILED','ERR_TLS_CERT_ALTNAME_INVALID','CERT_HAS_EXPIRED',
+              'UNABLE_TO_VERIFY_LEAF_SIGNATURE','UNABLE_TO_GET_ISSUER_CERT_LOCALLY','ERR_OSSL_EVP_BAD_DECRYPT'];
+            result.failure.nodeCodes = allowed.filter(v => text.includes(v));
+            for (const line of text.split('\n')) {
+              let row; try { row = JSON.parse(line); } catch { continue; }
+              if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+              const err = row.err || row.error || row;
+              if (Number.isInteger(err.errno) && Math.abs(err.errno) <= 65536) result.failure.errno = err.errno;
+              if (['read','write','connect','getaddrinfo','open','rename','unlink'].includes(err.syscall)) result.failure.syscall = err.syscall;
+              const status = err.status || err.statusCode || row.status || row.statusCode;
+              if (Number.isInteger(status) && status >= 100 && status <= 599) result.failure.httpStatus = status;
+              if (row.level === 'error' || row.err || row.error) {
+                const packageName = row.packageName || err.packageName;
+                const packageVersion = row.packageVersion || err.packageVersion;
+                if (typeof packageName === 'string' && /^(@[a-z0-9._-]+\/)?[a-z0-9._-]{1,100}$/i.test(packageName)) result.failure.package = packageName;
+                if (typeof packageVersion === 'string' && /^[0-9][A-Za-z0-9.+-]{0,63}$/.test(packageVersion)) result.failure.version = packageVersion;
+              }
+            }
+            const codes = result.failure.nodeCodes;
+            if (codes.includes('ECONNRESET')) result.failureCategory = 'REMOTE_ECONNRESET';
+            else if (codes.some(c => /SSL|TLS|CERT|ISSUER|SIGNATURE|OSSL/.test(c))) result.failureCategory = 'REMOTE_SSL_FAILURE';
+            else if (codes.includes('ENOTFOUND') || codes.includes('EAI_AGAIN')) result.failureCategory = 'REMOTE_DNS_FAILURE';
+            else if (result.failure.httpStatus >= 400 || result.failure.pnpmCodes.some(c => /FETCH_(4|5)[0-9]{2}/.test(c))) result.failureCategory = 'REMOTE_HTTP_FAILURE';
+            else if (codes.some(c => ['EACCES','EPERM','ENOSPC'].includes(c))) result.failureCategory = 'REMOTE_FILESYSTEM_FAILURE';
+            if (result.failureCategory === 'REMOTE_ECONNRESET') result.classification = 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_ECONNRESET';
+          }
+          function validateMaterialization(r) {
+            const keys = ["schemaVersion","classification","workflowCommit","expectedParent","observedParent","frozenInputCommit","rootInitiallyClean","fileCount","inputHashMatches","aggregate","unexpectedFiles","unexpectedDirectories","reparsePoints","inputs","failureCategory","failureStage","httpStatus","durationMs","complete"];
+            const blobs = {"apps/api/package.json":"d4a1c1f029a36807f0c640bc7efe325d64ea1193","apps/web/package.json":"fbb602947fbe977734f69c6957bf87d4d98504e8","package.json":"e99db4f64fe55fc06c4ec3c10672ba9d33441b36","packages/ast/package.json":"63a5863eb7e7b4a0fbab59d70ce1e07e3bf2296d","packages/database/package.json":"b77e4f49e4822ecfe935fecf05162df0773f2f75","packages/domain/package.json":"c0b92e5ed130f14ea3305d5148c69d075f51e938","packages/infrastructure/package.json":"7285990f84983b85656c55a2608b3d8c08b04ff9","packages/infrastructure/src/prisma-client/package.json":"1a3876d1f03bb68e094fad8f6dea36eb483e9d4a","packages/types/package.json":"62ab2009fd485641e94a3857a75ec287a5b20d84","pnpm-lock.yaml":"5964362a80c4387504ec51e6607faffb621f4741","pnpm-workspace.yaml":"d3817ca5622bbb28795422093b2aa2e4dc5530d1"};
+            if (!r || JSON.stringify(Object.keys(r).sort()) !== JSON.stringify(keys.slice().sort()) ||
+                r.schemaVersion !== 1 || r.classification !== 'REMOTE_R4_DATA_MATERIALIZATION_PASS' ||
+                r.workflowCommit !== result.commit || r.expectedParent !== expectedWorkflowParent ||
+                r.observedParent !== expectedWorkflowParent || r.frozenInputCommit !== expectedInputCommit ||
+                r.rootInitiallyClean !== true || r.complete !== true || r.fileCount !== 11 ||
+                r.inputHashMatches !== 11 || r.aggregate !== expectedAggregate ||
+                r.unexpectedFiles !== 0 || r.unexpectedDirectories !== 0 || r.reparsePoints !== 0 ||
+                r.failureCategory !== null || r.failureStage !== null || r.httpStatus !== 200 ||
+                !Number.isSafeInteger(r.durationMs) || r.durationMs < 0 || r.durationMs > 300000 ||
+                !Array.isArray(r.inputs) || r.inputs.length !== expected.length) throw new Error('MATERIALIZATION_CONTRACT');
+            r.inputs.forEach((row,i) => {
+              const e = expected[i];
+              if (JSON.stringify(Object.keys(row).sort()) !== JSON.stringify(['blobSha','bytes','path','sha256']) ||
+                  row.path !== e.path || row.bytes !== e.bytes || row.sha256 !== e.sha256 ||
+                  row.blobSha !== blobs[e.path]) throw new Error('MATERIALIZATION_INPUT');
+            });
+            if (aggregate(r.inputs) !== expectedAggregate) throw new Error('MATERIALIZATION_AGGREGATE');
+          }
+          async function main() {
+            if (result.runAttempt !== 1 || process.platform !== 'win32' || process.arch !== 'x64' ||
+                process.version !== 'v22.22.3' ||
+                result.node.executableSHA256 !== '780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b') throw new Error('RUNTIME');
+            const delivered = JSON.parse(fs.readFileSync(path.join(task, 'materialization-state.json'), 'utf8'));
+            validateMaterialization(delivered);
+            result.materialization = delivered;
+            result.before = inputs(); result.aggregateBefore = aggregate(result.before);
+            if (result.aggregateBefore !== expectedAggregate) throw new Error('AGGREGATE');
+            result.pnpm.entrySHA256 = hash(fs.readFileSync(cli));
+            if (result.pnpm.entrySHA256 !== '98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090') throw new Error('PNPM_ENTRY');
+            result.pnpm.archiveSHA256 = fs.readFileSync(path.join(task,'pnpm-archive-sha256.txt'),'utf8').trim();
+            const version = await child(['--version'], 60000);
+            if (!processComplete(version) || version.code !== 0 || version.stdout.trim() !== '9.15.0') throw new Error('PNPM_VERSION');
+            result.pnpm.version = '9.15.0';
+            fs.mkdirSync(store, { recursive: false });
+            const args = ['fetch','--frozen-lockfile','--ignore-scripts','--store-dir',store,
+              '--package-import-method=copy','--registry=https://registry.npmjs.org','--fetch-retries=0',
+              '--fetch-timeout=60000','--network-concurrency=1','--verify-store-integrity=true','--reporter=ndjson'];
+            result.command = args.map(x => x === store ? 'FRESH_RUNNER_LOCAL_STORE' : x);
+            const help = await child([...args,'--help'], 60000);
+            if (!processComplete(help) || help.code !== 0 || !/fetch/i.test(help.stdout)) throw new Error('FLAG_SUPPORT');
+            result.pnpm.flagSupport = true;
+            const initial = storeInventory(store);
+            result.store.initiallyEmpty = initial.files === 0 && initial.directories === 0 && initial.reparsePoints === 0;
+            if (!result.store.initiallyEmpty) throw new Error('STORE_NOT_EMPTY');
+            result.disk.freeBefore = freeSpace(store);
+            if (!Number.isSafeInteger(result.disk.freeBefore) || result.disk.freeBefore < 55834574848) throw new Error('CAPACITY_BEFORE');
+            result.failureStage = 'ACQUISITION'; result.attempts = 1;
+            const execution = await child(args, 1200000);
+            result.exitCode = execution.code; result.durationMs = execution.durationMs; result.lifecycle = execution.record;
+            failures(execution);
+            result.failureStage = 'POST_VALIDATION';
+            result.after = inputs(); result.aggregateAfter = aggregate(result.after);
+            result.integrity = result.aggregateAfter === expectedAggregate &&
+              JSON.stringify(result.before) === JSON.stringify(result.after);
+            Object.assign(result.store, storeInventory(store));
+            result.disk.freeAfter = freeSpace(store);
+            if (!Number.isSafeInteger(result.disk.freeAfter) || result.disk.freeAfter < 34359738368) throw new Error('CAPACITY_AFTER');
+            if (execution.code === 0 && processComplete(execution) && result.integrity &&
+                result.store.files > 0 && result.store.reparsePoints === 0) {
+              result.classification = 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS';
+              result.failureCategory = null; result.failureStage = null;
+            } else if (result.failureCategory === 'REMOTE_ECONNRESET') {
+              result.failureStage = 'ACQUISITION';
+            }
+          }
+          const permittedKeys = ['schemaVersion','scope','classification','failureCategory','failureStage','commit','inputCommit','materialization',
+            'runId','runAttempt','runner','node','pnpm','before','after','aggregateBefore','aggregateAfter','attempts','retries',
+            'exitCode','durationMs','lifecycleScripts','lifecycleScriptsDisabled','lifecycle','store','disk','failure',
+            'childEnvironmentNames','command','rawOutputForwarded','storeUploaded','integrity','complete'];
+          function validateReport() {
+            if (JSON.stringify(Object.keys(result).sort()) !== JSON.stringify(permittedKeys.slice().sort())) throw new Error('REPORT_FIELDS');
+            if (!/^[0-9a-f]{40}$/.test(result.commit) || !/^[0-9]{1,20}$/.test(result.runId) ||
+                !/^v22\.22\.3$/.test(result.node.version) || !/^[0-9A-Za-z.+-]{1,40}$/.test(result.node.openssl)) throw new Error('REPORT_IDENTITY');
+            for (const value of [result.runner.imageOS, result.runner.imageVersion, result.runner.windowsBuild]) {
+              if (value !== null && !/^[A-Za-z0-9._-]{1,64}$/.test(value)) throw new Error('RUNNER_IDENTITY');
+            }
+            if (!['REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS','REMOTE_R4_FULL_LOCKFILE_ACQUISITION_ECONNRESET','REMOTE_R4_FULL_LOCKFILE_ACQUISITION_DIFFERENT_FAILURE'].includes(result.classification)) throw new Error('REPORT_CLASS');
+            if (result.attempts < 0 || result.attempts > 1 || result.retries !== 0 || result.rawOutputForwarded !== 0 ||
+                result.storeUploaded || result.lifecycleScripts !== 0) throw new Error('REPORT_COUNTER');
+            for (const rows of [result.before, result.after]) {
+              if (rows.some(r => !expected.some(e => e.path === r.path) || !/^[0-9a-f]{64}$/.test(r.sha256) || !Number.isSafeInteger(r.bytes))) throw new Error('REPORT_INPUT');
+            }
+            const text = JSON.stringify(result);
+            if (Buffer.byteLength(text) > 32768 || /[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_/.test(text)) throw new Error('REPORT_POLICY');
+            return text + '\n';
+          }
+          (async () => {
+            try { await main(); } catch {
+              if (result.failureStage === 'POST_VALIDATION') {
+                result.failureCategory = 'REMOTE_OTHER_ACQUISITION_FAILURE';
+                result.classification = 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_DIFFERENT_FAILURE';
+              }
+            }
+            result.complete = true;
+            let text;
+            try { text = validateReport(); } catch {
+              process.stdout.write('R4_OUTPUT_POLICY_FAILURE\n'); process.exitCode = 1; return;
+            }
+            fs.mkdirSync(evidence, { recursive: true });
+            fs.writeFileSync(path.join(evidence,'remote-r4-acquisition.json'), text, { encoding: 'utf8', flag: 'wx' });
+            process.stdout.write('R4_SANITIZED_REPORT=' + text);
+            process.stdout.write('R4_EVIDENCE_SHA256=' + hash(Buffer.from(text)) + '\n');
+            process.exitCode = result.classification === 'REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS' ? 0 : 1;
+          })();
+          
+          '@
+          $TaskScriptPath = Join-Path $env:RUNNER_TEMP 'studyai-r4-control\acquire.cjs'
+          [IO.File]::WriteAllText($TaskScriptPath, $TaskScript, [Text.UTF8Encoding]::new($false))
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $PSNativeCommandUseErrorActionPreference = $false
+          function Resolve-TaskNodeCandidate {
+            param([string[]]$TaskCandidateSources, [string]$TaskToolCache)
+            if ([string]::IsNullOrWhiteSpace($TaskToolCache)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskExpectedNode = [IO.Path]::GetFullPath((Join-Path $TaskToolCache 'node\22.22.3\x64\node.exe'))
+            $TaskUniqueSources = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($TaskCandidateSource in $TaskCandidateSources) {
+              if ([string]::IsNullOrWhiteSpace($TaskCandidateSource)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              [void]$TaskUniqueSources.Add([IO.Path]::GetFullPath($TaskCandidateSource))
+            }
+            if ($TaskUniqueSources.Count -lt 1 -or -not $TaskUniqueSources.Contains($TaskExpectedNode)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            return [pscustomobject]@{ SelectedNode = $TaskExpectedNode; UniqueCandidateCount = $TaskUniqueSources.Count; SelectedNodeCount = 1 }
+          }
+          function Assert-TaskNodeIdentity {
+            param([string]$TaskNodeHash, [string]$TaskNodeVersion, [string]$TaskNodeArchitecture)
+            if ($TaskNodeHash -cne '780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b' -or
+                $TaskNodeVersion -cne 'v22.22.3' -or $TaskNodeArchitecture -cne 'x64') { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+          }
+          function Assert-TaskOrdinaryFile {
+            param([string]$TaskFilePath)
+            $TaskFileItem = Get-Item -LiteralPath $TaskFilePath -Force -ErrorAction Stop
+            if ($TaskFileItem.PSIsContainer -or ($TaskFileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskAncestor = $TaskFileItem.Directory
+            while ($null -ne $TaskAncestor) {
+              if (($TaskAncestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              $TaskAncestor = $TaskAncestor.Parent
+            }
+          }
+          try {
+            $TaskNodeCandidates = @(Get-Command node.exe -CommandType Application -All -ErrorAction Stop)
+            $TaskCandidateSources = @($TaskNodeCandidates | ForEach-Object { $_.Source })
+            $TaskNodeSelection = Resolve-TaskNodeCandidate -TaskCandidateSources $TaskCandidateSources -TaskToolCache $env:RUNNER_TOOL_CACHE
+            $TaskSelectedNode = $TaskNodeSelection.SelectedNode
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskSelectedNode
+            $TaskSelectedNodeHash = (Get-FileHash -LiteralPath $TaskSelectedNode -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion 'v22.22.3' -TaskNodeArchitecture 'x64'
+            $TaskVersionOutput = @(& $TaskSelectedNode --version 2>$null)
+            $TaskVersionExitCode = $LASTEXITCODE
+            if ($TaskVersionExitCode -ne 0 -or $TaskVersionOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskArchitectureOutput = @(& $TaskSelectedNode -e 'console.log(process.arch)' 2>$null)
+            $TaskArchitectureExitCode = $LASTEXITCODE
+            if ($TaskArchitectureExitCode -ne 0 -or $TaskArchitectureOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskVersionOutput[0] -TaskNodeArchitecture $TaskArchitectureOutput[0]
+            $TaskIdentityExpression = 'console.log(JSON.stringify({version:process.version,architecture:process.arch,openssl:process.versions.openssl,fips:require("node:crypto").getFips(),execPath:process.execPath}))'
+            $TaskIdentityOutput = @(& $TaskSelectedNode -e $TaskIdentityExpression 2>$null)
+            $TaskIdentityExitCode = $LASTEXITCODE
+            if ($TaskIdentityExitCode -ne 0 -or $TaskIdentityOutput.Count -ne 1 -or $TaskIdentityOutput[0].Length -gt 4096) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskIdentity = $TaskIdentityOutput[0] | ConvertFrom-Json -ErrorAction Stop
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskIdentity.version -TaskNodeArchitecture $TaskIdentity.architecture
+            if ([IO.Path]::GetFullPath($TaskIdentity.execPath) -ine $TaskSelectedNode -or
+                $TaskIdentity.openssl -cnotmatch '^[0-9A-Za-z.+-]{1,40}$' -or $TaskIdentity.fips -notin @(0,1)) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskScriptPath
+            $TaskNodeQualification = [ordered]@{
+              schemaVersion = 1; classification = 'REMOTE_NODE_RUNTIME_QUALIFIED'
+              candidateRecordCount = $TaskNodeCandidates.Count; uniqueCandidateCount = $TaskNodeSelection.UniqueCandidateCount
+              selectedNodeCount = $TaskNodeSelection.SelectedNodeCount; executableRole = 'SETUP_NODE_TOOLCACHE'
+              version = $TaskIdentity.version; architecture = $TaskIdentity.architecture
+              openssl = $TaskIdentity.openssl; fips = $TaskIdentity.fips; executableSHA256 = $TaskSelectedNodeHash
+            }
+            Write-Output ('R4_NODE_QUALIFICATION=' + ($TaskNodeQualification | ConvertTo-Json -Compress))
+          } catch {
+            $TaskNodeFailureCategory = if ($_.Exception.Message -ceq 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH') { 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' } else { 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            Write-Output $TaskNodeFailureCategory
+            exit 1
+          }
+          & $TaskSelectedNode $TaskScriptPath
+          $TaskAcquisitionExitCode = $LASTEXITCODE
+          exit $TaskAcquisitionExitCode
+      - name: Create and fully verify dependency bundle
+        id: bundle-manifest
+        timeout-minutes: 10
+        run: |
+          $TaskScript = @'
+          'use strict';
+          const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),cp=require('node:child_process');
+          const task=path.join(process.env.RUNNER_TEMP,'studyai-r4-control');
+          const work=path.join(process.env.RUNNER_TEMP,'studyai-r4-workspace');
+          const cli=path.join(task,'pnpm','package','bin','pnpm.cjs');
+          const archiveHash='09a8fe31a34fda706354680619f4002f4ccef6dadff93240d24ef6c831f0fd28';
+          const nodeHash='780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b';
+          const cliHash='98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090';
+          const inputCommit='a844a1033e2cc9b56534598b188fca5b653d5aab';
+          const inputAggregate='305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
+          const expected=[{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
+          const metadataKeys=['schemaVersion','scope','workflowCommit','workflowRunId','frozenInputCommit','frozenInputAggregate','nodeVersion','nodeArchitecture','nodeSHA256','openssl','fips','pnpmVersion','pnpmCliSHA256','pnpmArchiveSHA256','fetchArgumentContract','fetchAttempts','fetchRetries','fetchExitCode','storeFileCount','storeDirectoryCount','storeLogicalBytes','storeManifestSHA256','storeReparsePoints','lifecycleScripts','createdFor'];
+          const fetchContract=['fetch','--frozen-lockfile','--ignore-scripts','--store-dir','FRESH_RUNNER_LOCAL_STORE','--package-import-method=copy','--registry=https://registry.npmjs.org','--fetch-retries=0','--fetch-timeout=60000','--network-concurrency=1','--verify-store-integrity=true','--reporter=ndjson'];
+          const childEnvironmentNames=['SystemRoot','WINDIR','TEMP','TMP'];
+          const spawnedPids=[];
+          const digest=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const hashFile=p=>digest(fs.readFileSync(p));
+          function ensure(ok,code){if(!ok)throw Error(code);}
+          function closed(value,keys){ensure(value&&typeof value==='object'&&!Array.isArray(value)&&JSON.stringify(Object.keys(value).sort())===JSON.stringify(keys.slice().sort()),'CLOSED_SCHEMA');}
+          function safePath(p){
+           ensure(typeof p==='string'&&p.length>0&&p.length<=1024&&/^[A-Za-z0-9._/@+=-]+$/.test(p)&&!p.startsWith('/')&&!p.includes('//')&&!p.split('/').some(x=>['','.','..'].includes(x))&&!p.split('/').some(x=>/[. ]$/.test(x)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(x)),'UNSAFE_RELATIVE_PATH');
+           return p;
+          }
+          function ps(command,max=16384){
+           return cp.execFileSync(path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-Command',command],
+           {shell:false,windowsHide:true,stdio:['ignore','pipe','pipe'],encoding:'utf8',timeout:120000,maxBuffer:max}).trim();
+          }
+          function noReparse(root){
+           const encoded=Buffer.from(root).toString('base64');
+           const command="$ErrorActionPreference='Stop';$TaskRoot=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encoded+"'));$TaskStack=[Collections.Generic.Stack[string]]::new();$TaskStack.Push($TaskRoot);$TaskCount=0;while($TaskStack.Count -gt 0){$TaskNext=$TaskStack.Pop();$TaskItem=Get-Item -LiteralPath $TaskNext -Force;if(($TaskItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){$TaskCount++;continue};if($TaskItem.PSIsContainer){foreach($TaskEntry in Get-ChildItem -LiteralPath $TaskNext -Force){$TaskStack.Push($TaskEntry.FullName)}}};[Console]::Write($TaskCount)";
+           ensure(ps(command)==='0','REPARSE_BOUNDARY');
+          }
+          function assertQuiescent(){
+           const encoded=Buffer.from(task).toString('base64'),encodedWork=Buffer.from(work).toString('base64');
+           const command="$ErrorActionPreference='Stop';$TaskRoot=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encoded+"'));$TaskWork=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encodedWork+"'));$TaskOwnPid="+process.pid+";$TaskOwnedPids=@("+spawnedPids.join(',')+");$TaskAll=@(Get-CimInstance Win32_Process);$TaskOwned=[Collections.Generic.HashSet[uint32]]::new();foreach($TaskSeed in $TaskOwnedPids){[void]$TaskOwned.Add([uint32]$TaskSeed)};$TaskAgain=$true;while($TaskAgain){$TaskAgain=$false;foreach($TaskProcess in $TaskAll){if($TaskProcess.ProcessId -ne $TaskOwnPid -and ($TaskOwned.Contains([uint32]$TaskProcess.ParentProcessId) -or ($TaskProcess.CommandLine -and ($TaskProcess.CommandLine.Contains($TaskRoot) -or $TaskProcess.CommandLine.Contains($TaskWork))))){if($TaskOwned.Add([uint32]$TaskProcess.ProcessId)){$TaskAgain=$true}}}};$TaskRemaining=@($TaskAll|Where-Object{$_.ProcessId -ne $TaskOwnPid -and $TaskOwned.Contains([uint32]$_.ProcessId)});[Console]::Write($TaskRemaining.Count)";
+           ensure(ps(command)==='0','TASK_PROCESS_REMAINS');
+           return 0;
+          }
+          function freeSpace(root){
+           const drive=path.parse(root).root.slice(0,2);ensure(/^[A-Za-z]:$/.test(drive),'DRIVE_IDENTITY');
+           const value=ps("$ErrorActionPreference='Stop';$TaskDisk=Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='"+drive+"'\";[Console]::Write($TaskDisk.FreeSpace)",4096);
+           ensure(/^[0-9]{1,16}$/.test(value),'CAPACITY_UNCLASSIFIABLE');return Number(value);
+          }
+          function scan(root,withHashes=true){
+           ensure(fs.lstatSync(root).isDirectory()&&!fs.lstatSync(root).isSymbolicLink(),'STORE_ROOT');
+           const files=[],stack=[root],seen=new Set();let directories=0,logicalBytes=0,emptyDirectories=0;
+           while(stack.length){
+            const dir=stack.pop(),names=fs.readdirSync(dir);
+            if(dir!==root&&names.length===0)emptyDirectories++;
+            for(const name of names){
+             const full=path.join(dir,name),relative=safePath(path.relative(root,full).split(path.sep).join('/')),st=fs.lstatSync(full),fold=relative.toLowerCase();
+             ensure(!seen.has(fold),'DUPLICATE_PATH');seen.add(fold);
+             ensure(!st.isSymbolicLink(),'REPARSE_BOUNDARY');
+             if(st.isDirectory()){directories++;stack.push(full);}
+             else{ensure(st.isFile()&&Number.isSafeInteger(st.size),'STORE_TYPE');logicalBytes+=st.size;files.push({path:relative,bytes:st.size,sha256:withHashes?hashFile(full):null});}
+             ensure(files.length<=250000&&directories<=10000&&logicalBytes<=10737418240,'STORE_BOUND');
+            }
+           }
+           files.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
+           return {files,directories,logicalBytes,reparsePoints:0,emptyDirectories};
+          }
+          function serializeManifest(rows){return rows.map(x=>JSON.stringify(x)).join('\n')+'\n';}
+          function readManifest(file){
+           const bytes=fs.readFileSync(file);ensure(bytes.length>0&&bytes.length<=67108864&&bytes[0]!==0xef&&bytes[bytes.length-1]===10,'MANIFEST_ENCODING');
+           const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+           ensure(!text.includes('\r'),'MANIFEST_ENCODING');
+           const lines=text.slice(0,-1).split('\n'),rows=[],seen=new Set();let previous=null,total=0;
+           for(const line of lines){
+            ensure(line.length<=2048&&line.length>0,'MANIFEST_LINE');
+            const row=JSON.parse(line);closed(row,['path','bytes','sha256']);safePath(row.path);
+            ensure(Number.isSafeInteger(row.bytes)&&row.bytes>=0&&/^[a-f0-9]{64}$/.test(row.sha256),'MANIFEST_TYPES');
+            ensure(!seen.has(row.path.toLowerCase())&&(previous===null||previous<row.path),'MANIFEST_DUPLICATE_OR_ORDER');
+            seen.add(row.path.toLowerCase());previous=row.path;total+=row.bytes;rows.push(row);
+           }
+           ensure(rows.length<=250000&&total<=10737418240&&serializeManifest(rows)===text,'MANIFEST_CANONICAL');
+           return {bytes,rows,total,sha256:digest(bytes)};
+          }
+          function compareStore(rows,actual){
+           const wanted=new Map(rows.map(x=>[x.path,x])),got=new Map(actual.files.map(x=>[x.path,x]));
+           const missing=[],changed=[],added=[];
+           for(const row of rows){const x=got.get(row.path);if(!x)missing.push(row);else if(row.bytes!==x.bytes||row.sha256!==x.sha256)changed.push({path:row.path,beforeSHA256:row.sha256,afterSHA256:x.sha256,beforeBytes:row.bytes,afterBytes:x.bytes});}
+           for(const row of actual.files){if(!wanted.has(row.path))added.push(row);}
+           return {added,removed:missing,changed};
+          }
+          function inputRows(){
+           return expected.map(e=>{const full=path.join(work,e.path),st=fs.lstatSync(full);ensure(st.isFile()&&!st.isSymbolicLink(),'INPUT_TYPE');ensure(st.size===e.bytes&&hashFile(full)===e.sha256,'INPUT_HASH');return {...e};});
+          }
+          function aggregate(rows){return digest(Buffer.from(rows.map(r=>r.path+'|'+r.bytes+'|'+r.sha256).join('\n')+'\n'));}
+          function runtime(){
+           const out={version:process.version,architecture:process.arch,openssl:process.versions.openssl,fips:crypto.getFips(),executableSHA256:hashFile(process.execPath)};
+           ensure(out.version==='v22.22.3'&&out.architecture==='x64'&&out.executableSHA256===nodeHash,'NODE_IDENTITY');
+           return out;
+          }
+          function validateMetadata(m){
+           closed(m,metadataKeys);
+           ensure(m.schemaVersion===1&&m.scope==='R4_FROZEN_PNPM_STORE_BUNDLE'&&m.workflowCommit===process.env.GITHUB_SHA&&m.workflowRunId===process.env.GITHUB_RUN_ID,'METADATA_SCOPE');
+           ensure(m.frozenInputCommit===inputCommit&&m.frozenInputAggregate===inputAggregate&&m.nodeVersion==='v22.22.3'&&m.nodeArchitecture==='x64'&&m.nodeSHA256===nodeHash,'METADATA_INPUT');
+           ensure(m.pnpmVersion==='9.15.0'&&m.pnpmCliSHA256===cliHash&&m.pnpmArchiveSHA256===archiveHash,'METADATA_TOOL');
+           ensure(/^[0-9A-Za-z.+-]{1,40}$/.test(m.openssl)&&[0,1].includes(m.fips)&&m.fetchAttempts===1&&m.fetchRetries===0&&m.fetchExitCode===0&&m.lifecycleScripts===0&&m.storeReparsePoints===0,'METADATA_RESULT');
+           ensure(m.createdFor==='LOCAL_E_OFFLINE_INSTALL_QUALIFICATION'&&JSON.stringify(m.fetchArgumentContract)===JSON.stringify(fetchContract),'METADATA_CONTRACT');
+           ensure(Number.isSafeInteger(m.storeFileCount)&&m.storeFileCount>0&&m.storeFileCount<=250000&&Number.isSafeInteger(m.storeDirectoryCount)&&m.storeDirectoryCount>=0&&Number.isSafeInteger(m.storeLogicalBytes)&&m.storeLogicalBytes>0&&m.storeLogicalBytes<=10737418240&&/^[a-f0-9]{64}$/.test(m.storeManifestSHA256),'METADATA_COUNTS');
+          }
+          function validateBundle(root,expectedMetadataHash=null,expectedManifestHash=null){
+           noReparse(root);
+           ensure(JSON.stringify(fs.readdirSync(root).sort())===JSON.stringify(['bundle-metadata.json','pnpm-9.15.0.tgz','pnpm-store','store-manifest.jsonl'].sort()),'BUNDLE_TOP_LEVEL');
+           for(const name of ['bundle-metadata.json','pnpm-9.15.0.tgz','store-manifest.jsonl'])ensure(fs.lstatSync(path.join(root,name)).isFile(),'BUNDLE_ENTRY_TYPE');
+           const metadataBytes=fs.readFileSync(path.join(root,'bundle-metadata.json'));ensure(metadataBytes.length<=32768,'METADATA_BOUND');
+           const metadata=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(metadataBytes));validateMetadata(metadata);
+           const metadataSHA256=digest(metadataBytes);
+           if(expectedMetadataHash)ensure(metadataSHA256===expectedMetadataHash,'METADATA_HASH');
+           const manifest=readManifest(path.join(root,'store-manifest.jsonl'));
+           ensure(manifest.sha256===metadata.storeManifestSHA256&&(!expectedManifestHash||manifest.sha256===expectedManifestHash),'MANIFEST_HASH');
+           ensure(hashFile(path.join(root,'pnpm-9.15.0.tgz'))===archiveHash,'ARCHIVE_HASH');
+           const inventory=scan(path.join(root,'pnpm-store'));
+           const delta=compareStore(manifest.rows,inventory);
+           ensure(delta.added.length===0&&delta.removed.length===0&&delta.changed.length===0,'STORE_INTEGRITY');
+           ensure(inventory.files.length===metadata.storeFileCount&&inventory.directories===metadata.storeDirectoryCount&&inventory.logicalBytes===metadata.storeLogicalBytes,'STORE_COUNTS');
+           return {metadata,metadataSHA256,manifest,inventory,delta};
+          }
+          function complete(x){const r=x.lifecycle;return r.spawned&&r.exitObserved&&r.closeObserved&&r.stdoutEnd&&r.stderrEnd&&r.signal===null&&!r.watchdog&&!r.outputLimit;}
+          async function child(args,timeout=1200000){
+           const lifecycle={spawned:false,exitObserved:false,closeObserved:false,stdoutEnd:false,stderrEnd:false,signal:null,watchdog:false,outputLimit:false,stdoutBytes:0,stderrBytes:0,treeTermination:false};
+           const env={};for(const name of childEnvironmentNames){ensure(process.env[name],'CHILD_ENVIRONMENT');env[name]=process.env[name];}
+           const chunks={stdout:[],stderr:[]},started=Date.now();
+           return await new Promise(resolve=>{
+            let ended=false,code=null,timer=null,cleanupTimer=null;
+            const proc=cp.spawn(process.execPath,[cli,...args],{cwd:work,env,shell:false,windowsHide:true,stdio:['ignore','pipe','pipe']});
+            function terminate(){if(proc.pid){const kill=cp.spawnSync(path.join(process.env.SystemRoot,'System32','taskkill.exe'),['/PID',String(proc.pid),'/T','/F'],{shell:false,windowsHide:true,stdio:'ignore',timeout:15000});lifecycle.treeTermination=kill.status===0;}
+             if(!cleanupTimer)cleanupTimer=setTimeout(()=>{proc.stdout.destroy();proc.stderr.destroy();finish();},15000);}
+            function finish(){if(ended)return;ended=true;clearTimeout(timer);clearTimeout(cleanupTimer);resolve({code,durationMs:Date.now()-started,lifecycle,stdout:Buffer.concat(chunks.stdout).toString('utf8'),stderr:Buffer.concat(chunks.stderr).toString('utf8')});}
+            proc.on('spawn',()=>{lifecycle.spawned=true;spawnedPids.push(proc.pid);});
+            proc.on('error',finish);
+            proc.on('exit',(value,signal)=>{code=value;lifecycle.exitObserved=true;lifecycle.signal=signal===null?null:'SIGNAL_OBSERVED';});
+            for(const name of ['stdout','stderr']){proc[name].on('data',b=>{lifecycle[name+'Bytes']+=b.length;if(lifecycle[name+'Bytes']<=8388608)chunks[name].push(b);else if(!lifecycle.outputLimit){lifecycle.outputLimit=true;terminate();}});proc[name].on('end',()=>{lifecycle[name+'End']=true;});proc[name].on('error',()=>{lifecycle.outputLimit=true;terminate();});}
+            proc.on('close',()=>{lifecycle.closeObserved=true;finish();});
+            timer=setTimeout(()=>{lifecycle.watchdog=true;terminate();},timeout);
+           });
+          }
+          function safeFailure(x){
+           const combined=x.stdout+'\n'+x.stderr;
+           return {pnpmCodes:[...new Set(combined.match(/\bERR_PNPM_[A-Z0-9_]{1,64}\b/g)||[])].slice(0,8),
+           nodeCodes:['ECONNRESET','ENOTFOUND','EAI_AGAIN','ETIMEDOUT','EACCES','EPERM','ENOSPC','ERR_SSL_CIPHER_OPERATION_FAILED'].filter(x=>combined.includes(x))};
+          }
+          function safeWrite(file,value,max=65536){
+           const text=JSON.stringify(value)+'\n';
+           ensure(Buffer.byteLength(text)<=max&&!/[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_|Bearer\s/.test(text),'OUTPUT_POLICY');
+           fs.writeFileSync(file,text,{encoding:'utf8',flag:'wx'});return digest(Buffer.from(text));
+          }
+          function output(key,value){ensure(/^[a-z_]+$/.test(key)&&/^[a-z0-9]{64}$/.test(value),'OUTPUT_VALUE');fs.appendFileSync(process.env.GITHUB_OUTPUT,key+'='+value+'\n');}
+          function buildBundle(){
+           const fetched=JSON.parse(fs.readFileSync(path.join(task,'evidence','remote-r4-acquisition.json'),'utf8'));
+           ensure(fetched.classification==='REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS'&&fetched.attempts===1&&fetched.retries===0&&fetched.exitCode===0&&fetched.integrity&&fetched.complete,'FETCH_NOT_PASS');
+           ensure(fetched.lifecycle.exitObserved&&fetched.lifecycle.closeObserved&&fetched.lifecycle.stdoutEnd&&fetched.lifecycle.stderrEnd&&!fetched.lifecycle.watchdog&&!fetched.lifecycle.outputLimit,'FETCH_NOT_QUIESCENT');
+           assertQuiescent();
+           const before=inputRows();ensure(aggregate(before)===inputAggregate,'INPUT_AGGREGATE');
+           const sourceStore=path.join(task,'store');noReparse(sourceStore);
+           const inventory=scan(sourceStore);ensure(inventory.files.length>0&&inventory.emptyDirectories===0,'STORE_EMPTY_DIRECTORY');
+           const bundle=path.join(task,'bundle');ensure(!fs.existsSync(bundle),'BUNDLE_ALREADY_EXISTS');fs.mkdirSync(bundle);
+           fs.renameSync(sourceStore,path.join(bundle,'pnpm-store'));
+           const manifestText=serializeManifest(inventory.files);fs.writeFileSync(path.join(bundle,'store-manifest.jsonl'),manifestText,{encoding:'utf8',flag:'wx'});
+           ensure(hashFile(path.join(task,'pnpm-9.15.0.tgz'))===archiveHash,'ARCHIVE_HASH');
+           fs.copyFileSync(path.join(task,'pnpm-9.15.0.tgz'),path.join(bundle,'pnpm-9.15.0.tgz'),fs.constants.COPYFILE_EXCL);
+           const n=runtime();
+           const metadata={schemaVersion:1,scope:'R4_FROZEN_PNPM_STORE_BUNDLE',workflowCommit:process.env.GITHUB_SHA,workflowRunId:process.env.GITHUB_RUN_ID,frozenInputCommit:inputCommit,frozenInputAggregate:inputAggregate,nodeVersion:n.version,nodeArchitecture:n.architecture,nodeSHA256:n.executableSHA256,openssl:n.openssl,fips:n.fips,pnpmVersion:'9.15.0',pnpmCliSHA256:cliHash,pnpmArchiveSHA256:archiveHash,fetchArgumentContract:fetchContract,fetchAttempts:1,fetchRetries:0,fetchExitCode:0,storeFileCount:inventory.files.length,storeDirectoryCount:inventory.directories,storeLogicalBytes:inventory.logicalBytes,storeManifestSHA256:digest(Buffer.from(manifestText)),storeReparsePoints:0,lifecycleScripts:0,createdFor:'LOCAL_E_OFFLINE_INSTALL_QUALIFICATION'};
+           validateMetadata(metadata);const metadataSHA256=safeWrite(path.join(bundle,'bundle-metadata.json'),metadata);
+           const checked=validateBundle(bundle,metadataSHA256,metadata.storeManifestSHA256);
+           output('metadata_sha256',checked.metadataSHA256);output('manifest_sha256',checked.manifest.sha256);
+           console.log('BUNDLE_PREUPLOAD_VERIFICATION_PASS');
+          }
+          async function verifyOffline(){
+           const bundle=path.join(process.env.RUNNER_TEMP,'r4-downloaded-bundle');
+           const report={schemaVersion:1,scope:'REMOTE_R4_BUNDLE_OFFLINE_QUALIFICATION',workflowCommit:process.env.GITHUB_SHA,workflowRunId:process.env.GITHUB_RUN_ID,frozenInputCommit:inputCommit,frozenInputAggregate:inputAggregate,
+           classification:'REMOTE_DEPENDENCY_BUNDLE_TRANSFER_INTEGRITY_FAILURE',failureStage:'BUNDLE_VERIFICATION',failureCategory:null,
+           runner:{label:'windows-2025',os:process.platform,architecture:process.arch,imageOS:process.env.ImageOS||null,imageVersion:process.env.ImageVersion||null,windowsBuild:require('node:os').release()},
+           node:null,pnpm:null,bundleArtifact:{id:process.env.TASK_BUNDLE_ARTIFACT_ID,digest:process.env.TASK_BUNDLE_ARTIFACT_DIGEST},bundleMetadataSHA256:null,storeManifestSHA256:null,downloadedStoreIntegrity:'NOT_REACHED',preStore:null,
+           before:[],after:[],aggregateBefore:null,aggregateAfter:null,command:[],offlineAttempts:0,offlineExitCode:null,offlineDurationMs:0,lifecycle:null,lifecycleScripts:0,lifecycleScriptsDisabled:true,remainingTaskProcesses:null,
+           nodeModules:{created:false,nonEmpty:false,topLevelEntries:0},storeMutation:{mutated:null,added:[],removed:[],changed:[]},postStore:null,disk:{freeBefore:null,freeAfter:null},
+           failure:{pnpmCodes:[],nodeCodes:[]},childEnvironmentNames,rawOutputForwarded:0,productTests:0,prismaGenerations:0,complete:false};
+           try{
+            report.node=runtime();
+            ensure(/^[0-9]{1,20}$/.test(report.bundleArtifact.id)&&/^[a-f0-9]{64}$/.test(report.bundleArtifact.digest),'ARTIFACT_IDENTITY');
+            const checked=validateBundle(bundle,process.env.TASK_EXPECTED_METADATA_HASH,process.env.TASK_EXPECTED_MANIFEST_HASH);
+            report.bundleMetadataSHA256=checked.metadataSHA256;report.storeManifestSHA256=checked.manifest.sha256;report.downloadedStoreIntegrity='PASS';
+            report.preStore={files:checked.inventory.files.length,directories:checked.inventory.directories,logicalBytes:checked.inventory.logicalBytes,reparsePoints:0};
+            report.failureStage='TOOL_IDENTITY';
+            ensure(hashFile(cli)===cliHash,'PNPM_CLI_IDENTITY');
+            const version=await child(['--version'],60000);ensure(complete(version)&&version.code===0&&version.stdout.trim()==='9.15.0','PNPM_VERSION');
+            report.pnpm={version:'9.15.0',entrySHA256:hashFile(cli),archiveSHA256:archiveHash};
+            report.failureStage='FROZEN_INPUTS';
+            const materialization=JSON.parse(fs.readFileSync(path.join(task,'materialization-state.json'),'utf8'));
+            ensure(materialization.classification==='REMOTE_R4_DATA_MATERIALIZATION_PASS'&&materialization.workflowCommit===process.env.GITHUB_SHA&&materialization.frozenInputCommit===inputCommit&&materialization.inputHashMatches===11&&materialization.aggregate===inputAggregate&&materialization.complete,'MATERIALIZATION_BINDING');
+            noReparse(work);report.before=inputRows();report.aggregateBefore=aggregate(report.before);ensure(report.aggregateBefore===inputAggregate&&!fs.existsSync(path.join(work,'node_modules')),'PRE_INSTALL_INPUTS');
+            const downloadedStore=path.join(bundle,'pnpm-store');
+            const args=['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir',downloadedStore,'--package-import-method=copy','--reporter=ndjson'];
+            report.command=args.map(x=>x===downloadedStore?'VERIFIED_DOWNLOADED_STORE':x);
+            const help=await child([...args,'--help'],60000);ensure(complete(help)&&help.code===0&&/install/i.test(help.stdout),'OFFLINE_FLAG_SUPPORT');
+            assertQuiescent();report.disk.freeBefore=freeSpace(work);ensure(report.disk.freeBefore>=55834574848,'CAPACITY_BEFORE');
+            report.failureStage='OFFLINE_INSTALL';report.classification='REMOTE_DEPENDENCY_BUNDLE_REQUIRES_CONTENT_REVIEW';report.offlineAttempts=1;
+            const execution=await child(args);report.offlineExitCode=execution.code;report.offlineDurationMs=execution.durationMs;report.lifecycle=execution.lifecycle;report.failure=safeFailure(execution);
+            report.remainingTaskProcesses=assertQuiescent();
+            report.failureStage='POST_INSTALL';
+            report.after=inputRows();report.aggregateAfter=aggregate(report.after);ensure(report.aggregateAfter===inputAggregate&&JSON.stringify(report.before)===JSON.stringify(report.after),'POST_INSTALL_INPUTS');
+            const nm=path.join(work,'node_modules');report.nodeModules.created=fs.existsSync(nm)&&fs.lstatSync(nm).isDirectory();report.nodeModules.topLevelEntries=report.nodeModules.created?fs.readdirSync(nm).length:0;report.nodeModules.nonEmpty=report.nodeModules.topLevelEntries>0;
+            noReparse(downloadedStore);const post=scan(downloadedStore),delta=compareStore(checked.manifest.rows,post);
+            report.storeMutation={mutated:delta.added.length+delta.removed.length+delta.changed.length>0,...delta};
+            report.postStore={files:post.files.length,directories:post.directories,logicalBytes:post.logicalBytes,reparsePoints:0};
+            report.disk.freeAfter=freeSpace(work);ensure(report.disk.freeAfter>=34359738368,'CAPACITY_AFTER');
+            ensure(delta.removed.length===0&&delta.changed.length===0,'ORIGINAL_STORE_CONTENT_CORRUPTED');
+            ensure(execution.code===0&&complete(execution)&&report.nodeModules.created&&report.nodeModules.nonEmpty,'OFFLINE_INSTALL_FAILED');
+            report.classification='REMOTE_DEPENDENCY_BUNDLE_QUALIFIED_FOR_LOCAL_E_IMPORT';report.failureStage=null;
+           }catch(e){
+            const safeCodes=['CLOSED_SCHEMA','UNSAFE_RELATIVE_PATH','MANIFEST_ENCODING','MANIFEST_LINE','MANIFEST_TYPES','MANIFEST_DUPLICATE_OR_ORDER','MANIFEST_CANONICAL','METADATA_SCOPE','METADATA_INPUT','METADATA_TOOL','METADATA_RESULT','METADATA_CONTRACT','METADATA_COUNTS','METADATA_HASH','MANIFEST_HASH','ARCHIVE_HASH','STORE_INTEGRITY','STORE_COUNTS','STORE_TYPE','STORE_BOUND','DUPLICATE_PATH','REPARSE_BOUNDARY','BUNDLE_TOP_LEVEL','BUNDLE_ENTRY_TYPE','STORE_ROOT','TOOL_IDENTITY','PNPM_CLI_IDENTITY','PNPM_VERSION','NODE_IDENTITY','INPUT_TYPE','INPUT_HASH','MATERIALIZATION_BINDING','PRE_INSTALL_INPUTS','OFFLINE_FLAG_SUPPORT','CAPACITY_BEFORE','CAPACITY_AFTER','ARTIFACT_IDENTITY','TASK_PROCESS_REMAINS','POST_INSTALL_INPUTS','ORIGINAL_STORE_CONTENT_CORRUPTED','OFFLINE_INSTALL_FAILED'];
+            report.failureCategory=safeCodes.includes(e.message)?e.message:'BOUNDED_EXECUTION_OR_VALIDATION_FAILURE';
+           }
+           report.complete=true;
+           const reportHash=safeWrite(path.join(task,'evidence','bundle-qualification-report.json'),report);
+           console.log('BUNDLE_QUALIFICATION_REPORT='+JSON.stringify(report));console.log('BUNDLE_QUALIFICATION_SHA256='+reportHash);
+           process.exitCode=report.classification==='REMOTE_DEPENDENCY_BUNDLE_QUALIFIED_FOR_LOCAL_E_IMPORT'?0:1;
+          }
+          module.exports={buildBundle,verifyOffline,validateMetadata,safePath,readManifest,compareStore,serializeManifest,metadataKeys};
+          
+          try { buildBundle(); } catch { console.log('REMOTE_DEPENDENCY_BUNDLE_BUILD_OR_PACKAGING_FAILURE'); process.exitCode=1; }
+          '@
+          $TaskScriptPath = Join-Path $env:RUNNER_TEMP 'studyai-r4-control\bundle-build.cjs'
+          [IO.File]::WriteAllText($TaskScriptPath, $TaskScript, [Text.UTF8Encoding]::new($false))
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $PSNativeCommandUseErrorActionPreference = $false
+          function Resolve-TaskNodeCandidate {
+            param([string[]]$TaskCandidateSources, [string]$TaskToolCache)
+            if ([string]::IsNullOrWhiteSpace($TaskToolCache)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskExpectedNode = [IO.Path]::GetFullPath((Join-Path $TaskToolCache 'node\22.22.3\x64\node.exe'))
+            $TaskUniqueSources = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($TaskCandidateSource in $TaskCandidateSources) {
+              if ([string]::IsNullOrWhiteSpace($TaskCandidateSource)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              [void]$TaskUniqueSources.Add([IO.Path]::GetFullPath($TaskCandidateSource))
+            }
+            if ($TaskUniqueSources.Count -lt 1 -or -not $TaskUniqueSources.Contains($TaskExpectedNode)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            return [pscustomobject]@{ SelectedNode = $TaskExpectedNode; UniqueCandidateCount = $TaskUniqueSources.Count; SelectedNodeCount = 1 }
+          }
+          function Assert-TaskNodeIdentity {
+            param([string]$TaskNodeHash, [string]$TaskNodeVersion, [string]$TaskNodeArchitecture)
+            if ($TaskNodeHash -cne '780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b' -or
+                $TaskNodeVersion -cne 'v22.22.3' -or $TaskNodeArchitecture -cne 'x64') { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+          }
+          function Assert-TaskOrdinaryFile {
+            param([string]$TaskFilePath)
+            $TaskFileItem = Get-Item -LiteralPath $TaskFilePath -Force -ErrorAction Stop
+            if ($TaskFileItem.PSIsContainer -or ($TaskFileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskAncestor = $TaskFileItem.Directory
+            while ($null -ne $TaskAncestor) {
+              if (($TaskAncestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              $TaskAncestor = $TaskAncestor.Parent
+            }
+          }
+          try {
+            $TaskNodeCandidates = @(Get-Command node.exe -CommandType Application -All -ErrorAction Stop)
+            $TaskCandidateSources = @($TaskNodeCandidates | ForEach-Object { $_.Source })
+            $TaskNodeSelection = Resolve-TaskNodeCandidate -TaskCandidateSources $TaskCandidateSources -TaskToolCache $env:RUNNER_TOOL_CACHE
+            $TaskSelectedNode = $TaskNodeSelection.SelectedNode
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskSelectedNode
+            $TaskSelectedNodeHash = (Get-FileHash -LiteralPath $TaskSelectedNode -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion 'v22.22.3' -TaskNodeArchitecture 'x64'
+            $TaskVersionOutput = @(& $TaskSelectedNode --version 2>$null)
+            $TaskVersionExitCode = $LASTEXITCODE
+            if ($TaskVersionExitCode -ne 0 -or $TaskVersionOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskArchitectureOutput = @(& $TaskSelectedNode -e 'console.log(process.arch)' 2>$null)
+            $TaskArchitectureExitCode = $LASTEXITCODE
+            if ($TaskArchitectureExitCode -ne 0 -or $TaskArchitectureOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskVersionOutput[0] -TaskNodeArchitecture $TaskArchitectureOutput[0]
+            $TaskIdentityExpression = 'console.log(JSON.stringify({version:process.version,architecture:process.arch,openssl:process.versions.openssl,fips:require("node:crypto").getFips(),execPath:process.execPath}))'
+            $TaskIdentityOutput = @(& $TaskSelectedNode -e $TaskIdentityExpression 2>$null)
+            $TaskIdentityExitCode = $LASTEXITCODE
+            if ($TaskIdentityExitCode -ne 0 -or $TaskIdentityOutput.Count -ne 1 -or $TaskIdentityOutput[0].Length -gt 4096) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskIdentity = $TaskIdentityOutput[0] | ConvertFrom-Json -ErrorAction Stop
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskIdentity.version -TaskNodeArchitecture $TaskIdentity.architecture
+            if ([IO.Path]::GetFullPath($TaskIdentity.execPath) -ine $TaskSelectedNode -or
+                $TaskIdentity.openssl -cnotmatch '^[0-9A-Za-z.+-]{1,40}$' -or $TaskIdentity.fips -notin @(0,1)) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskScriptPath
+            $TaskNodeQualification = [ordered]@{
+              schemaVersion = 1; classification = 'REMOTE_NODE_RUNTIME_QUALIFIED'
+              candidateRecordCount = $TaskNodeCandidates.Count; uniqueCandidateCount = $TaskNodeSelection.UniqueCandidateCount
+              selectedNodeCount = $TaskNodeSelection.SelectedNodeCount; executableRole = 'SETUP_NODE_TOOLCACHE'
+              version = $TaskIdentity.version; architecture = $TaskIdentity.architecture
+              openssl = $TaskIdentity.openssl; fips = $TaskIdentity.fips; executableSHA256 = $TaskSelectedNodeHash
+            }
+            Write-Output ('R4_NODE_QUALIFICATION=' + ($TaskNodeQualification | ConvertTo-Json -Compress))
+          } catch {
+            $TaskNodeFailureCategory = if ($_.Exception.Message -ceq 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH') { 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' } else { 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            Write-Output $TaskNodeFailureCategory
+            exit 1
+          }
+          & $TaskSelectedNode $TaskScriptPath
+          $TaskAcquisitionExitCode = $LASTEXITCODE
+          exit $TaskAcquisitionExitCode
+      - name: Upload verified bundle only
+        id: bundle-upload
+        timeout-minutes: 12
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r4-pnpm-store-bundle-${{ github.run_id }}
+          path: ${{ runner.temp }}/studyai-r4-control/bundle/
+          include-hidden-files: true
+          overwrite: false
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+      - name: Record small sanitized bundle-build evidence
+        if: always()
+        timeout-minutes: 5
+        env:
+          TASK_ARTIFACT_ID: ${{ steps.bundle-upload.outputs.artifact-id }}
+          TASK_ARTIFACT_DIGEST: ${{ steps.bundle-upload.outputs.artifact-digest }}
+          TASK_ARTIFACT_URL: ${{ steps.bundle-upload.outputs.artifact-url }}
+        run: |
+          $ErrorActionPreference='Stop'
+          try {
+           $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
+           $TaskEvidence = Join-Path $TaskRoot 'evidence'
+           $TaskBundle = Join-Path $TaskRoot 'bundle'
+           $TaskMetadataPath = Join-Path $TaskBundle 'bundle-metadata.json'
+           $TaskAcquisitionPath = Join-Path $TaskEvidence 'remote-r4-acquisition.json'
+           $TaskBuildReport = [ordered]@{
+             schemaVersion=1;scope='REMOTE_R4_BUNDLE_BUILD';workflowCommit=$env:GITHUB_SHA;workflowRunId=$env:GITHUB_RUN_ID
+             classification='REMOTE_DEPENDENCY_BUNDLE_BUILD_FAILURE';fetchAttempts=0;fetchRetries=0;fetchExitCode=$null
+             bundleMetadataSHA256=$null;storeManifestSHA256=$null;storeFileCount=0;storeDirectoryCount=0;storeLogicalBytes=0
+             artifactId=$null;artifactDigest=$null;artifactUrl=$null;complete=$true
+           }
+           if (Test-Path -LiteralPath $TaskAcquisitionPath -PathType Leaf) {
+             $TaskAcquisition = Get-Content -LiteralPath $TaskAcquisitionPath -Raw | ConvertFrom-Json
+             $TaskBuildReport.fetchAttempts=$TaskAcquisition.attempts
+             $TaskBuildReport.fetchRetries=$TaskAcquisition.retries
+             $TaskBuildReport.fetchExitCode=$TaskAcquisition.exitCode
+           }
+           if (Test-Path -LiteralPath $TaskMetadataPath -PathType Leaf) {
+             $TaskMetadata=Get-Content -LiteralPath $TaskMetadataPath -Raw | ConvertFrom-Json
+             $TaskBuildReport.bundleMetadataSHA256=(Get-FileHash -LiteralPath $TaskMetadataPath -Algorithm SHA256).Hash.ToLowerInvariant()
+             $TaskBuildReport.storeManifestSHA256=$TaskMetadata.storeManifestSHA256
+             $TaskBuildReport.storeFileCount=$TaskMetadata.storeFileCount
+             $TaskBuildReport.storeDirectoryCount=$TaskMetadata.storeDirectoryCount
+             $TaskBuildReport.storeLogicalBytes=$TaskMetadata.storeLogicalBytes
+             $TaskBuildReport.classification='REMOTE_DEPENDENCY_BUNDLE_TRANSFER_INTEGRITY_FAILURE'
+           }
+           if ($env:TASK_ARTIFACT_ID -match '^[0-9]{1,20}$' -and $env:TASK_ARTIFACT_DIGEST -match '^[a-f0-9]{64}$' -and
+               $env:TASK_ARTIFACT_URL -match '^https://github\.com/HusamALkafajy/Hussam-Jaafar/actions/runs/[0-9]+/artifacts/[0-9]+$') {
+             $TaskBuildReport.artifactId=$env:TASK_ARTIFACT_ID
+             $TaskBuildReport.artifactDigest=$env:TASK_ARTIFACT_DIGEST
+             $TaskBuildReport.artifactUrl=$env:TASK_ARTIFACT_URL
+             $TaskBuildReport.classification='REMOTE_DEPENDENCY_BUNDLE_BUILD_PASS'
+           }
+           if (-not (Test-Path -LiteralPath $TaskEvidence -PathType Container)) { [IO.Directory]::CreateDirectory($TaskEvidence)|Out-Null }
+           $TaskJson=$TaskBuildReport|ConvertTo-Json -Depth 15 -Compress
+           if ([Text.Encoding]::UTF8.GetByteCount($TaskJson) -gt 16384 -or $TaskJson -match '([A-Za-z]:\\|Bearer\s|github_pat_|gh[pousr]_|-----BEGIN)') { throw 'BUILD_REPORT_OUTPUT_POLICY' }
+           $TaskReportPath=Join-Path $TaskEvidence 'bundle-build-report.json'
+           if (Test-Path -LiteralPath $TaskReportPath) { throw 'BUILD_REPORT_COLLISION' }
+           [IO.File]::WriteAllText($TaskReportPath,$TaskJson+[char]10,[Text.UTF8Encoding]::new($false))
+           Write-Output ('BUNDLE_BUILD_REPORT='+$TaskJson)
+          } catch { Write-Output 'BUNDLE_BUILD_REPORTING_FAILURE'; exit 1 }
+      - name: Upload small build evidence only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r4-bundle-build-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/studyai-r4-control/evidence/remote-r4-preflight.json
+            ${{ runner.temp }}/studyai-r4-control/evidence/remote-r4-acquisition.json
+            ${{ runner.temp }}/studyai-r4-control/evidence/bundle-build-report.json
+          overwrite: false
+          include-hidden-files: false
+          if-no-files-found: warn
+          retention-days: 7
+  verify_dependency_bundle_offline:
+    needs: build_dependency_bundle
+    if: github.run_attempt == 1
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Independently materialize exact R4 frozen inputs
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $TaskExpected = @'
+          [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7","blobSha":"d4a1c1f029a36807f0c640bc7efe325d64ea1193"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2","blobSha":"fbb602947fbe977734f69c6957bf87d4d98504e8"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d","blobSha":"e99db4f64fe55fc06c4ec3c10672ba9d33441b36"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b","blobSha":"63a5863eb7e7b4a0fbab59d70ce1e07e3bf2296d"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6","blobSha":"b77e4f49e4822ecfe935fecf05162df0773f2f75"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b","blobSha":"c0b92e5ed130f14ea3305d5148c69d075f51e938"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d","blobSha":"7285990f84983b85656c55a2608b3d8c08b04ff9"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd","blobSha":"1a3876d1f03bb68e094fad8f6dea36eb483e9d4a"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143","blobSha":"62ab2009fd485641e94a3857a75ec287a5b20d84"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9","blobSha":"5964362a80c4387504ec51e6607faffb621f4741"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee","blobSha":"d3817ca5622bbb28795422093b2aa2e4dc5530d1"}]
+          '@ | ConvertFrom-Json
+          $TaskExpectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34'
+          $TaskFrozenCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab'
+          $TaskExpectedParent = 'aa49c2106b672de489ffc504ee353bbc2c9a963b'
+          $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
+          $TaskWorkspace = Join-Path $env:RUNNER_TEMP 'studyai-r4-workspace'
+          $TaskEvidence = Join-Path $TaskRoot 'evidence'
+          $TaskClock = [Diagnostics.Stopwatch]::StartNew()
+          $TaskHttpStatus = $null
+          $TaskStage = 'WORKSPACE_BOUNDARY'
+          $TaskHttpClient = $null
+          $TaskEvidenceOwned = $false
+          $TaskState = [ordered]@{
+            schemaVersion = 1; classification = 'REMOTE_R4_DATA_DELIVERY_FAILURE'
+            workflowCommit = $env:GITHUB_SHA; expectedParent = $TaskExpectedParent
+            observedParent = $null; frozenInputCommit = $TaskFrozenCommit
+            rootInitiallyClean = $false; fileCount = 0; inputHashMatches = 0
+            aggregate = $null; unexpectedFiles = 0; unexpectedDirectories = 0
+            reparsePoints = 0; inputs = @(); failureCategory = $null; failureStage = $null
+            httpStatus = $null; durationMs = 0; complete = $false
+          }
+          function Get-TaskHash {
+            param([byte[]]$TaskBytes, [string]$TaskAlgorithm = 'SHA256')
+            $TaskDigest = if ($TaskAlgorithm -eq 'SHA1') { [Security.Cryptography.SHA1]::Create() } else { [Security.Cryptography.SHA256]::Create() }
+            try { return ([BitConverter]::ToString($TaskDigest.ComputeHash($TaskBytes))).Replace('-','').ToLowerInvariant() }
+            finally { $TaskDigest.Dispose() }
+          }
+          function Assert-TaskNoReparse {
+            param([string]$TaskPath)
+            $TaskCursor = [IO.Path]::GetFullPath($TaskPath)
+            while ($TaskCursor) {
+              if (Test-Path -LiteralPath $TaskCursor) {
+                $TaskItem = Get-Item -LiteralPath $TaskCursor -Force
+                if (($TaskItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REPARSE_BOUNDARY' }
+              }
+              $TaskParent = [IO.Path]::GetDirectoryName($TaskCursor)
+              if ($TaskParent -eq $TaskCursor) { break }
+              $TaskCursor = $TaskParent
+            }
+          }
+          function Get-TaskGitHubJson {
+            param([string]$TaskUri, [int]$TaskMaximumBytes)
+            if (-not $TaskUri.StartsWith('https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/',[StringComparison]::Ordinal)) { throw 'API_HOST_BOUNDARY' }
+            $TaskCancellation = [Threading.CancellationTokenSource]::new()
+            $TaskCancellation.CancelAfter(30000)
+            $TaskResponse = $null; $TaskStream = $null; $TaskMemory = [IO.MemoryStream]::new()
+            try {
+              $TaskResponse = $TaskHttpClient.GetAsync($TaskUri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$TaskCancellation.Token).GetAwaiter().GetResult()
+              $script:TaskHttpStatus = [int]$TaskResponse.StatusCode
+              if (-not $TaskResponse.IsSuccessStatusCode) { throw 'API_HTTP_FAILURE' }
+              if ($TaskResponse.Content.Headers.ContentLength -and $TaskResponse.Content.Headers.ContentLength -gt $TaskMaximumBytes) { throw 'API_RESPONSE_LIMIT' }
+              $TaskStream = $TaskResponse.Content.ReadAsStreamAsync($TaskCancellation.Token).GetAwaiter().GetResult()
+              $TaskBuffer = [byte[]]::new(8192)
+              while (($TaskRead = $TaskStream.ReadAsync($TaskBuffer,0,$TaskBuffer.Length,$TaskCancellation.Token).GetAwaiter().GetResult()) -gt 0) {
+                if ($TaskMemory.Length + $TaskRead -gt $TaskMaximumBytes) { throw 'API_RESPONSE_LIMIT' }
+                $TaskMemory.Write($TaskBuffer,0,$TaskRead)
+              }
+              $TaskJson = [Text.UTF8Encoding]::new($false,$true).GetString($TaskMemory.ToArray())
+              return ($TaskJson | ConvertFrom-Json -Depth 64)
+            } finally {
+              if ($null -ne $TaskStream) { $TaskStream.Dispose() }
+              if ($null -ne $TaskResponse) { $TaskResponse.Dispose() }
+              $TaskMemory.Dispose(); $TaskCancellation.Dispose()
+            }
+          }
+          function Write-TaskSafeJson {
+            param([string]$TaskDestination, [object]$TaskRecord)
+            $TaskJson = ($TaskRecord | ConvertTo-Json -Depth 16 -Compress) + [char]10
+            $TaskBytes = [Text.UTF8Encoding]::new($false).GetBytes($TaskJson)
+            if ($TaskBytes.Length -gt 32768 -or [Regex]::IsMatch($TaskJson,'[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_')) { throw 'REPORT_POLICY' }
+            [IO.File]::WriteAllBytes($TaskDestination,$TaskBytes)
+          }
+          try {
+            if ($env:GITHUB_REPOSITORY -cne 'HusamALkafajy/Hussam-Jaafar' -or -not [Regex]::IsMatch($env:GITHUB_SHA,'^[a-f0-9]{40}$') -or $env:GITHUB_RUN_ATTEMPT -ne '1') { throw 'TRIGGER_IDENTITY' }
+            Assert-TaskNoReparse $env:RUNNER_TEMP
+            Assert-TaskNoReparse $TaskRoot
+            Assert-TaskNoReparse $TaskWorkspace
+            if (Test-Path -LiteralPath $TaskRoot) { throw 'CONTROL_ROOT_ALREADY_EXISTS' }
+            if (Test-Path -LiteralPath $TaskWorkspace) {
+              if (-not (Test-Path -LiteralPath $TaskWorkspace -PathType Container) -or @(Get-ChildItem -LiteralPath $TaskWorkspace -Force).Count -ne 0) { throw 'WORKSPACE_NOT_EMPTY' }
+            } else { [IO.Directory]::CreateDirectory($TaskWorkspace) | Out-Null }
+            $TaskState.rootInitiallyClean = $true
+            [IO.Directory]::CreateDirectory($TaskEvidence) | Out-Null
+            $TaskEvidenceOwned = $true
+            if ([string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { throw 'API_TOKEN_UNAVAILABLE' }
+            $TaskHandler = [Net.Http.HttpClientHandler]::new()
+            $TaskHandler.AllowAutoRedirect = $false
+            $TaskHttpClient = [Net.Http.HttpClient]::new($TaskHandler)
+            $TaskHttpClient.DefaultRequestHeaders.Add('User-Agent','studyai-r4-frozen-input-control')
+            $TaskHttpClient.DefaultRequestHeaders.Add('Accept','application/vnd.github+json')
+            $TaskHttpClient.DefaultRequestHeaders.Add('X-GitHub-Api-Version','2022-11-28')
+            $TaskHttpClient.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$env:GITHUB_TOKEN)
+            $TaskStage = 'API_WORKFLOW_PARENT'
+            $TaskCommit = Get-TaskGitHubJson ("https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/git/commits/" + $env:GITHUB_SHA) 65536
+            if ($TaskCommit.sha -cne $env:GITHUB_SHA -or @($TaskCommit.parents).Count -ne 1 -or $TaskCommit.parents[0].sha -cne $TaskExpectedParent) { throw 'WORKFLOW_PARENT_MISMATCH' }
+            $TaskState.observedParent = $TaskCommit.parents[0].sha
+            $TaskRows = [Collections.Generic.List[object]]::new()
+            $TaskAllowedDirectories = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($TaskInputRecord in $TaskExpected) {
+              $TaskStage = 'API_BLOB_MATERIALIZATION'
+              $TaskRelative = [string]$TaskInputRecord.path
+              $TaskSegments = $TaskRelative.Split('/')
+              if ($TaskSegments.Count -eq 0 -or $TaskRelative.StartsWith('/') -or [IO.Path]::IsPathRooted($TaskRelative) -or [Regex]::IsMatch($TaskRelative,'[:\\]') -or @($TaskSegments | Where-Object { $_ -in @('','.', '..') }).Count -ne 0) { throw 'INPUT_PATH_BOUNDARY' }
+              $TaskEscaped = ($TaskSegments | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
+              $TaskBlob = Get-TaskGitHubJson ("https://api.github.com/repos/HusamALkafajy/Hussam-Jaafar/contents/" + $TaskEscaped + "?ref=" + $TaskFrozenCommit) ([Math]::Ceiling([double]$TaskInputRecord.bytes * 1.5) + 16384)
+              if ($TaskBlob.type -cne 'file' -or $TaskBlob.encoding -cne 'base64' -or $TaskBlob.path -cne $TaskRelative -or $TaskBlob.size -ne $TaskInputRecord.bytes -or $TaskBlob.sha -cne $TaskInputRecord.blobSha) { throw 'API_BLOB_IDENTITY' }
+              $TaskBytes = [Convert]::FromBase64String($TaskBlob.content)
+              $TaskHeader = [Text.Encoding]::UTF8.GetBytes('blob ' + $TaskBytes.Length + [char]0)
+              $TaskBlobHash = Get-TaskHash -TaskBytes ([byte[]]($TaskHeader + $TaskBytes)) -TaskAlgorithm 'SHA1'
+              $TaskHash = Get-TaskHash $TaskBytes
+              if ($TaskBytes.Length -ne $TaskInputRecord.bytes -or $TaskHash -cne $TaskInputRecord.sha256 -or $TaskBlobHash -cne $TaskInputRecord.blobSha) { throw 'API_BLOB_HASH' }
+              $TaskDestination = [IO.Path]::GetFullPath((Join-Path $TaskWorkspace $TaskRelative))
+              if (-not $TaskDestination.StartsWith([IO.Path]::GetFullPath($TaskWorkspace) + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'INPUT_PATH_ESCAPE' }
+              Assert-TaskNoReparse $TaskDestination
+              $TaskDirectory = [IO.Path]::GetDirectoryName($TaskDestination)
+              [IO.Directory]::CreateDirectory($TaskDirectory) | Out-Null
+              for ($TaskSegmentIndex = 1; $TaskSegmentIndex -lt $TaskSegments.Count; $TaskSegmentIndex++) { [void]$TaskAllowedDirectories.Add(($TaskSegments[0..($TaskSegmentIndex - 1)] -join '/')) }
+              if (Test-Path -LiteralPath $TaskDestination) { throw 'INPUT_DESTINATION_EXISTS' }
+              [IO.File]::WriteAllBytes($TaskDestination,$TaskBytes)
+              $TaskItem = Get-Item -LiteralPath $TaskDestination -Force
+              Assert-TaskNoReparse $TaskDestination
+              $TaskWrittenHash = (Get-FileHash -LiteralPath $TaskDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($TaskItem.PSIsContainer -or $TaskItem.Length -ne $TaskInputRecord.bytes -or $TaskWrittenHash -cne $TaskInputRecord.sha256) { throw 'WRITTEN_INPUT_HASH' }
+              $TaskRows.Add([ordered]@{path=$TaskRelative;bytes=[long]$TaskItem.Length;sha256=$TaskWrittenHash;blobSha=$TaskBlobHash})
+              $TaskState.inputs = @($TaskRows.ToArray())
+              $TaskState.fileCount = $TaskRows.Count
+              $TaskState.inputHashMatches = $TaskRows.Count
+            }
+            $TaskStage = 'MATERIALIZED_INVENTORY'
+            $TaskEntries = @(Get-ChildItem -LiteralPath $TaskWorkspace -Force -Recurse)
+            foreach ($TaskEntry in $TaskEntries) {
+              $TaskEntryRelative = [IO.Path]::GetRelativePath($TaskWorkspace,$TaskEntry.FullName).Replace('\','/')
+              if (($TaskEntry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $TaskState.reparsePoints++ }
+              elseif ($TaskEntry.PSIsContainer) { if (-not $TaskAllowedDirectories.Contains($TaskEntryRelative)) { $TaskState.unexpectedDirectories++ } }
+              elseif (-not ($TaskExpected.path -ccontains $TaskEntryRelative)) { $TaskState.unexpectedFiles++ }
+            }
+            $TaskLines = @($TaskRows.ToArray() | ForEach-Object { $_.path + '|' + $_.bytes + '|' + $_.sha256 })
+            $TaskState.aggregate = Get-TaskHash ([Text.Encoding]::UTF8.GetBytes(($TaskLines -join [char]10) + [char]10))
+            if ($TaskState.fileCount -ne 11 -or $TaskState.aggregate -cne $TaskExpectedAggregate -or $TaskState.unexpectedFiles -ne 0 -or $TaskState.unexpectedDirectories -ne 0 -or $TaskState.reparsePoints -ne 0) { throw 'MATERIALIZED_INVENTORY_MISMATCH' }
+            $TaskState.classification = 'REMOTE_R4_DATA_MATERIALIZATION_PASS'
+          } catch {
+            $TaskFailureCode = $_.Exception.Message
+            $TaskAllowedFailures = @('REPARSE_BOUNDARY','API_HOST_BOUNDARY','API_HTTP_FAILURE','API_RESPONSE_LIMIT','TRIGGER_IDENTITY','CONTROL_ROOT_ALREADY_EXISTS','WORKSPACE_NOT_EMPTY','API_TOKEN_UNAVAILABLE','WORKFLOW_PARENT_MISMATCH','INPUT_PATH_BOUNDARY','API_BLOB_IDENTITY','API_BLOB_HASH','INPUT_PATH_ESCAPE','INPUT_DESTINATION_EXISTS','WRITTEN_INPUT_HASH','MATERIALIZED_INVENTORY_MISMATCH')
+            $TaskState.failureCategory = if ($TaskAllowedFailures -ccontains $TaskFailureCode) { $TaskFailureCode } else { 'API_OR_MATERIALIZATION_EXECUTION_FAILURE' }
+            $TaskState.failureStage = $TaskStage
+            if ($TaskState.failureCategory -in @('API_BLOB_IDENTITY','API_BLOB_HASH','WRITTEN_INPUT_HASH','MATERIALIZED_INVENTORY_MISMATCH')) { $TaskState.classification = 'REMOTE_R4_DATA_MATERIALIZATION_MISMATCH' }
+          } finally {
+            if ($null -ne $TaskHttpClient) { $TaskHttpClient.Dispose() }
+            $TaskClock.Stop()
+            $TaskState.durationMs = $TaskClock.ElapsedMilliseconds
+            $TaskState.httpStatus = $TaskHttpStatus
+            $TaskState.complete = $true
+          }
+          if ($TaskEvidenceOwned -and (Test-Path -LiteralPath $TaskEvidence -PathType Container)) {
+            Write-TaskSafeJson (Join-Path $TaskRoot 'materialization-state.json') $TaskState
+            $TaskPartial = [ordered]@{
+              schemaVersion=1;scope='FROZEN_PACKAGE_ACQUISITION_INPUTS_ONLY'
+              classification=$TaskState.classification;failureCategory=$TaskState.failureCategory
+              failureStage='DATA_MATERIALIZATION';commit=$env:GITHUB_SHA;inputCommit=$TaskFrozenCommit
+              runId=$env:GITHUB_RUN_ID;runAttempt=[int]$env:GITHUB_RUN_ATTEMPT
+              materialization=$TaskState;runner=@{label='windows-2025';os='win32';architecture=$null;imageOS=$null;imageVersion=$null;windowsBuild=$null}
+              node=$null;pnpm=$null;before=@();after=@();aggregateBefore=$null;aggregateAfter=$null
+              attempts=0;retries=0;exitCode=$null;durationMs=0;lifecycleScripts=0;lifecycleScriptsDisabled=$true
+              lifecycle=@{spawned=$false;exitObserved=$false;closeObserved=$false;stdoutEnd=$false;stderrEnd=$false;signal=$null;watchdog=$false;outputLimit=$false;stdoutBytes=0;stderrBytes=0;treeTermination=$false}
+              store=@{role='FRESH_RUNNER_LOCAL_STORE';initiallyEmpty=$false;files=0;directories=0;logicalBytes=0;reparsePoints=0}
+              disk=@{freeBefore=$null;freeAfter=$null}
+              failure=@{pnpmCodes=@();nodeCodes=@();errno=$null;syscall=$null;httpStatus=$TaskHttpStatus;registryHost='registry.npmjs.org';package=$null;version=$null}
+              childEnvironmentNames=@('SystemRoot','WINDIR','TEMP','TMP');command=@();rawOutputForwarded=0
+              storeUploaded=$false;integrity=$false;complete=$true
+            }
+            Write-TaskSafeJson (Join-Path $TaskEvidence 'remote-r4-preflight.json') $TaskPartial
+          }
+          if ($TaskState.classification -cne 'REMOTE_R4_DATA_MATERIALIZATION_PASS') { Write-Output 'R4_DATA_DELIVERY_FAILURE'; exit 1 }
+          Write-Output 'R4_DATA_MATERIALIZATION_PASS'
+      - name: Configure Node 22.22.3 x64
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.22.3
+          architecture: x64
+          check-latest: false
+      - name: Require a fresh download root
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference='Stop'
+          $TaskDownloadRoot=Join-Path $env:RUNNER_TEMP 'r4-downloaded-bundle'
+          if (Test-Path -LiteralPath $TaskDownloadRoot) {Write-Output 'DOWNLOAD_ROOT_NOT_FRESH';exit 1}
+      - name: Download only Job A bundle
+        id: bundle-download
+        timeout-minutes: 12
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ needs.build_dependency_bundle.outputs.artifact_id }}
+          path: ${{ runner.temp }}/r4-downloaded-bundle
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Verify and extract downloaded pnpm tool without registry access
+        id: tool-verification
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
+            if (-not (Test-Path -LiteralPath $TaskRoot -PathType Container)) { throw [InvalidOperationException]::new('CONTROL_ROOT_MISSING') }
+            $TaskRootItem = Get-Item -LiteralPath $TaskRoot -Force
+            if (-not $TaskRootItem.PSIsContainer -or ($TaskRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('CONTROL_ROOT_REPARSE') }
+            $TaskStatePath = Join-Path $TaskRoot 'materialization-state.json'
+            if (-not (Test-Path -LiteralPath $TaskStatePath -PathType Leaf)) { throw [InvalidOperationException]::new('MATERIALIZATION_STATE_MISSING') }
+            $TaskStateItem = Get-Item -LiteralPath $TaskStatePath -Force
+            if ($TaskStateItem.PSIsContainer -or ($TaskStateItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('MATERIALIZATION_STATE_INVALID') }
+            $TaskEvidencePath = Join-Path $TaskRoot 'evidence'
+            if (-not (Test-Path -LiteralPath $TaskEvidencePath -PathType Container)) { throw [InvalidOperationException]::new('EVIDENCE_DIRECTORY_MISSING') }
+            $TaskEvidenceItem = Get-Item -LiteralPath $TaskEvidencePath -Force
+            if (-not $TaskEvidenceItem.PSIsContainer -or ($TaskEvidenceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('EVIDENCE_DIRECTORY_INVALID') }
+            $TaskTool = Join-Path $TaskRoot 'pnpm'
+            if (Test-Path -LiteralPath $TaskTool) { throw [InvalidOperationException]::new('PNPM_TOOL_ALREADY_EXISTS') }
+            $TaskArchive = Join-Path $TaskRoot 'pnpm-9.15.0.tgz'
+            if (Test-Path -LiteralPath $TaskArchive) { throw [InvalidOperationException]::new('PNPM_ARCHIVE_ALREADY_EXISTS') }
+            $TaskRootEntries = @(Get-ChildItem -LiteralPath $TaskRoot -Force)
+            if ($TaskRootEntries.Count -ne 2 -or @($TaskRootEntries | Where-Object { $_.Name -cnotin @('materialization-state.json','evidence') }).Count -ne 0) { throw [InvalidOperationException]::new('CONTROL_ROOT_UNEXPECTED_STATE') }
+            [IO.Directory]::CreateDirectory($TaskTool) | Out-Null
+            $TaskArchive = Join-Path $env:RUNNER_TEMP 'r4-downloaded-bundle\pnpm-9.15.0.tgz'
+            $TaskArchiveItem = Get-Item -LiteralPath $TaskArchive -Force
+            if ($TaskArchiveItem.PSIsContainer -or ($TaskArchiveItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $TaskArchiveItem.Length -gt 16777216) { throw 'PNPM_ARCHIVE_BOUNDARY' }
+            if ((Get-FileHash -LiteralPath $TaskArchive -Algorithm SHA256).Hash.ToLowerInvariant() -cne '09a8fe31a34fda706354680619f4002f4ccef6dadff93240d24ef6c831f0fd28') { throw 'PNPM_ARCHIVE_IDENTITY' }
+            $TaskTar = Join-Path $env:SystemRoot 'System32\tar.exe'
+            $TaskEntries = @(& $TaskTar -tzf $TaskArchive 2>&1)
+            if ($LASTEXITCODE -ne 0 -or $TaskEntries.Count -gt 10000) { throw [InvalidOperationException]::new() }
+            foreach ($TaskEntry in $TaskEntries) {
+              $TaskName = $TaskEntry.ToString()
+              if ($TaskName -notmatch '^package(?:/|$)' -or $TaskName -match '(?:^|/)\.\.(?:/|$)|\\|^[A-Za-z]:') { throw [InvalidOperationException]::new() }
+            }
+            $TaskTypes = @(& $TaskTar -tvzf $TaskArchive 2>&1)
+            if ($LASTEXITCODE -ne 0 -or @($TaskTypes | Where-Object { $_.ToString() -notmatch '^[-d]' }).Count -gt 0) { throw [InvalidOperationException]::new() }
+            $TaskExtraction = @(& $TaskTar -xzf $TaskArchive -C $TaskTool 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw [InvalidOperationException]::new() }
+            if (@(Get-ChildItem -LiteralPath $TaskTool -Recurse -Force | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -gt 0) { throw [InvalidOperationException]::new() }
+            $TaskEntryPath = Join-Path $TaskTool 'package\bin\pnpm.cjs'
+            if ((Get-FileHash -LiteralPath $TaskEntryPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne '98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090') { throw [InvalidOperationException]::new() }
+            $TaskArchiveHash = (Get-FileHash -LiteralPath $TaskArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText((Join-Path $TaskRoot 'pnpm-archive-sha256.txt'), $TaskArchiveHash, [Text.UTF8Encoding]::new($false))
+            Write-Output 'DOWNLOADED_PNPM_915_TOOL_PASS'
+          } catch {
+            Write-Output 'DOWNLOADED_PNPM_915_TOOL_FAILURE'
+            exit 1
+          }
+      - name: Verify every store file and perform one frozen offline install
+        id: offline-qualification
+        timeout-minutes: 25
+        env:
+          TASK_BUNDLE_ARTIFACT_ID: ${{ needs.build_dependency_bundle.outputs.artifact_id }}
+          TASK_BUNDLE_ARTIFACT_DIGEST: ${{ needs.build_dependency_bundle.outputs.artifact_digest }}
+          TASK_EXPECTED_METADATA_HASH: ${{ needs.build_dependency_bundle.outputs.metadata_sha256 }}
+          TASK_EXPECTED_MANIFEST_HASH: ${{ needs.build_dependency_bundle.outputs.manifest_sha256 }}
+        run: |
+          $TaskScript = @'
+          'use strict';
+          const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),cp=require('node:child_process');
+          const task=path.join(process.env.RUNNER_TEMP,'studyai-r4-control');
+          const work=path.join(process.env.RUNNER_TEMP,'studyai-r4-workspace');
+          const cli=path.join(task,'pnpm','package','bin','pnpm.cjs');
+          const archiveHash='09a8fe31a34fda706354680619f4002f4ccef6dadff93240d24ef6c831f0fd28';
+          const nodeHash='780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b';
+          const cliHash='98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090';
+          const inputCommit='a844a1033e2cc9b56534598b188fca5b653d5aab';
+          const inputAggregate='305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
+          const expected=[{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
+          const metadataKeys=['schemaVersion','scope','workflowCommit','workflowRunId','frozenInputCommit','frozenInputAggregate','nodeVersion','nodeArchitecture','nodeSHA256','openssl','fips','pnpmVersion','pnpmCliSHA256','pnpmArchiveSHA256','fetchArgumentContract','fetchAttempts','fetchRetries','fetchExitCode','storeFileCount','storeDirectoryCount','storeLogicalBytes','storeManifestSHA256','storeReparsePoints','lifecycleScripts','createdFor'];
+          const fetchContract=['fetch','--frozen-lockfile','--ignore-scripts','--store-dir','FRESH_RUNNER_LOCAL_STORE','--package-import-method=copy','--registry=https://registry.npmjs.org','--fetch-retries=0','--fetch-timeout=60000','--network-concurrency=1','--verify-store-integrity=true','--reporter=ndjson'];
+          const childEnvironmentNames=['SystemRoot','WINDIR','TEMP','TMP'];
+          const spawnedPids=[];
+          const digest=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const hashFile=p=>digest(fs.readFileSync(p));
+          function ensure(ok,code){if(!ok)throw Error(code);}
+          function closed(value,keys){ensure(value&&typeof value==='object'&&!Array.isArray(value)&&JSON.stringify(Object.keys(value).sort())===JSON.stringify(keys.slice().sort()),'CLOSED_SCHEMA');}
+          function safePath(p){
+           ensure(typeof p==='string'&&p.length>0&&p.length<=1024&&/^[A-Za-z0-9._/@+=-]+$/.test(p)&&!p.startsWith('/')&&!p.includes('//')&&!p.split('/').some(x=>['','.','..'].includes(x))&&!p.split('/').some(x=>/[. ]$/.test(x)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(x)),'UNSAFE_RELATIVE_PATH');
+           return p;
+          }
+          function ps(command,max=16384){
+           return cp.execFileSync(path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-Command',command],
+           {shell:false,windowsHide:true,stdio:['ignore','pipe','pipe'],encoding:'utf8',timeout:120000,maxBuffer:max}).trim();
+          }
+          function noReparse(root){
+           const encoded=Buffer.from(root).toString('base64');
+           const command="$ErrorActionPreference='Stop';$TaskRoot=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encoded+"'));$TaskStack=[Collections.Generic.Stack[string]]::new();$TaskStack.Push($TaskRoot);$TaskCount=0;while($TaskStack.Count -gt 0){$TaskNext=$TaskStack.Pop();$TaskItem=Get-Item -LiteralPath $TaskNext -Force;if(($TaskItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){$TaskCount++;continue};if($TaskItem.PSIsContainer){foreach($TaskEntry in Get-ChildItem -LiteralPath $TaskNext -Force){$TaskStack.Push($TaskEntry.FullName)}}};[Console]::Write($TaskCount)";
+           ensure(ps(command)==='0','REPARSE_BOUNDARY');
+          }
+          function assertQuiescent(){
+           const encoded=Buffer.from(task).toString('base64'),encodedWork=Buffer.from(work).toString('base64');
+           const command="$ErrorActionPreference='Stop';$TaskRoot=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encoded+"'));$TaskWork=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+encodedWork+"'));$TaskOwnPid="+process.pid+";$TaskOwnedPids=@("+spawnedPids.join(',')+");$TaskAll=@(Get-CimInstance Win32_Process);$TaskOwned=[Collections.Generic.HashSet[uint32]]::new();foreach($TaskSeed in $TaskOwnedPids){[void]$TaskOwned.Add([uint32]$TaskSeed)};$TaskAgain=$true;while($TaskAgain){$TaskAgain=$false;foreach($TaskProcess in $TaskAll){if($TaskProcess.ProcessId -ne $TaskOwnPid -and ($TaskOwned.Contains([uint32]$TaskProcess.ParentProcessId) -or ($TaskProcess.CommandLine -and ($TaskProcess.CommandLine.Contains($TaskRoot) -or $TaskProcess.CommandLine.Contains($TaskWork))))){if($TaskOwned.Add([uint32]$TaskProcess.ProcessId)){$TaskAgain=$true}}}};$TaskRemaining=@($TaskAll|Where-Object{$_.ProcessId -ne $TaskOwnPid -and $TaskOwned.Contains([uint32]$_.ProcessId)});[Console]::Write($TaskRemaining.Count)";
+           ensure(ps(command)==='0','TASK_PROCESS_REMAINS');
+           return 0;
+          }
+          function freeSpace(root){
+           const drive=path.parse(root).root.slice(0,2);ensure(/^[A-Za-z]:$/.test(drive),'DRIVE_IDENTITY');
+           const value=ps("$ErrorActionPreference='Stop';$TaskDisk=Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='"+drive+"'\";[Console]::Write($TaskDisk.FreeSpace)",4096);
+           ensure(/^[0-9]{1,16}$/.test(value),'CAPACITY_UNCLASSIFIABLE');return Number(value);
+          }
+          function scan(root,withHashes=true){
+           ensure(fs.lstatSync(root).isDirectory()&&!fs.lstatSync(root).isSymbolicLink(),'STORE_ROOT');
+           const files=[],stack=[root],seen=new Set();let directories=0,logicalBytes=0,emptyDirectories=0;
+           while(stack.length){
+            const dir=stack.pop(),names=fs.readdirSync(dir);
+            if(dir!==root&&names.length===0)emptyDirectories++;
+            for(const name of names){
+             const full=path.join(dir,name),relative=safePath(path.relative(root,full).split(path.sep).join('/')),st=fs.lstatSync(full),fold=relative.toLowerCase();
+             ensure(!seen.has(fold),'DUPLICATE_PATH');seen.add(fold);
+             ensure(!st.isSymbolicLink(),'REPARSE_BOUNDARY');
+             if(st.isDirectory()){directories++;stack.push(full);}
+             else{ensure(st.isFile()&&Number.isSafeInteger(st.size),'STORE_TYPE');logicalBytes+=st.size;files.push({path:relative,bytes:st.size,sha256:withHashes?hashFile(full):null});}
+             ensure(files.length<=250000&&directories<=10000&&logicalBytes<=10737418240,'STORE_BOUND');
+            }
+           }
+           files.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
+           return {files,directories,logicalBytes,reparsePoints:0,emptyDirectories};
+          }
+          function serializeManifest(rows){return rows.map(x=>JSON.stringify(x)).join('\n')+'\n';}
+          function readManifest(file){
+           const bytes=fs.readFileSync(file);ensure(bytes.length>0&&bytes.length<=67108864&&bytes[0]!==0xef&&bytes[bytes.length-1]===10,'MANIFEST_ENCODING');
+           const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+           ensure(!text.includes('\r'),'MANIFEST_ENCODING');
+           const lines=text.slice(0,-1).split('\n'),rows=[],seen=new Set();let previous=null,total=0;
+           for(const line of lines){
+            ensure(line.length<=2048&&line.length>0,'MANIFEST_LINE');
+            const row=JSON.parse(line);closed(row,['path','bytes','sha256']);safePath(row.path);
+            ensure(Number.isSafeInteger(row.bytes)&&row.bytes>=0&&/^[a-f0-9]{64}$/.test(row.sha256),'MANIFEST_TYPES');
+            ensure(!seen.has(row.path.toLowerCase())&&(previous===null||previous<row.path),'MANIFEST_DUPLICATE_OR_ORDER');
+            seen.add(row.path.toLowerCase());previous=row.path;total+=row.bytes;rows.push(row);
+           }
+           ensure(rows.length<=250000&&total<=10737418240&&serializeManifest(rows)===text,'MANIFEST_CANONICAL');
+           return {bytes,rows,total,sha256:digest(bytes)};
+          }
+          function compareStore(rows,actual){
+           const wanted=new Map(rows.map(x=>[x.path,x])),got=new Map(actual.files.map(x=>[x.path,x]));
+           const missing=[],changed=[],added=[];
+           for(const row of rows){const x=got.get(row.path);if(!x)missing.push(row);else if(row.bytes!==x.bytes||row.sha256!==x.sha256)changed.push({path:row.path,beforeSHA256:row.sha256,afterSHA256:x.sha256,beforeBytes:row.bytes,afterBytes:x.bytes});}
+           for(const row of actual.files){if(!wanted.has(row.path))added.push(row);}
+           return {added,removed:missing,changed};
+          }
+          function inputRows(){
+           return expected.map(e=>{const full=path.join(work,e.path),st=fs.lstatSync(full);ensure(st.isFile()&&!st.isSymbolicLink(),'INPUT_TYPE');ensure(st.size===e.bytes&&hashFile(full)===e.sha256,'INPUT_HASH');return {...e};});
+          }
+          function aggregate(rows){return digest(Buffer.from(rows.map(r=>r.path+'|'+r.bytes+'|'+r.sha256).join('\n')+'\n'));}
+          function runtime(){
+           const out={version:process.version,architecture:process.arch,openssl:process.versions.openssl,fips:crypto.getFips(),executableSHA256:hashFile(process.execPath)};
+           ensure(out.version==='v22.22.3'&&out.architecture==='x64'&&out.executableSHA256===nodeHash,'NODE_IDENTITY');
+           return out;
+          }
+          function validateMetadata(m){
+           closed(m,metadataKeys);
+           ensure(m.schemaVersion===1&&m.scope==='R4_FROZEN_PNPM_STORE_BUNDLE'&&m.workflowCommit===process.env.GITHUB_SHA&&m.workflowRunId===process.env.GITHUB_RUN_ID,'METADATA_SCOPE');
+           ensure(m.frozenInputCommit===inputCommit&&m.frozenInputAggregate===inputAggregate&&m.nodeVersion==='v22.22.3'&&m.nodeArchitecture==='x64'&&m.nodeSHA256===nodeHash,'METADATA_INPUT');
+           ensure(m.pnpmVersion==='9.15.0'&&m.pnpmCliSHA256===cliHash&&m.pnpmArchiveSHA256===archiveHash,'METADATA_TOOL');
+           ensure(/^[0-9A-Za-z.+-]{1,40}$/.test(m.openssl)&&[0,1].includes(m.fips)&&m.fetchAttempts===1&&m.fetchRetries===0&&m.fetchExitCode===0&&m.lifecycleScripts===0&&m.storeReparsePoints===0,'METADATA_RESULT');
+           ensure(m.createdFor==='LOCAL_E_OFFLINE_INSTALL_QUALIFICATION'&&JSON.stringify(m.fetchArgumentContract)===JSON.stringify(fetchContract),'METADATA_CONTRACT');
+           ensure(Number.isSafeInteger(m.storeFileCount)&&m.storeFileCount>0&&m.storeFileCount<=250000&&Number.isSafeInteger(m.storeDirectoryCount)&&m.storeDirectoryCount>=0&&Number.isSafeInteger(m.storeLogicalBytes)&&m.storeLogicalBytes>0&&m.storeLogicalBytes<=10737418240&&/^[a-f0-9]{64}$/.test(m.storeManifestSHA256),'METADATA_COUNTS');
+          }
+          function validateBundle(root,expectedMetadataHash=null,expectedManifestHash=null){
+           noReparse(root);
+           ensure(JSON.stringify(fs.readdirSync(root).sort())===JSON.stringify(['bundle-metadata.json','pnpm-9.15.0.tgz','pnpm-store','store-manifest.jsonl'].sort()),'BUNDLE_TOP_LEVEL');
+           for(const name of ['bundle-metadata.json','pnpm-9.15.0.tgz','store-manifest.jsonl'])ensure(fs.lstatSync(path.join(root,name)).isFile(),'BUNDLE_ENTRY_TYPE');
+           const metadataBytes=fs.readFileSync(path.join(root,'bundle-metadata.json'));ensure(metadataBytes.length<=32768,'METADATA_BOUND');
+           const metadata=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(metadataBytes));validateMetadata(metadata);
+           const metadataSHA256=digest(metadataBytes);
+           if(expectedMetadataHash)ensure(metadataSHA256===expectedMetadataHash,'METADATA_HASH');
+           const manifest=readManifest(path.join(root,'store-manifest.jsonl'));
+           ensure(manifest.sha256===metadata.storeManifestSHA256&&(!expectedManifestHash||manifest.sha256===expectedManifestHash),'MANIFEST_HASH');
+           ensure(hashFile(path.join(root,'pnpm-9.15.0.tgz'))===archiveHash,'ARCHIVE_HASH');
+           const inventory=scan(path.join(root,'pnpm-store'));
+           const delta=compareStore(manifest.rows,inventory);
+           ensure(delta.added.length===0&&delta.removed.length===0&&delta.changed.length===0,'STORE_INTEGRITY');
+           ensure(inventory.files.length===metadata.storeFileCount&&inventory.directories===metadata.storeDirectoryCount&&inventory.logicalBytes===metadata.storeLogicalBytes,'STORE_COUNTS');
+           return {metadata,metadataSHA256,manifest,inventory,delta};
+          }
+          function complete(x){const r=x.lifecycle;return r.spawned&&r.exitObserved&&r.closeObserved&&r.stdoutEnd&&r.stderrEnd&&r.signal===null&&!r.watchdog&&!r.outputLimit;}
+          async function child(args,timeout=1200000){
+           const lifecycle={spawned:false,exitObserved:false,closeObserved:false,stdoutEnd:false,stderrEnd:false,signal:null,watchdog:false,outputLimit:false,stdoutBytes:0,stderrBytes:0,treeTermination:false};
+           const env={};for(const name of childEnvironmentNames){ensure(process.env[name],'CHILD_ENVIRONMENT');env[name]=process.env[name];}
+           const chunks={stdout:[],stderr:[]},started=Date.now();
+           return await new Promise(resolve=>{
+            let ended=false,code=null,timer=null,cleanupTimer=null;
+            const proc=cp.spawn(process.execPath,[cli,...args],{cwd:work,env,shell:false,windowsHide:true,stdio:['ignore','pipe','pipe']});
+            function terminate(){if(proc.pid){const kill=cp.spawnSync(path.join(process.env.SystemRoot,'System32','taskkill.exe'),['/PID',String(proc.pid),'/T','/F'],{shell:false,windowsHide:true,stdio:'ignore',timeout:15000});lifecycle.treeTermination=kill.status===0;}
+             if(!cleanupTimer)cleanupTimer=setTimeout(()=>{proc.stdout.destroy();proc.stderr.destroy();finish();},15000);}
+            function finish(){if(ended)return;ended=true;clearTimeout(timer);clearTimeout(cleanupTimer);resolve({code,durationMs:Date.now()-started,lifecycle,stdout:Buffer.concat(chunks.stdout).toString('utf8'),stderr:Buffer.concat(chunks.stderr).toString('utf8')});}
+            proc.on('spawn',()=>{lifecycle.spawned=true;spawnedPids.push(proc.pid);});
+            proc.on('error',finish);
+            proc.on('exit',(value,signal)=>{code=value;lifecycle.exitObserved=true;lifecycle.signal=signal===null?null:'SIGNAL_OBSERVED';});
+            for(const name of ['stdout','stderr']){proc[name].on('data',b=>{lifecycle[name+'Bytes']+=b.length;if(lifecycle[name+'Bytes']<=8388608)chunks[name].push(b);else if(!lifecycle.outputLimit){lifecycle.outputLimit=true;terminate();}});proc[name].on('end',()=>{lifecycle[name+'End']=true;});proc[name].on('error',()=>{lifecycle.outputLimit=true;terminate();});}
+            proc.on('close',()=>{lifecycle.closeObserved=true;finish();});
+            timer=setTimeout(()=>{lifecycle.watchdog=true;terminate();},timeout);
+           });
+          }
+          function safeFailure(x){
+           const combined=x.stdout+'\n'+x.stderr;
+           return {pnpmCodes:[...new Set(combined.match(/\bERR_PNPM_[A-Z0-9_]{1,64}\b/g)||[])].slice(0,8),
+           nodeCodes:['ECONNRESET','ENOTFOUND','EAI_AGAIN','ETIMEDOUT','EACCES','EPERM','ENOSPC','ERR_SSL_CIPHER_OPERATION_FAILED'].filter(x=>combined.includes(x))};
+          }
+          function safeWrite(file,value,max=65536){
+           const text=JSON.stringify(value)+'\n';
+           ensure(Buffer.byteLength(text)<=max&&!/[A-Za-z]:\\|\\\\|-----BEGIN|github_pat_|gh[pousr]_|Bearer\s/.test(text),'OUTPUT_POLICY');
+           fs.writeFileSync(file,text,{encoding:'utf8',flag:'wx'});return digest(Buffer.from(text));
+          }
+          function output(key,value){ensure(/^[a-z_]+$/.test(key)&&/^[a-z0-9]{64}$/.test(value),'OUTPUT_VALUE');fs.appendFileSync(process.env.GITHUB_OUTPUT,key+'='+value+'\n');}
+          function buildBundle(){
+           const fetched=JSON.parse(fs.readFileSync(path.join(task,'evidence','remote-r4-acquisition.json'),'utf8'));
+           ensure(fetched.classification==='REMOTE_R4_FULL_LOCKFILE_ACQUISITION_PASS'&&fetched.attempts===1&&fetched.retries===0&&fetched.exitCode===0&&fetched.integrity&&fetched.complete,'FETCH_NOT_PASS');
+           ensure(fetched.lifecycle.exitObserved&&fetched.lifecycle.closeObserved&&fetched.lifecycle.stdoutEnd&&fetched.lifecycle.stderrEnd&&!fetched.lifecycle.watchdog&&!fetched.lifecycle.outputLimit,'FETCH_NOT_QUIESCENT');
+           assertQuiescent();
+           const before=inputRows();ensure(aggregate(before)===inputAggregate,'INPUT_AGGREGATE');
+           const sourceStore=path.join(task,'store');noReparse(sourceStore);
+           const inventory=scan(sourceStore);ensure(inventory.files.length>0&&inventory.emptyDirectories===0,'STORE_EMPTY_DIRECTORY');
+           const bundle=path.join(task,'bundle');ensure(!fs.existsSync(bundle),'BUNDLE_ALREADY_EXISTS');fs.mkdirSync(bundle);
+           fs.renameSync(sourceStore,path.join(bundle,'pnpm-store'));
+           const manifestText=serializeManifest(inventory.files);fs.writeFileSync(path.join(bundle,'store-manifest.jsonl'),manifestText,{encoding:'utf8',flag:'wx'});
+           ensure(hashFile(path.join(task,'pnpm-9.15.0.tgz'))===archiveHash,'ARCHIVE_HASH');
+           fs.copyFileSync(path.join(task,'pnpm-9.15.0.tgz'),path.join(bundle,'pnpm-9.15.0.tgz'),fs.constants.COPYFILE_EXCL);
+           const n=runtime();
+           const metadata={schemaVersion:1,scope:'R4_FROZEN_PNPM_STORE_BUNDLE',workflowCommit:process.env.GITHUB_SHA,workflowRunId:process.env.GITHUB_RUN_ID,frozenInputCommit:inputCommit,frozenInputAggregate:inputAggregate,nodeVersion:n.version,nodeArchitecture:n.architecture,nodeSHA256:n.executableSHA256,openssl:n.openssl,fips:n.fips,pnpmVersion:'9.15.0',pnpmCliSHA256:cliHash,pnpmArchiveSHA256:archiveHash,fetchArgumentContract:fetchContract,fetchAttempts:1,fetchRetries:0,fetchExitCode:0,storeFileCount:inventory.files.length,storeDirectoryCount:inventory.directories,storeLogicalBytes:inventory.logicalBytes,storeManifestSHA256:digest(Buffer.from(manifestText)),storeReparsePoints:0,lifecycleScripts:0,createdFor:'LOCAL_E_OFFLINE_INSTALL_QUALIFICATION'};
+           validateMetadata(metadata);const metadataSHA256=safeWrite(path.join(bundle,'bundle-metadata.json'),metadata);
+           const checked=validateBundle(bundle,metadataSHA256,metadata.storeManifestSHA256);
+           output('metadata_sha256',checked.metadataSHA256);output('manifest_sha256',checked.manifest.sha256);
+           console.log('BUNDLE_PREUPLOAD_VERIFICATION_PASS');
+          }
+          async function verifyOffline(){
+           const bundle=path.join(process.env.RUNNER_TEMP,'r4-downloaded-bundle');
+           const report={schemaVersion:1,scope:'REMOTE_R4_BUNDLE_OFFLINE_QUALIFICATION',workflowCommit:process.env.GITHUB_SHA,workflowRunId:process.env.GITHUB_RUN_ID,frozenInputCommit:inputCommit,frozenInputAggregate:inputAggregate,
+           classification:'REMOTE_DEPENDENCY_BUNDLE_TRANSFER_INTEGRITY_FAILURE',failureStage:'BUNDLE_VERIFICATION',failureCategory:null,
+           runner:{label:'windows-2025',os:process.platform,architecture:process.arch,imageOS:process.env.ImageOS||null,imageVersion:process.env.ImageVersion||null,windowsBuild:require('node:os').release()},
+           node:null,pnpm:null,bundleArtifact:{id:process.env.TASK_BUNDLE_ARTIFACT_ID,digest:process.env.TASK_BUNDLE_ARTIFACT_DIGEST},bundleMetadataSHA256:null,storeManifestSHA256:null,downloadedStoreIntegrity:'NOT_REACHED',preStore:null,
+           before:[],after:[],aggregateBefore:null,aggregateAfter:null,command:[],offlineAttempts:0,offlineExitCode:null,offlineDurationMs:0,lifecycle:null,lifecycleScripts:0,lifecycleScriptsDisabled:true,remainingTaskProcesses:null,
+           nodeModules:{created:false,nonEmpty:false,topLevelEntries:0},storeMutation:{mutated:null,added:[],removed:[],changed:[]},postStore:null,disk:{freeBefore:null,freeAfter:null},
+           failure:{pnpmCodes:[],nodeCodes:[]},childEnvironmentNames,rawOutputForwarded:0,productTests:0,prismaGenerations:0,complete:false};
+           try{
+            report.node=runtime();
+            ensure(/^[0-9]{1,20}$/.test(report.bundleArtifact.id)&&/^[a-f0-9]{64}$/.test(report.bundleArtifact.digest),'ARTIFACT_IDENTITY');
+            const checked=validateBundle(bundle,process.env.TASK_EXPECTED_METADATA_HASH,process.env.TASK_EXPECTED_MANIFEST_HASH);
+            report.bundleMetadataSHA256=checked.metadataSHA256;report.storeManifestSHA256=checked.manifest.sha256;report.downloadedStoreIntegrity='PASS';
+            report.preStore={files:checked.inventory.files.length,directories:checked.inventory.directories,logicalBytes:checked.inventory.logicalBytes,reparsePoints:0};
+            report.failureStage='TOOL_IDENTITY';
+            ensure(hashFile(cli)===cliHash,'PNPM_CLI_IDENTITY');
+            const version=await child(['--version'],60000);ensure(complete(version)&&version.code===0&&version.stdout.trim()==='9.15.0','PNPM_VERSION');
+            report.pnpm={version:'9.15.0',entrySHA256:hashFile(cli),archiveSHA256:archiveHash};
+            report.failureStage='FROZEN_INPUTS';
+            const materialization=JSON.parse(fs.readFileSync(path.join(task,'materialization-state.json'),'utf8'));
+            ensure(materialization.classification==='REMOTE_R4_DATA_MATERIALIZATION_PASS'&&materialization.workflowCommit===process.env.GITHUB_SHA&&materialization.frozenInputCommit===inputCommit&&materialization.inputHashMatches===11&&materialization.aggregate===inputAggregate&&materialization.complete,'MATERIALIZATION_BINDING');
+            noReparse(work);report.before=inputRows();report.aggregateBefore=aggregate(report.before);ensure(report.aggregateBefore===inputAggregate&&!fs.existsSync(path.join(work,'node_modules')),'PRE_INSTALL_INPUTS');
+            const downloadedStore=path.join(bundle,'pnpm-store');
+            const args=['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir',downloadedStore,'--package-import-method=copy','--reporter=ndjson'];
+            report.command=args.map(x=>x===downloadedStore?'VERIFIED_DOWNLOADED_STORE':x);
+            const help=await child([...args,'--help'],60000);ensure(complete(help)&&help.code===0&&/install/i.test(help.stdout),'OFFLINE_FLAG_SUPPORT');
+            assertQuiescent();report.disk.freeBefore=freeSpace(work);ensure(report.disk.freeBefore>=55834574848,'CAPACITY_BEFORE');
+            report.failureStage='OFFLINE_INSTALL';report.classification='REMOTE_DEPENDENCY_BUNDLE_REQUIRES_CONTENT_REVIEW';report.offlineAttempts=1;
+            const execution=await child(args);report.offlineExitCode=execution.code;report.offlineDurationMs=execution.durationMs;report.lifecycle=execution.lifecycle;report.failure=safeFailure(execution);
+            report.remainingTaskProcesses=assertQuiescent();
+            report.failureStage='POST_INSTALL';
+            report.after=inputRows();report.aggregateAfter=aggregate(report.after);ensure(report.aggregateAfter===inputAggregate&&JSON.stringify(report.before)===JSON.stringify(report.after),'POST_INSTALL_INPUTS');
+            const nm=path.join(work,'node_modules');report.nodeModules.created=fs.existsSync(nm)&&fs.lstatSync(nm).isDirectory();report.nodeModules.topLevelEntries=report.nodeModules.created?fs.readdirSync(nm).length:0;report.nodeModules.nonEmpty=report.nodeModules.topLevelEntries>0;
+            noReparse(downloadedStore);const post=scan(downloadedStore),delta=compareStore(checked.manifest.rows,post);
+            report.storeMutation={mutated:delta.added.length+delta.removed.length+delta.changed.length>0,...delta};
+            report.postStore={files:post.files.length,directories:post.directories,logicalBytes:post.logicalBytes,reparsePoints:0};
+            report.disk.freeAfter=freeSpace(work);ensure(report.disk.freeAfter>=34359738368,'CAPACITY_AFTER');
+            ensure(delta.removed.length===0&&delta.changed.length===0,'ORIGINAL_STORE_CONTENT_CORRUPTED');
+            ensure(execution.code===0&&complete(execution)&&report.nodeModules.created&&report.nodeModules.nonEmpty,'OFFLINE_INSTALL_FAILED');
+            report.classification='REMOTE_DEPENDENCY_BUNDLE_QUALIFIED_FOR_LOCAL_E_IMPORT';report.failureStage=null;
+           }catch(e){
+            const safeCodes=['CLOSED_SCHEMA','UNSAFE_RELATIVE_PATH','MANIFEST_ENCODING','MANIFEST_LINE','MANIFEST_TYPES','MANIFEST_DUPLICATE_OR_ORDER','MANIFEST_CANONICAL','METADATA_SCOPE','METADATA_INPUT','METADATA_TOOL','METADATA_RESULT','METADATA_CONTRACT','METADATA_COUNTS','METADATA_HASH','MANIFEST_HASH','ARCHIVE_HASH','STORE_INTEGRITY','STORE_COUNTS','STORE_TYPE','STORE_BOUND','DUPLICATE_PATH','REPARSE_BOUNDARY','BUNDLE_TOP_LEVEL','BUNDLE_ENTRY_TYPE','STORE_ROOT','TOOL_IDENTITY','PNPM_CLI_IDENTITY','PNPM_VERSION','NODE_IDENTITY','INPUT_TYPE','INPUT_HASH','MATERIALIZATION_BINDING','PRE_INSTALL_INPUTS','OFFLINE_FLAG_SUPPORT','CAPACITY_BEFORE','CAPACITY_AFTER','ARTIFACT_IDENTITY','TASK_PROCESS_REMAINS','POST_INSTALL_INPUTS','ORIGINAL_STORE_CONTENT_CORRUPTED','OFFLINE_INSTALL_FAILED'];
+            report.failureCategory=safeCodes.includes(e.message)?e.message:'BOUNDED_EXECUTION_OR_VALIDATION_FAILURE';
+           }
+           report.complete=true;
+           const reportHash=safeWrite(path.join(task,'evidence','bundle-qualification-report.json'),report);
+           console.log('BUNDLE_QUALIFICATION_REPORT='+JSON.stringify(report));console.log('BUNDLE_QUALIFICATION_SHA256='+reportHash);
+           process.exitCode=report.classification==='REMOTE_DEPENDENCY_BUNDLE_QUALIFIED_FOR_LOCAL_E_IMPORT'?0:1;
+          }
+          module.exports={buildBundle,verifyOffline,validateMetadata,safePath,readManifest,compareStore,serializeManifest,metadataKeys};
+          
+          verifyOffline().catch(()=>{console.log('BUNDLE_QUALIFICATION_OUTPUT_POLICY_OR_EXECUTION_FAILURE');process.exitCode=1;});
+          '@
+          $TaskScriptPath = Join-Path $env:RUNNER_TEMP 'studyai-r4-control\bundle-offline.cjs'
+          [IO.File]::WriteAllText($TaskScriptPath, $TaskScript, [Text.UTF8Encoding]::new($false))
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $PSNativeCommandUseErrorActionPreference = $false
+          function Resolve-TaskNodeCandidate {
+            param([string[]]$TaskCandidateSources, [string]$TaskToolCache)
+            if ([string]::IsNullOrWhiteSpace($TaskToolCache)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskExpectedNode = [IO.Path]::GetFullPath((Join-Path $TaskToolCache 'node\22.22.3\x64\node.exe'))
+            $TaskUniqueSources = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($TaskCandidateSource in $TaskCandidateSources) {
+              if ([string]::IsNullOrWhiteSpace($TaskCandidateSource)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              [void]$TaskUniqueSources.Add([IO.Path]::GetFullPath($TaskCandidateSource))
+            }
+            if ($TaskUniqueSources.Count -lt 1 -or -not $TaskUniqueSources.Contains($TaskExpectedNode)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            return [pscustomobject]@{ SelectedNode = $TaskExpectedNode; UniqueCandidateCount = $TaskUniqueSources.Count; SelectedNodeCount = 1 }
+          }
+          function Assert-TaskNodeIdentity {
+            param([string]$TaskNodeHash, [string]$TaskNodeVersion, [string]$TaskNodeArchitecture)
+            if ($TaskNodeHash -cne '780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b' -or
+                $TaskNodeVersion -cne 'v22.22.3' -or $TaskNodeArchitecture -cne 'x64') { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+          }
+          function Assert-TaskOrdinaryFile {
+            param([string]$TaskFilePath)
+            $TaskFileItem = Get-Item -LiteralPath $TaskFilePath -Force -ErrorAction Stop
+            if ($TaskFileItem.PSIsContainer -or ($TaskFileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskAncestor = $TaskFileItem.Directory
+            while ($null -ne $TaskAncestor) {
+              if (($TaskAncestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              $TaskAncestor = $TaskAncestor.Parent
+            }
+          }
+          try {
+            $TaskNodeCandidates = @(Get-Command node.exe -CommandType Application -All -ErrorAction Stop)
+            $TaskCandidateSources = @($TaskNodeCandidates | ForEach-Object { $_.Source })
+            $TaskNodeSelection = Resolve-TaskNodeCandidate -TaskCandidateSources $TaskCandidateSources -TaskToolCache $env:RUNNER_TOOL_CACHE
+            $TaskSelectedNode = $TaskNodeSelection.SelectedNode
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskSelectedNode
+            $TaskSelectedNodeHash = (Get-FileHash -LiteralPath $TaskSelectedNode -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion 'v22.22.3' -TaskNodeArchitecture 'x64'
+            $TaskVersionOutput = @(& $TaskSelectedNode --version 2>$null)
+            $TaskVersionExitCode = $LASTEXITCODE
+            if ($TaskVersionExitCode -ne 0 -or $TaskVersionOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskArchitectureOutput = @(& $TaskSelectedNode -e 'console.log(process.arch)' 2>$null)
+            $TaskArchitectureExitCode = $LASTEXITCODE
+            if ($TaskArchitectureExitCode -ne 0 -or $TaskArchitectureOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskVersionOutput[0] -TaskNodeArchitecture $TaskArchitectureOutput[0]
+            $TaskIdentityExpression = 'console.log(JSON.stringify({version:process.version,architecture:process.arch,openssl:process.versions.openssl,fips:require("node:crypto").getFips(),execPath:process.execPath}))'
+            $TaskIdentityOutput = @(& $TaskSelectedNode -e $TaskIdentityExpression 2>$null)
+            $TaskIdentityExitCode = $LASTEXITCODE
+            if ($TaskIdentityExitCode -ne 0 -or $TaskIdentityOutput.Count -ne 1 -or $TaskIdentityOutput[0].Length -gt 4096) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskIdentity = $TaskIdentityOutput[0] | ConvertFrom-Json -ErrorAction Stop
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskIdentity.version -TaskNodeArchitecture $TaskIdentity.architecture
+            if ([IO.Path]::GetFullPath($TaskIdentity.execPath) -ine $TaskSelectedNode -or
+                $TaskIdentity.openssl -cnotmatch '^[0-9A-Za-z.+-]{1,40}$' -or $TaskIdentity.fips -notin @(0,1)) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskScriptPath
+            $TaskNodeQualification = [ordered]@{
+              schemaVersion = 1; classification = 'REMOTE_NODE_RUNTIME_QUALIFIED'
+              candidateRecordCount = $TaskNodeCandidates.Count; uniqueCandidateCount = $TaskNodeSelection.UniqueCandidateCount
+              selectedNodeCount = $TaskNodeSelection.SelectedNodeCount; executableRole = 'SETUP_NODE_TOOLCACHE'
+              version = $TaskIdentity.version; architecture = $TaskIdentity.architecture
+              openssl = $TaskIdentity.openssl; fips = $TaskIdentity.fips; executableSHA256 = $TaskSelectedNodeHash
+            }
+            Write-Output ('R4_NODE_QUALIFICATION=' + ($TaskNodeQualification | ConvertTo-Json -Compress))
+          } catch {
+            $TaskNodeFailureCategory = if ($_.Exception.Message -ceq 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH') { 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' } else { 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            Write-Output $TaskNodeFailureCategory
+            exit 1
+          }
+          & $TaskSelectedNode $TaskScriptPath
+          $TaskAcquisitionExitCode = $LASTEXITCODE
+          exit $TaskAcquisitionExitCode
+      - name: Preserve sanitized preinstall failure when needed
+        if: always()
+        timeout-minutes: 5
+        env:
+          TASK_DOWNLOAD_OUTCOME: ${{ steps.bundle-download.outcome }}
+          TASK_TOOL_OUTCOME: ${{ steps.tool-verification.outcome }}
+          TASK_VERIFY_OUTCOME: ${{ steps.offline-qualification.outcome }}
+        run: |
+          $ErrorActionPreference='Stop'
+          try {
+           $TaskEvidence=Join-Path $env:RUNNER_TEMP 'studyai-r4-control\evidence'
+           $TaskTarget=Join-Path $TaskEvidence 'bundle-qualification-report.json'
+           if (-not (Test-Path -LiteralPath $TaskTarget -PathType Leaf)) {
+            if (-not (Test-Path -LiteralPath $TaskEvidence -PathType Container)) {[IO.Directory]::CreateDirectory($TaskEvidence)|Out-Null}
+            $TaskFallback=[ordered]@{schemaVersion=1;scope='REMOTE_R4_BUNDLE_PREINSTALL_FAILURE';workflowCommit=$env:GITHUB_SHA;workflowRunId=$env:GITHUB_RUN_ID;classification='REMOTE_DEPENDENCY_BUNDLE_TRANSFER_INTEGRITY_FAILURE';failureCategory='PREINSTALL_STEP_FAILED';artifactDownloadOutcome=$env:TASK_DOWNLOAD_OUTCOME;toolOutcome=$env:TASK_TOOL_OUTCOME;verificationOutcome=$env:TASK_VERIFY_OUTCOME;offlineAttempts=0;offlineExitCode=$null;rawOutputForwarded=0;complete=$true}
+            $TaskJson=$TaskFallback|ConvertTo-Json -Compress
+            [IO.File]::WriteAllText($TaskTarget,$TaskJson+[char]10,[Text.UTF8Encoding]::new($false))
+            Write-Output ('BUNDLE_PREINSTALL_REPORT='+$TaskJson)
+           }
+          } catch {Write-Output 'BUNDLE_FAILURE_REPORTING_BLOCKED';exit 1}
+      - name: Upload small qualification evidence only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r4-bundle-qualification-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/studyai-r4-control/evidence/bundle-qualification-report.json
+          overwrite: false
+          include-hidden-files: false
+          if-no-files-found: warn
+          retention-days: 7
