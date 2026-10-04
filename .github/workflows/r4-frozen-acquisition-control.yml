@@ -28,7 +28,7 @@ jobs:
           '@ | ConvertFrom-Json
           $TaskExpectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34'
           $TaskFrozenCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab'
-          $TaskExpectedParent = '16308a359950900cd36de416befe4500805e7b94'
+          $TaskExpectedParent = 'f87cbf9366b85b3fe53d7453ad319eb8d0b902ad'
           $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
           $TaskWorkspace = Join-Path $env:RUNNER_TEMP 'studyai-r4-workspace'
           $TaskEvidence = Join-Path $TaskRoot 'evidence'
@@ -195,7 +195,7 @@ jobs:
               childEnvironmentNames=@('SystemRoot','WINDIR','TEMP','TMP');command=@();rawOutputForwarded=0
               storeUploaded=$false;integrity=$false;complete=$true
             }
-            Write-TaskSafeJson (Join-Path $TaskEvidence 'remote-r4-acquisition.json') $TaskPartial
+            Write-TaskSafeJson (Join-Path $TaskEvidence 'remote-r4-preflight.json') $TaskPartial
           }
           if ($TaskState.classification -cne 'REMOTE_R4_DATA_MATERIALIZATION_PASS') { Write-Output 'R4_DATA_DELIVERY_FAILURE'; exit 1 }
           Write-Output 'R4_DATA_MATERIALIZATION_PASS'
@@ -211,9 +211,24 @@ jobs:
           $ErrorActionPreference = 'Stop'
           try {
             $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
-            New-Item -ItemType Directory -Path $TaskRoot -ErrorAction Stop | Out-Null
+            if (-not (Test-Path -LiteralPath $TaskRoot -PathType Container)) { throw [InvalidOperationException]::new('CONTROL_ROOT_MISSING') }
+            $TaskRootItem = Get-Item -LiteralPath $TaskRoot -Force
+            if (-not $TaskRootItem.PSIsContainer -or ($TaskRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('CONTROL_ROOT_REPARSE') }
+            $TaskStatePath = Join-Path $TaskRoot 'materialization-state.json'
+            if (-not (Test-Path -LiteralPath $TaskStatePath -PathType Leaf)) { throw [InvalidOperationException]::new('MATERIALIZATION_STATE_MISSING') }
+            $TaskStateItem = Get-Item -LiteralPath $TaskStatePath -Force
+            if ($TaskStateItem.PSIsContainer -or ($TaskStateItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('MATERIALIZATION_STATE_INVALID') }
+            $TaskEvidencePath = Join-Path $TaskRoot 'evidence'
+            if (-not (Test-Path -LiteralPath $TaskEvidencePath -PathType Container)) { throw [InvalidOperationException]::new('EVIDENCE_DIRECTORY_MISSING') }
+            $TaskEvidenceItem = Get-Item -LiteralPath $TaskEvidencePath -Force
+            if (-not $TaskEvidenceItem.PSIsContainer -or ($TaskEvidenceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [InvalidOperationException]::new('EVIDENCE_DIRECTORY_INVALID') }
             $TaskTool = Join-Path $TaskRoot 'pnpm'
-            New-Item -ItemType Directory -Path $TaskTool -ErrorAction Stop | Out-Null
+            if (Test-Path -LiteralPath $TaskTool) { throw [InvalidOperationException]::new('PNPM_TOOL_ALREADY_EXISTS') }
+            $TaskArchive = Join-Path $TaskRoot 'pnpm-9.15.0.tgz'
+            if (Test-Path -LiteralPath $TaskArchive) { throw [InvalidOperationException]::new('PNPM_ARCHIVE_ALREADY_EXISTS') }
+            $TaskRootEntries = @(Get-ChildItem -LiteralPath $TaskRoot -Force)
+            if ($TaskRootEntries.Count -ne 2 -or @($TaskRootEntries | Where-Object { $_.Name -cnotin @('materialization-state.json','evidence') }).Count -ne 0) { throw [InvalidOperationException]::new('CONTROL_ROOT_UNEXPECTED_STATE') }
+            [IO.Directory]::CreateDirectory($TaskTool) | Out-Null
             $TaskMetadata = Invoke-RestMethod -Uri 'https://registry.npmjs.org/pnpm/9.15.0' -TimeoutSec 60
             if ($TaskMetadata.name -cne 'pnpm' -or $TaskMetadata.version -cne '9.15.0' -or
                 $TaskMetadata.dist.tarball -cne 'https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz' -or
@@ -258,7 +273,7 @@ jobs:
           const expected = [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
           const expectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
           const expectedInputCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab';
-          const expectedWorkflowParent = '16308a359950900cd36de416befe4500805e7b94';
+          const expectedWorkflowParent = 'f87cbf9366b85b3fe53d7453ad319eb8d0b902ad';
           const work = path.join(process.env.RUNNER_TEMP, 'studyai-r4-workspace');
           const task = path.join(process.env.RUNNER_TEMP, 'studyai-r4-control');
           const store = path.join(task, 'store');
@@ -531,7 +546,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: r4-frozen-acquisition-evidence
-          path: ${{ runner.temp }}/studyai-r4-control/evidence/remote-r4-acquisition.json
+          path: |
+            ${{ runner.temp }}/studyai-r4-control/evidence/remote-r4-preflight.json
+            ${{ runner.temp }}/studyai-r4-control/evidence/remote-r4-acquisition.json
           if-no-files-found: warn
           retention-days: 7
           include-hidden-files: false
