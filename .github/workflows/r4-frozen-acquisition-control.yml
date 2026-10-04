@@ -28,7 +28,7 @@ jobs:
           '@ | ConvertFrom-Json
           $TaskExpectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34'
           $TaskFrozenCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab'
-          $TaskExpectedParent = 'f87cbf9366b85b3fe53d7453ad319eb8d0b902ad'
+          $TaskExpectedParent = '1106ef2aa516b26f2bd8e86e87f73f3061745cc1'
           $TaskRoot = Join-Path $env:RUNNER_TEMP 'studyai-r4-control'
           $TaskWorkspace = Join-Path $env:RUNNER_TEMP 'studyai-r4-workspace'
           $TaskEvidence = Join-Path $TaskRoot 'evidence'
@@ -273,7 +273,7 @@ jobs:
           const expected = [{"path":"apps/api/package.json","bytes":3320,"sha256":"a5452bcc2f0004f2879117cbdcb8f328a9de191238f2c95d45c28db3168d74a7"},{"path":"apps/web/package.json","bytes":2181,"sha256":"71e1c7c1859569f01a15f0755206559a600dfda0fc8549d6163fee0d474714a2"},{"path":"package.json","bytes":1508,"sha256":"ba022099fcb2f6d417486ffcf035db88ac0eec281f3711290892c40ce9f5b55d"},{"path":"packages/ast/package.json","bytes":440,"sha256":"b64158d5951cbe4e293d2d8d81d0ce2907a0526f3063a5b0c4755c03a9aee14b"},{"path":"packages/database/package.json","bytes":802,"sha256":"959d2a08abbe7ec4f68d2ab8d11e37570b19530537147d13b80595a3e793d8b6"},{"path":"packages/domain/package.json","bytes":755,"sha256":"2c7f7294c2f1eab95382cecf75f2653a2e681aac1e43f75092180dbe52f0fa5b"},{"path":"packages/infrastructure/package.json","bytes":903,"sha256":"0863d95d2c3c0b78245f62f0222472c586596b57a7f51936949ea1bb49aa974d"},{"path":"packages/infrastructure/src/prisma-client/package.json","bytes":3479,"sha256":"d11c8d4d9fb47e566a0c2fae228659f9d2a4a34b6d656ba133622d73b0113bcd"},{"path":"packages/types/package.json","bytes":440,"sha256":"db0c6478175552592d31d81bdf0163bb2c1a9c4729f32ceb18670a1e90238143"},{"path":"pnpm-lock.yaml","bytes":548105,"sha256":"2183d93736f4f407721d077962692a26028e8eb91e68eef3202ae7c2373790a9"},{"path":"pnpm-workspace.yaml","bytes":43,"sha256":"5e5ddd04430189ef06cfb4f36d45f805c18c64da1aec437353cdad61a2f6fdee"}];
           const expectedAggregate = '305c3bf692c37bdbf7f69dbb23304a6704059c94aa8c2ea7f0028a8694413d34';
           const expectedInputCommit = 'a844a1033e2cc9b56534598b188fca5b653d5aab';
-          const expectedWorkflowParent = 'f87cbf9366b85b3fe53d7453ad319eb8d0b902ad';
+          const expectedWorkflowParent = '1106ef2aa516b26f2bd8e86e87f73f3061745cc1';
           const work = path.join(process.env.RUNNER_TEMP, 'studyai-r4-workspace');
           const task = path.join(process.env.RUNNER_TEMP, 'studyai-r4-control');
           const store = path.join(task, 'store');
@@ -538,9 +538,76 @@ jobs:
           '@
           $TaskScriptPath = Join-Path $env:RUNNER_TEMP 'studyai-r4-control\acquire.cjs'
           [IO.File]::WriteAllText($TaskScriptPath, $TaskScript, [Text.UTF8Encoding]::new($false))
-          $TaskNode = (Get-Command node.exe -CommandType Application -ErrorAction Stop).Source
-          & $TaskNode $TaskScriptPath
-          exit $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $PSNativeCommandUseErrorActionPreference = $false
+          function Resolve-TaskNodeCandidate {
+            param([string[]]$TaskCandidateSources, [string]$TaskToolCache)
+            if ([string]::IsNullOrWhiteSpace($TaskToolCache)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskExpectedNode = [IO.Path]::GetFullPath((Join-Path $TaskToolCache 'node\22.22.3\x64\node.exe'))
+            $TaskUniqueSources = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($TaskCandidateSource in $TaskCandidateSources) {
+              if ([string]::IsNullOrWhiteSpace($TaskCandidateSource)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              [void]$TaskUniqueSources.Add([IO.Path]::GetFullPath($TaskCandidateSource))
+            }
+            if ($TaskUniqueSources.Count -lt 1 -or -not $TaskUniqueSources.Contains($TaskExpectedNode)) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            return [pscustomobject]@{ SelectedNode = $TaskExpectedNode; UniqueCandidateCount = $TaskUniqueSources.Count; SelectedNodeCount = 1 }
+          }
+          function Assert-TaskNodeIdentity {
+            param([string]$TaskNodeHash, [string]$TaskNodeVersion, [string]$TaskNodeArchitecture)
+            if ($TaskNodeHash -cne '780f44f2c53c108bae261ada21a525b4bfe733c020ac85e41bfe94479090ac9b' -or
+                $TaskNodeVersion -cne 'v22.22.3' -or $TaskNodeArchitecture -cne 'x64') { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+          }
+          function Assert-TaskOrdinaryFile {
+            param([string]$TaskFilePath)
+            $TaskFileItem = Get-Item -LiteralPath $TaskFilePath -Force -ErrorAction Stop
+            if ($TaskFileItem.PSIsContainer -or ($TaskFileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            $TaskAncestor = $TaskFileItem.Directory
+            while ($null -ne $TaskAncestor) {
+              if (($TaskAncestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+              $TaskAncestor = $TaskAncestor.Parent
+            }
+          }
+          try {
+            $TaskNodeCandidates = @(Get-Command node.exe -CommandType Application -All -ErrorAction Stop)
+            $TaskCandidateSources = @($TaskNodeCandidates | ForEach-Object { $_.Source })
+            $TaskNodeSelection = Resolve-TaskNodeCandidate -TaskCandidateSources $TaskCandidateSources -TaskToolCache $env:RUNNER_TOOL_CACHE
+            $TaskSelectedNode = $TaskNodeSelection.SelectedNode
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskSelectedNode
+            $TaskSelectedNodeHash = (Get-FileHash -LiteralPath $TaskSelectedNode -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion 'v22.22.3' -TaskNodeArchitecture 'x64'
+            $TaskVersionOutput = @(& $TaskSelectedNode --version 2>$null)
+            $TaskVersionExitCode = $LASTEXITCODE
+            if ($TaskVersionExitCode -ne 0 -or $TaskVersionOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskArchitectureOutput = @(& $TaskSelectedNode -e 'console.log(process.arch)' 2>$null)
+            $TaskArchitectureExitCode = $LASTEXITCODE
+            if ($TaskArchitectureExitCode -ne 0 -or $TaskArchitectureOutput.Count -ne 1) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskVersionOutput[0] -TaskNodeArchitecture $TaskArchitectureOutput[0]
+            $TaskIdentityExpression = 'console.log(JSON.stringify({version:process.version,architecture:process.arch,openssl:process.versions.openssl,fips:require("node:crypto").getFips(),execPath:process.execPath}))'
+            $TaskIdentityOutput = @(& $TaskSelectedNode -e $TaskIdentityExpression 2>$null)
+            $TaskIdentityExitCode = $LASTEXITCODE
+            if ($TaskIdentityExitCode -ne 0 -or $TaskIdentityOutput.Count -ne 1 -or $TaskIdentityOutput[0].Length -gt 4096) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            $TaskIdentity = $TaskIdentityOutput[0] | ConvertFrom-Json -ErrorAction Stop
+            Assert-TaskNodeIdentity -TaskNodeHash $TaskSelectedNodeHash -TaskNodeVersion $TaskIdentity.version -TaskNodeArchitecture $TaskIdentity.architecture
+            if ([IO.Path]::GetFullPath($TaskIdentity.execPath) -ine $TaskSelectedNode -or
+                $TaskIdentity.openssl -cnotmatch '^[0-9A-Za-z.+-]{1,40}$' -or $TaskIdentity.fips -notin @(0,1)) { throw 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' }
+            Assert-TaskOrdinaryFile -TaskFilePath $TaskScriptPath
+            $TaskNodeQualification = [ordered]@{
+              schemaVersion = 1; classification = 'REMOTE_NODE_RUNTIME_QUALIFIED'
+              candidateRecordCount = $TaskNodeCandidates.Count; uniqueCandidateCount = $TaskNodeSelection.UniqueCandidateCount
+              selectedNodeCount = $TaskNodeSelection.SelectedNodeCount; executableRole = 'SETUP_NODE_TOOLCACHE'
+              version = $TaskIdentity.version; architecture = $TaskIdentity.architecture
+              openssl = $TaskIdentity.openssl; fips = $TaskIdentity.fips; executableSHA256 = $TaskSelectedNodeHash
+            }
+            Write-Output ('R4_NODE_QUALIFICATION=' + ($TaskNodeQualification | ConvertTo-Json -Compress))
+          } catch {
+            $TaskNodeFailureCategory = if ($_.Exception.Message -ceq 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH') { 'REMOTE_NODE_RUNTIME_IDENTITY_MISMATCH' } else { 'REMOTE_NODE_RUNTIME_SELECTION_FAILURE' }
+            Write-Output $TaskNodeFailureCategory
+            exit 1
+          }
+          & $TaskSelectedNode $TaskScriptPath
+          $TaskAcquisitionExitCode = $LASTEXITCODE
+          exit $TaskAcquisitionExitCode
       - name: Upload small sanitized evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
