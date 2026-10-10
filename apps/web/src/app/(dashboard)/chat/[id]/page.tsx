@@ -71,7 +71,13 @@ function renderInline(text: string): string {
   const html = text
     .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white font-bold">$1</strong>')
     .replace(/`(.+?)`/g, '<code class="bg-slate-800 text-violet-300 px-1 py-0.5 rounded text-xs font-mono">$1</code>');
-  return DOMPurify.sanitize(html);
+  return DOMPurify.sanitize(html, {
+    FORBID_TAGS: [
+      'script', 'img', 'svg', 'math', 'iframe', 'object', 'embed', 'form',
+      'input', 'button', 'audio', 'video', 'style', 'link', 'meta', 'base',
+    ],
+    FORBID_ATTR: ['style'],
+  });
 }
 
 /** Collapsible references accordion */
