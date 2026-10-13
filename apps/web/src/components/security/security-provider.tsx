@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useState, useMemo } from 'react';
 import { SecurityGateway } from '@studyai/domain/security/security-gateway';
 import { AuthorizationEngine } from '@studyai/domain/security/authorization/authorization-engine';
 import { AuditEngine } from '@studyai/domain/security/audit/audit-engine';
@@ -8,6 +8,7 @@ import { ComplianceEngine } from '@studyai/domain/security/compliance/compliance
 import { PolicyEngine } from '@studyai/domain/security/policy/policy-engine';
 import { RoleRegistry } from '@studyai/domain/security/core/role-model';
 import { SecurityContextViewModel, AuditRecordViewModel, ComplianceStatusViewModel } from '@studyai/domain/security/security-view-models';
+import { useAuth } from '../../hooks/use-auth';
 
 interface SecurityContextValue {
   context: SecurityContextViewModel | null;
@@ -25,22 +26,40 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const [complianceEngine] = useState(() => new ComplianceEngine());
   const [gateway] = useState(() => new SecurityGateway(authEngine, auditEngine, complianceEngine));
 
-  const [context, setContext] = useState<SecurityContextViewModel | null>(null);
-  const [audits, setAudits] = useState<AuditRecordViewModel[]>([]);
   const [compliance, setCompliance] = useState<ComplianceStatusViewModel>({ flagsActive: 0, rulesActive: 0 });
 
-  useEffect(() => {
-    // Mock user for UI
-    setContext({
-      identityId: 'usr_admin_123',
-      activeRoles: ['Administrator'],
-      permissions: ['document.read', 'document.write', 'admin.manage']
-    });
+  const { user, loading } = useAuth();
+  const context = useMemo<SecurityContextViewModel | null>(() => {
+    if (loading || !user || typeof user.id !== 'string' || user.id.trim().length === 0) {
+      return null;
+    }
 
-    setAudits([
-      { id: '1', timestamp: new Date().toISOString(), actorId: 'usr_admin_123', action: 'Read', resource: 'Document', result: 'Permit' }
-    ]);
-  }, []);
+    let permissions: string[];
+    switch (user.role) {
+      case 'admin':
+        permissions = ['document.read', 'document.write', 'admin.manage'];
+        break;
+      case 'student':
+        permissions = ['document.read', 'document.write'];
+        break;
+      case 'teacher':
+        permissions = ['document.read', 'document.write'];
+        break;
+      case 'parent':
+        permissions = ['document.read', 'document.write'];
+        break;
+      default:
+        return null;
+    }
+
+    return {
+      identityId: user.id,
+      activeRoles: [user.role],
+      permissions,
+    };
+  }, [user, loading]);
+  // A profile change is not evidence of a successful audited login.
+  const audits = useMemo<AuditRecordViewModel[]>(() => [], []);
 
   const value = useMemo(() => ({
     context,
