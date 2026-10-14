@@ -17,6 +17,7 @@ apps/web/public/vendor/pdfjs/
 .env.local
 .env.staging
 .env.*.local
+.env*.bak
 # Local test environment files — contain real DB credentials, must never be committed
 apps/api/.env.test
 docker/.env.prod

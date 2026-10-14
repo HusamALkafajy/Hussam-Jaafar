@@ -20,6 +20,8 @@ interface OriginalPdfReaderProps {
   labels: {
     loading: string;
     failed: string;
+    missing: string;
+    invalid: string;
     retry: string;
     previous: string;
     next: string;
@@ -30,10 +32,20 @@ interface OriginalPdfReaderProps {
   };
 }
 
+type PdfFailureKind = 'unavailable' | 'missing' | 'invalid';
+
+class PdfLoadError extends Error {
+  constructor(public readonly kind: PdfFailureKind) {
+    super(kind);
+    this.name = 'PdfLoadError';
+  }
+}
+
 export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderProps) {
   const { dir } = useLocale();
   const [pdfDoc, setPdfDoc] = useState<PdfDocumentProxy | null>(null);
   const [status, setStatus] = useState<'loading' | 'error' | 'success'>('loading');
+  const [failureKind, setFailureKind] = useState<PdfFailureKind>('unavailable');
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.0);
@@ -80,6 +92,7 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
 
   const loadDocument = useCallback(async () => {
     setStatus('loading');
+    setFailureKind('unavailable');
     setPdfDoc(null);
     
     if (abortControllerRef.current) {
@@ -95,13 +108,13 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
       });
       
       if (!response.ok) {
-        throw new Error('Failed to fetch original PDF');
+        throw new PdfLoadError(response.status === 404 ? 'missing' : 'unavailable');
       }
       
       const blob = await response.blob();
       const signature = new TextDecoder().decode(await blob.slice(0, 5).arrayBuffer());
       if (signature !== '%PDF-') {
-        throw new Error('Original response is not a PDF document.');
+        throw new PdfLoadError('invalid');
       }
       if (abortController.signal.aborted) return;
 
@@ -117,7 +130,12 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
       });
       loadingTaskRef.current = loadingTask;
       
-      const doc = await loadingTask.promise;
+      let doc: PdfDocumentProxy;
+      try {
+        doc = await loadingTask.promise;
+      } catch {
+        throw new PdfLoadError('invalid');
+      }
       if (abortController.signal.aborted) return;
       setPdfDoc(doc);
       setNumPages(doc.numPages);
@@ -127,6 +145,7 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
       const errorName = error instanceof Error ? error.name : '';
       if (!abortController.signal.aborted && errorName !== 'AbortError') {
         releasePdfResources();
+        setFailureKind(error instanceof PdfLoadError ? error.kind : 'unavailable');
         setStatus('error');
       }
     }
@@ -218,18 +237,22 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
 
   if (status === 'loading') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] border border-slate-800 rounded-lg bg-slate-950/50" role="status" aria-busy="true">
-        <Spinner className="w-8 h-8 text-sky-500 mb-4" />
-        <p className="text-slate-400 text-sm">{labels.loading}</p>
+      <div className="flex min-h-[400px] flex-col items-center justify-center rounded-lg border border-border bg-muted/30" role="status" aria-busy="true">
+        <Spinner className="mb-4 h-8 w-8 text-primary" />
+        <p className="text-sm text-muted-foreground">{labels.loading}</p>
       </div>
     );
   }
 
   if (status === 'error') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] border border-slate-800 rounded-lg bg-slate-950/50" role="alert">
-        <AlertCircle className="w-10 h-10 text-rose-500 mb-4" />
-        <p className="text-slate-200 font-medium mb-4">{labels.failed}</p>
+      <div className="flex min-h-[400px] flex-col items-center justify-center rounded-lg border border-border bg-muted/30 px-6 text-center" role="alert">
+        <AlertCircle className="mb-4 h-10 w-10 text-destructive" />
+        <p className="mb-4 font-medium text-foreground">
+          {failureKind === 'missing'
+            ? labels.missing
+            : failureKind === 'invalid' ? labels.invalid : labels.failed}
+        </p>
         <Button onClick={() => loadDocument()} variant="outline" size="sm">
           {labels.retry}
         </Button>
@@ -239,16 +262,16 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
 
   if (!pdfDoc) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] border border-slate-800 rounded-lg bg-slate-950/50" role="status" aria-busy="true">
-        <Spinner className="w-8 h-8 text-sky-500 mb-4" />
-        <p className="text-slate-400 text-sm">{labels.loading}</p>
+      <div className="flex min-h-[400px] flex-col items-center justify-center rounded-lg border border-border bg-muted/30" role="status" aria-busy="true">
+        <Spinner className="mb-4 h-8 w-8 text-primary" />
+        <p className="text-sm text-muted-foreground">{labels.loading}</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col border border-slate-800 rounded-lg overflow-hidden bg-slate-900" aria-label={label}>
-      <div className="flex flex-wrap items-center justify-between gap-4 p-2 bg-slate-800/80 border-b border-slate-700/50" dir={dir}>
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-card" aria-label={label}>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-muted/60 p-2" dir={dir}>
         
         <div className="flex items-center gap-1">
           <Button 
@@ -262,7 +285,7 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
             {dir === 'rtl' ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </Button>
           
-          <span className="text-sm font-medium text-slate-300 mx-2 tabular-nums">
+          <span className="mx-2 text-sm font-medium text-foreground tabular-nums">
             {labels.page} {currentPage} / {numPages}
           </span>
           
@@ -290,7 +313,7 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
             <ZoomOut className="w-4 h-4" />
           </Button>
           
-          <span className="text-sm font-medium text-slate-300 min-w-[3rem] text-center tabular-nums">
+          <span className="min-w-[3rem] text-center text-sm font-medium text-foreground tabular-nums">
             {Math.round(scale * 100)}%
           </span>
           
@@ -305,7 +328,7 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
             <ZoomIn className="w-4 h-4" />
           </Button>
 
-          <div className="w-px h-4 bg-slate-600 mx-1" aria-hidden="true" />
+          <div className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
           
           <Button 
             variant={isFitWidth ? 'secondary' : 'ghost'} 
@@ -321,7 +344,7 @@ export function OriginalPdfReader({ fileId, label, labels }: OriginalPdfReaderPr
       
       <div 
         ref={containerRef}
-        className="flex-1 overflow-auto bg-slate-950 p-4 min-h-[500px]"
+        className="min-h-[500px] flex-1 overflow-auto bg-muted/40 p-4"
         style={{ maxHeight: 'calc(100vh - 200px)' }}
         dir="ltr"
       >
@@ -453,7 +476,7 @@ function PdfPage({ pdfDoc, pageNum, scale, isFitWidth, containerWidth, failureLa
         className="block"
       />
       {renderFailed && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-950 text-slate-200" role="alert">
+        <div className="absolute inset-0 flex items-center justify-center bg-muted text-foreground" role="alert">
           {failureLabel}
         </div>
       )}

@@ -153,11 +153,16 @@ export default function RegisterPage() {
         </Button>
       </form>
 
-      <div className="relative my-6 text-center">
-        <hr className="border-slate-800" />
-        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0F172A] px-3 text-xs text-slate-500 uppercase">
+      <div
+        role="separator"
+        aria-label={t('auth.or')}
+        className="my-6 flex items-center gap-3 text-center"
+      >
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+        <span className="text-xs font-medium text-muted-foreground uppercase">
           {t('auth.or')}
         </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
       </div>
 
       <div className="flex flex-col gap-3">

@@ -1,4 +1,7 @@
 import { db, aiTokenUsage } from '@studyai/database';
+import { Logger } from '@nestjs/common';
+
+const logger = new Logger('AiTokenTracking');
 
 export const saveTokenUsage = async (userId: string, agentType: string, promptTokens: number, completionTokens: number, model: string) => {
   if (!userId || !agentType) return;
@@ -17,6 +20,9 @@ export const saveTokenUsage = async (userId: string, agentType: string, promptTo
       costUSD: costUSD.toString(),
     });
   } catch (err) {
-    console.error('Failed to save token usage:', err);
+    logger.error({
+      event: 'ai.token_usage.persist.failed',
+      reasonCode: 'usage_persistence_failed',
+    });
   }
 };

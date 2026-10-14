@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Inject, HttpException, HttpStatus, MessageEvent, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Inject, HttpException, HttpStatus, MessageEvent, InternalServerErrorException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { CANONICAL_UPLOAD_FORMATS } from '../../common/constants/file-formats.constant';
 import { db } from '@studyai/database';
@@ -44,7 +44,15 @@ interface ChunkUploadManifest {
   totalChunks: number;
   subjectId?: string;
   title?: string;
+  createdAt: string;
+  expiresAt: string;
 }
+
+type ChunkUploadMetadata = Omit<ChunkUploadManifest, 'createdAt' | 'expiresAt'>;
+
+const TEMPORARY_UPLOAD_TTL_MS = 30 * 60 * 1000;
+const TEMPORARY_UPLOAD_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const UPLOAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class UnsatisfiableByteRangeException extends HttpException {
   constructor(
@@ -56,10 +64,15 @@ export class UnsatisfiableByteRangeException extends HttpException {
 }
 
 @Injectable()
-export class FilesService {
+export class FilesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FilesService.name);
   private uploadDir = path.resolve(process.cwd(), 'apps/api/uploads');
   private readonly storageBucket = 'documents';
+  private readonly temporaryUploadTtlMs = TEMPORARY_UPLOAD_TTL_MS;
+  private readonly temporaryUploadSweepIntervalMs = TEMPORARY_UPLOAD_SWEEP_INTERVAL_MS;
+  private temporaryUploadSweepTimer?: ReturnType<typeof setInterval>;
+  private temporaryUploadSweepInProgress = false;
+  private readonly temporaryUploadLocks = new Map<string, Promise<void>>();
 
   constructor(
     private readonly aiService: AiService,
@@ -89,6 +102,257 @@ export class FilesService {
       await fs.mkdir(this.uploadDir, { recursive: true });
     } catch (e) {
       this.logger.error('Failed to create upload directory', e);
+    }
+  }
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureTemporaryUploadRoot();
+    await this.reconcileTemporaryUploads('startup');
+    this.temporaryUploadSweepTimer = setInterval(() => {
+      void this.reconcileTemporaryUploads('scheduled').catch(() => {
+        this.logger.warn(JSON.stringify({
+          event: 'temporary_upload_reconciliation_failed',
+          reason: 'scheduled',
+        }));
+      });
+    }, this.temporaryUploadSweepIntervalMs);
+    this.temporaryUploadSweepTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.temporaryUploadSweepTimer) {
+      clearInterval(this.temporaryUploadSweepTimer);
+      this.temporaryUploadSweepTimer = undefined;
+    }
+  }
+
+  private getTemporaryUploadRoot(): string {
+    return path.resolve(this.uploadDir, 'temp');
+  }
+
+  private getTemporaryUploadDirectory(uploadId: string): string {
+    if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+      throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Invalid chunk upload metadata.');
+    }
+    const root = this.getTemporaryUploadRoot();
+    const directory = path.resolve(root, uploadId);
+    if (path.dirname(directory) !== root) {
+      throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Invalid chunk upload metadata.');
+    }
+    return directory;
+  }
+
+  private async ensureTemporaryUploadRoot(): Promise<string> {
+    await fs.mkdir(this.uploadDir, { recursive: true });
+    const uploadDirectory = await fs.lstat(this.uploadDir);
+    if (!uploadDirectory.isDirectory() || uploadDirectory.isSymbolicLink()) {
+      throw new InternalServerErrorException('Temporary upload storage is unavailable.');
+    }
+
+    const root = this.getTemporaryUploadRoot();
+    await fs.mkdir(root, { recursive: true });
+    const rootDirectory = await fs.lstat(root);
+    if (!rootDirectory.isDirectory() || rootDirectory.isSymbolicLink()) {
+      throw new InternalServerErrorException('Temporary upload storage is unavailable.');
+    }
+    return root;
+  }
+
+  private async acquireTemporaryUploadLock(uploadId: string): Promise<() => void> {
+    const previous = this.temporaryUploadLocks.get(uploadId) ?? Promise.resolve();
+    let releaseCurrent!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.temporaryUploadLocks.set(uploadId, tail);
+    await previous;
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      releaseCurrent();
+      if (this.temporaryUploadLocks.get(uploadId) === tail) {
+        this.temporaryUploadLocks.delete(uploadId);
+      }
+    };
+  }
+
+  private manifestMatchesMetadata(
+    manifest: ChunkUploadManifest,
+    metadata: ChunkUploadMetadata,
+  ): boolean {
+    return manifest.userId === metadata.userId
+      && manifest.filename === metadata.filename
+      && manifest.fileSize === metadata.fileSize
+      && manifest.mimeType === metadata.mimeType
+      && manifest.totalChunks === metadata.totalChunks
+      && manifest.subjectId === metadata.subjectId
+      && manifest.title === metadata.title;
+  }
+
+  private isValidTemporaryUploadManifest(
+    value: unknown,
+    now: number,
+  ): value is ChunkUploadManifest {
+    if (!value || typeof value !== 'object') return false;
+    const manifest = value as Partial<ChunkUploadManifest>;
+    const createdAt = typeof manifest.createdAt === 'string' ? Date.parse(manifest.createdAt) : NaN;
+    const expiresAt = typeof manifest.expiresAt === 'string' ? Date.parse(manifest.expiresAt) : NaN;
+    const validSubjectId = manifest.subjectId === undefined || UPLOAD_ID_PATTERN.test(manifest.subjectId);
+    const validTitle = manifest.title === undefined
+      || (typeof manifest.title === 'string' && manifest.title.length <= 255);
+
+    return typeof manifest.userId === 'string'
+      && manifest.userId.length > 0
+      && manifest.userId.length <= 128
+      && typeof manifest.filename === 'string'
+      && manifest.filename.length > 0
+      && manifest.filename.length <= 255
+      && path.basename(manifest.filename) === manifest.filename
+      && typeof manifest.fileSize === 'number'
+      && Number.isSafeInteger(manifest.fileSize)
+      && manifest.fileSize > 0
+      && typeof manifest.mimeType === 'string'
+      && manifest.mimeType.length > 0
+      && manifest.mimeType.length <= 100
+      && typeof manifest.totalChunks === 'number'
+      && Number.isInteger(manifest.totalChunks)
+      && manifest.totalChunks >= 1
+      && manifest.totalChunks <= MAX_UPLOAD_CHUNKS
+      && manifest.totalChunks === Math.ceil(manifest.fileSize / UPLOAD_CHUNK_BYTES)
+      && validSubjectId
+      && validTitle
+      && Number.isFinite(createdAt)
+      && Number.isFinite(expiresAt)
+      && createdAt <= now + 60_000
+      && expiresAt > createdAt
+      && expiresAt - createdAt <= this.temporaryUploadTtlMs;
+  }
+
+  private async readTemporaryUploadManifest(
+    directory: string,
+    now: number,
+  ): Promise<ChunkUploadManifest | undefined> {
+    const manifestPath = path.join(directory, 'manifest.json');
+    try {
+      const manifestFile = await fs.lstat(manifestPath);
+      if (!manifestFile.isFile() || manifestFile.isSymbolicLink()) return undefined;
+      const parsed: unknown = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+      return this.isValidTemporaryUploadManifest(parsed, now) ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async removeTemporaryUpload(uploadId: string, allowLocked = false): Promise<boolean> {
+    if (!UPLOAD_ID_PATTERN.test(uploadId)) return false;
+    if (!allowLocked && this.temporaryUploadLocks.has(uploadId)) return false;
+    const directory = this.getTemporaryUploadDirectory(uploadId);
+    try {
+      const entry = await fs.lstat(directory);
+      if (entry.isSymbolicLink() || !entry.isDirectory()) {
+        await fs.unlink(directory);
+      } else {
+        await fs.rm(directory, { recursive: true, force: true });
+      }
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+
+  private async reconcileTemporaryUploads(
+    reason: 'startup' | 'scheduled' | 'manual' = 'manual',
+  ): Promise<{ removed: number; preserved: number; skipped: boolean }> {
+    if (this.temporaryUploadSweepInProgress) {
+      return { removed: 0, preserved: 0, skipped: true };
+    }
+    this.temporaryUploadSweepInProgress = true;
+    let removed = 0;
+    let preserved = 0;
+    try {
+      const root = await this.ensureTemporaryUploadRoot();
+      const entries = await fs.readdir(root, { withFileTypes: true });
+      const now = Date.now();
+
+      for (const entry of entries) {
+        const uploadId = entry.name;
+        if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+          preserved += 1;
+          continue;
+        }
+        if (this.temporaryUploadLocks.has(uploadId)) {
+          preserved += 1;
+          continue;
+        }
+
+        const directory = this.getTemporaryUploadDirectory(uploadId);
+        let remove = entry.isSymbolicLink() || !entry.isDirectory();
+        if (!remove) {
+          const manifest = await this.readTemporaryUploadManifest(directory, now);
+          if (!manifest) {
+            remove = true;
+          } else {
+            const children = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
+            const chunkIndexes = new Set<number>();
+            let malformed = false;
+            let assembled = false;
+
+            for (const child of children) {
+              if (child.name === 'manifest.json') continue;
+              if (child.name.startsWith('assembled')) {
+                assembled = true;
+                continue;
+              }
+              const match = /^chunk_(\d+)$/.exec(child.name);
+              if (!match || child.isSymbolicLink() || !child.isFile()) {
+                malformed = true;
+                break;
+              }
+              const chunkIndex = Number(match[1]);
+              if (chunkIndex < 0 || chunkIndex >= manifest.totalChunks || chunkIndexes.has(chunkIndex)) {
+                malformed = true;
+                break;
+              }
+              const chunkStat = await fs.lstat(path.join(directory, child.name)).catch(() => undefined);
+              const expectedChunkSize = chunkIndex === manifest.totalChunks - 1
+                ? manifest.fileSize - chunkIndex * UPLOAD_CHUNK_BYTES
+                : UPLOAD_CHUNK_BYTES;
+              if (!chunkStat || chunkStat.isSymbolicLink() || !chunkStat.isFile() || chunkStat.size !== expectedChunkSize) {
+                malformed = true;
+                break;
+              }
+              chunkIndexes.add(chunkIndex);
+            }
+
+            const expired = Date.parse(manifest.expiresAt) <= now;
+            const orphaned = !chunkIndexes.has(0);
+            const interruptedFinalization = assembled || chunkIndexes.size === manifest.totalChunks;
+            remove = expired || orphaned || malformed || interruptedFinalization;
+          }
+        }
+
+        if (remove) {
+          if (await this.removeTemporaryUpload(uploadId)) removed += 1;
+        } else {
+          preserved += 1;
+        }
+      }
+
+      if (removed > 0) {
+        this.logger.log(JSON.stringify({
+          event: 'temporary_upload_reconciliation',
+          reason,
+          removed,
+          preserved,
+        }));
+      }
+      return { removed, preserved, skipped: false };
+    } finally {
+      this.temporaryUploadSweepInProgress = false;
     }
   }
 
@@ -588,14 +852,14 @@ export class FilesService {
     title?: string,
   ) {
     assertUploadSize(fileSize);
-    const safeUploadId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadId);
+    const safeUploadId = UPLOAD_ID_PATTERN.test(uploadId);
     const safeFilename = typeof filename === 'string' &&
       path.basename(filename) === filename &&
       filename.length > 0 &&
       filename.length <= 255;
     const safeMimeType = typeof mimeType === 'string' && mimeType.length > 0 && mimeType.length <= 100;
     const safeSubjectId = subjectId === undefined ||
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subjectId);
+      UPLOAD_ID_PATTERN.test(subjectId);
     const normalizedTitle = typeof title === 'string' ? title.trim() : title;
     const safeTitle = normalizedTitle === undefined ||
       (typeof normalizedTitle === 'string' && normalizedTitle.length <= 255);
@@ -624,9 +888,9 @@ export class FilesService {
       throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Chunk size does not match the upload contract.');
     }
 
-    const tempDir = path.join(this.uploadDir, 'temp', uploadId);
+    const tempDir = this.getTemporaryUploadDirectory(uploadId);
     const manifestPath = path.join(tempDir, 'manifest.json');
-    const manifest: ChunkUploadManifest = {
+    const metadata: ChunkUploadMetadata = {
       userId,
       filename,
       fileSize,
@@ -635,62 +899,129 @@ export class FilesService {
       subjectId,
       title: normalizedTitle,
     };
+    const releaseUploadLock = await this.acquireTemporaryUploadLock(uploadId);
     let finalPath: string | undefined;
+    let cleanupOwnedState = false;
 
     try {
-      if (chunkIndex === 0) {
-        validateUploadHeader(chunkBuffer, mimeType, filename);
-        await fs.mkdir(path.dirname(tempDir), { recursive: true });
-        await fs.mkdir(tempDir, { recursive: false });
-        await fs.writeFile(manifestPath, JSON.stringify(manifest), { flag: 'wx' });
-      } else {
-        const existing = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as ChunkUploadManifest;
-        if (JSON.stringify(existing) !== JSON.stringify(manifest)) {
-          throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Chunk upload metadata changed during transfer.');
-        }
-      }
-
-      await fs.writeFile(path.join(tempDir, `chunk_${chunkIndex}`), chunkBuffer, { flag: 'wx' });
-      if (chunkIndex !== totalChunks - 1) {
-        return { success: true, message: `Chunk ${chunkIndex + 1}/${totalChunks} uploaded` };
-      }
-
-      finalPath = path.join(this.uploadDir, `${randomUUID()}${path.extname(filename).toLowerCase()}`);
-      const output = await fs.open(finalPath, 'wx');
       try {
-        for (let i = 0; i < totalChunks; i += 1) {
-          for await (const bytes of createReadStream(path.join(tempDir, `chunk_${i}`))) {
-            await output.write(bytes as Buffer);
+        if (chunkIndex === 0) {
+          validateUploadHeader(chunkBuffer, mimeType, filename);
+          await this.assertUploadQuotaAvailable(userId);
+          await this.ensureTemporaryUploadRoot();
+          try {
+            await fs.mkdir(tempDir, { recursive: false });
+            cleanupOwnedState = true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+              const existingDirectory = await fs.lstat(tempDir).catch(() => undefined);
+              if (existingDirectory?.isDirectory() && !existingDirectory.isSymbolicLink()) {
+                const existing = await this.readTemporaryUploadManifest(tempDir, Date.now());
+                cleanupOwnedState = existing?.userId === userId;
+              }
+              throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Upload identity is already in use.');
+            }
+            throw error;
+          }
+          const createdAt = Date.now();
+          const manifest: ChunkUploadManifest = {
+            ...metadata,
+            createdAt: new Date(createdAt).toISOString(),
+            expiresAt: new Date(createdAt + this.temporaryUploadTtlMs).toISOString(),
+          };
+          await fs.writeFile(manifestPath, JSON.stringify(manifest), { flag: 'wx' });
+        } else {
+          const directory = await fs.lstat(tempDir).catch(() => undefined);
+          if (!directory?.isDirectory() || directory.isSymbolicLink()) {
+            throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Temporary upload state is unavailable.');
+          }
+          const existing = await this.readTemporaryUploadManifest(tempDir, Date.now());
+          if (!existing) {
+            throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Temporary upload state is invalid.');
+          }
+          if (existing.userId !== userId) {
+            throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Upload identity is not owned by this user.');
+          }
+          cleanupOwnedState = true;
+          if (Date.parse(existing.expiresAt) <= Date.now()) {
+            throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Temporary upload has expired.');
+          }
+          if (!this.manifestMatchesMetadata(existing, metadata)) {
+            throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Chunk upload metadata changed during transfer.');
           }
         }
-      } finally {
-        await output.close();
-      }
 
-      const finalSize = (await fs.stat(finalPath)).size;
-      if (finalSize !== fileSize) {
-        await fs.unlink(finalPath).catch(() => undefined);
-        throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Assembled file size does not match the upload contract.');
+        await fs.writeFile(path.join(tempDir, `chunk_${chunkIndex}`), chunkBuffer, { flag: 'wx' });
+        if (chunkIndex !== totalChunks - 1) {
+          return { success: true, message: `Chunk ${chunkIndex + 1}/${totalChunks} uploaded` };
+        }
+
+        finalPath = path.join(tempDir, `assembled${path.extname(filename).toLowerCase()}`);
+        const output = await fs.open(finalPath, 'wx');
+        try {
+          for (let i = 0; i < totalChunks; i += 1) {
+            for await (const bytes of createReadStream(path.join(tempDir, `chunk_${i}`))) {
+              await output.write(bytes as Buffer);
+            }
+          }
+        } finally {
+          await output.close();
+        }
+
+        const finalSize = (await fs.stat(finalPath)).size;
+        if (finalSize !== fileSize) {
+          throw new UploadException(UploadErrorCode.INVALID_UPLOAD, 'Assembled file size does not match the upload contract.');
+        }
+        const detectedMime = await validateUploadPath(finalPath, mimeType, filename, finalSize);
+        return await this.registerAndProcessFile(
+          userId,
+          finalPath,
+          filename,
+          detectedMime,
+          finalSize,
+          subjectId,
+          normalizedTitle,
+        );
+      } catch (error) {
+        if (finalPath) await fs.unlink(finalPath).catch(() => undefined);
+        if (cleanupOwnedState) {
+          await this.removeTemporaryUpload(uploadId, true).catch(() => undefined);
+        }
+        throw error;
+      } finally {
+        if (chunkIndex === totalChunks - 1 && cleanupOwnedState) {
+          await this.removeTemporaryUpload(uploadId, true).catch(() => undefined);
+        }
       }
-      const detectedMime = await validateUploadPath(finalPath, mimeType, filename, finalSize);
-      return await this.registerAndProcessFile(
-        userId,
-        finalPath,
-        filename,
-        detectedMime,
-        finalSize,
-        subjectId,
-        normalizedTitle,
-      );
-    } catch (error) {
-      if (finalPath) await fs.unlink(finalPath).catch(() => undefined);
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-      throw error;
     } finally {
-      if (chunkIndex === totalChunks - 1) {
-        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-      }
+      releaseUploadLock();
     }
+  }
+
+  private async assertUploadQuotaAvailable(userId: string): Promise<boolean> {
+    const bypassQuota = await this.isSuperAdmin(userId);
+    const sub = !bypassQuota
+      ? await db
+          .select()
+          .from(subscriptions)
+          .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
+          .limit(1)
+      : [];
+
+    if (sub[0] && sub[0].filesUsedThisMonth >= sub[0].monthlyFileLimit) {
+      throw new UploadException(
+        UploadErrorCode.QUOTA_EXCEEDED,
+        'Monthly file upload limit exceeded.',
+        HttpStatus.FORBIDDEN,
+        {
+          limitType: 'files',
+          used: sub[0].filesUsedThisMonth,
+          limit: sub[0].monthlyFileLimit,
+          tier: sub[0].plan,
+        },
+      );
+    }
+    return bypassQuota;
   }
 
   async registerAndProcessFile(
@@ -703,33 +1034,7 @@ export class FilesService {
     title?: string,
   ) {
     assertUploadSize(size);
-    const bypassQuota = await this.isSuperAdmin(userId);
-
-    // Check subscription monthly upload quota
-    const sub = !bypassQuota
-      ? await db
-          .select()
-          .from(subscriptions)
-          .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
-          .limit(1)
-      : [];
-
-    if (sub.length > 0) {
-      const subscription = sub[0];
-      if (subscription.filesUsedThisMonth >= subscription.monthlyFileLimit) {
-        throw new UploadException(
-          UploadErrorCode.QUOTA_EXCEEDED,
-          'Monthly file upload limit exceeded.',
-          HttpStatus.FORBIDDEN,
-          {
-            limitType: 'files',
-            used: subscription.filesUsedThisMonth,
-            limit: subscription.monthlyFileLimit,
-            tier: subscription.plan,
-          },
-        );
-      }
-    }
+    const bypassQuota = await this.assertUploadQuotaAvailable(userId);
 
     // Determine file type
     const fileType = CANONICAL_UPLOAD_FORMATS[mime];

@@ -1,21 +1,33 @@
-name: StudyAI CI/CD Pipeline
+name: StudyAI CI
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - fix/ai-streaming-and-limits
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studyai-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-verify:
+    name: Linux publication gate
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     services:
       postgres:
         image: ankane/pgvector@sha256:d3a9d8ac27bb7e05e333ef25b634d2625adaa85336ab729954b9e94859bf6fa7
         env:
           POSTGRES_DB: studyai_test
           POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_PASSWORD: ${{ format('{0}-{1}', github.run_id, github.run_attempt) }}
         ports:
           - 5432:5432
         options: >-
@@ -23,101 +35,531 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://postgres@127.0.0.1:5432/studyai_test
-      TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/studyai_test
-      DRIZZLE_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/studyai_test
-      REDIS_URL: redis://127.0.0.1:6379
-      REDIS_HOST: 127.0.0.1
-      REDIS_PORT: 6379
       FRONTEND_URL: http://127.0.0.1:3000
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "6379"
+      TEST_REDIS_HOST: 127.0.0.1
+      TEST_REDIS_PORT: "6379"
+      CI_API_PORT: "14000"
+      CI_WEB_PORT: "13117"
+      TURBO_TELEMETRY_DISABLED: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        # actions/checkout v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
+      - name: Set up Node.js
+        # actions/setup-node v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "20"
 
-    - name: Install pnpm
-      uses: pnpm/action-setup@v3
-      with:
-        version: 9.15.0
+      - name: Install pnpm
+        # pnpm/action-setup v3.0.0
+        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d
+        with:
+          version: 9.15.0
 
-    - name: Get pnpm Store Directory
-      shell: bash
-      run: |
-        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+      - name: Resolve pnpm store
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
-    - name: Cache pnpm Dependencies
-      uses: actions/cache@v4
-      with:
-        path: ${{ env.STORE_PATH }}
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-pnpm-store-
+      - name: Cache pnpm dependencies
+        # actions/cache v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
-    - name: Install Dependencies
-      run: pnpm install --frozen-lockfile
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
 
-    - name: Generate Platform-Correct Prisma Client
-      run: pnpm --filter @studyai/infrastructure exec prisma generate
+      - name: Initialize disposable configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_VALUE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          DB_SCHEME="postgresql"
+          echo "::add-mask::$RUNTIME_VALUE"
+          echo "DATABASE_URL=${DB_SCHEME}://postgres:${RUNTIME_VALUE}@127.0.0.1:5432/studyai_test" >> "$GITHUB_ENV"
+          echo "TEST_DATABASE_URL=${DB_SCHEME}://postgres:${RUNTIME_VALUE}@127.0.0.1:5432/studyai_test" >> "$GITHUB_ENV"
+          echo "DRIZZLE_DATABASE_URL=${DB_SCHEME}://postgres:${RUNTIME_VALUE}@127.0.0.1:5432/studyai_test" >> "$GITHUB_ENV"
 
-    - name: Generate Disposable Test Secrets
-      shell: bash
-      run: |
-        STORAGE_PATH="$RUNNER_TEMP/studyai-uploads"
-        echo "STORAGE_PATH=$STORAGE_PATH" >> "$GITHUB_ENV"
-        mkdir -p "$STORAGE_PATH"
-        TMP_JWT=$(node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))")
-        echo "::add-mask::$TMP_JWT"
-        echo "JWT_SECRET=$TMP_JWT" >> "$GITHUB_ENV"
-        TMP_REFRESH=$(node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))")
-        echo "::add-mask::$TMP_REFRESH"
-        echo "JWT_REFRESH_SECRET=$TMP_REFRESH" >> "$GITHUB_ENV"
-        TMP_STRIPE=$(node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))")
-        echo "::add-mask::$TMP_STRIPE"
-        echo "STRIPE_SECRET_KEY=$TMP_STRIPE" >> "$GITHUB_ENV"
+          RUNTIME_VALUE="$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('hex'))")"
+          echo "::add-mask::$RUNTIME_VALUE"
+          echo "JWT_SECRET=$RUNTIME_VALUE" >> "$GITHUB_ENV"
+          RUNTIME_VALUE="$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('hex'))")"
+          echo "::add-mask::$RUNTIME_VALUE"
+          echo "JWT_REFRESH_SECRET=$RUNTIME_VALUE" >> "$GITHUB_ENV"
+          RUNTIME_VALUE="$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('hex'))")"
+          echo "::add-mask::$RUNTIME_VALUE"
+          echo "STRIPE_SECRET_KEY=$RUNTIME_VALUE" >> "$GITHUB_ENV"
 
-    - name: Scan Tracked Content for Committed Secrets
-      run: pnpm security:scan
+          STORAGE_ROOT="$RUNNER_TEMP/studyai-ci-uploads"
+          mkdir -p "$STORAGE_ROOT"
+          echo "STORAGE_PATH=$STORAGE_ROOT" >> "$GITHUB_ENV"
+          echo "CI_REDIS_CONTAINER=studyai-ci-redis-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "CI_REDIS_CONFIG=$RUNNER_TEMP/studyai-ci-redis.conf" >> "$GITHUB_ENV"
+          echo "CI_REDIS_AUTH_FILE=$RUNNER_TEMP/studyai-ci-redis.env" >> "$GITHUB_ENV"
+          echo "CI_API_CONTAINER=studyai-ci-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "CI_API_IMAGE=studyai-ci-api:${GITHUB_SHA}" >> "$GITHUB_ENV"
 
-    - name: Verify Workspace Linting
-      run: pnpm lint
+      - name: Start and prove authenticated Redis
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_VALUE="$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('hex'))")"
+          echo "::add-mask::$RUNTIME_VALUE"
 
-    - name: Check Drizzle Migration Metadata
-      run: pnpm --filter @studyai/database db:check
+          REDIS_IMAGE="redis@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c"
+          REDIS_CONFIG="$CI_REDIS_CONFIG"
+          REDIS_AUTH_FILE="$CI_REDIS_AUTH_FILE"
+          umask 077
+          printf 'bind 0.0.0.0\nprotected-mode yes\nport 6379\nrequirepass %s\n' "$RUNTIME_VALUE" > "$REDIS_CONFIG"
+          printf 'REDISCLI_AUTH=%s\n' "$RUNTIME_VALUE" > "$REDIS_AUTH_FILE"
+          chmod 600 "$REDIS_CONFIG" "$REDIS_AUTH_FILE"
 
-    - name: Apply Drizzle Migrations to Isolated CI Database
-      run: pnpm --filter @studyai/database db:migrate
+          RUNNER_IDENTITY="$(id -u):$(id -g)"
+          if [ "$(stat --printf '%u:%g:%a:%F:%n' -- "$REDIS_CONFIG")" != "$RUNNER_IDENTITY:600:regular file:$REDIS_CONFIG" ]; then
+            echo "Redis configuration pre-transfer contract mismatch." >&2
+            exit 1
+          fi
+          if [ "$(stat --printf '%u:%g:%a:%F:%n' -- "$REDIS_AUTH_FILE")" != "$RUNNER_IDENTITY:600:regular file:$REDIS_AUTH_FILE" ]; then
+            echo "Redis authentication-file contract mismatch." >&2
+            exit 1
+          fi
 
-    - name: Compile and Typecheck All Packages
-      run: |
-        pnpm --filter @studyai/types exec tsc --noEmit
-        pnpm --filter @studyai/database exec tsc --noEmit
-        pnpm --filter @studyai/api exec tsc --noEmit
-        pnpm --filter @studyai/web exec tsc --noEmit
+          REDIS_RUNTIME_IDENTITY="$(
+            docker run --rm --entrypoint sh "$REDIS_IMAGE" -c \
+              'printf "%s:%s" "$(id -u redis)" "$(id -g redis)"'
+          )"
+          if [[ ! "$REDIS_RUNTIME_IDENTITY" =~ ^[1-9][0-9]*:[0-9]+$ ]]; then
+            echo "Pinned Redis image did not expose a valid non-root runtime identity." >&2
+            exit 1
+          fi
+          IFS=: read -r REDIS_RUNTIME_UID REDIS_RUNTIME_GID <<< "$REDIS_RUNTIME_IDENTITY"
+          sudo chown "$REDIS_RUNTIME_UID:$REDIS_RUNTIME_GID" "$REDIS_CONFIG"
+          if [ "$(stat --printf '%u:%g:%a:%F:%n' -- "$REDIS_CONFIG")" != "$REDIS_RUNTIME_IDENTITY:600:regular file:$REDIS_CONFIG" ]; then
+            echo "Redis configuration ownership contract mismatch." >&2
+            exit 1
+          fi
 
-    - name: Run Unit Tests
-      run: pnpm test
+          docker run --detach \
+            --name "$CI_REDIS_CONTAINER" \
+            --publish 127.0.0.1:6379:6379 \
+            --env-file "$REDIS_AUTH_FILE" \
+            --mount "type=bind,src=$REDIS_CONFIG,dst=/usr/local/etc/redis/redis.conf,readonly" \
+            "$REDIS_IMAGE" \
+            redis-server /usr/local/etc/redis/redis.conf >/dev/null
 
-    - name: Run API Integration Tests
-      run: pnpm --filter @studyai/api test:integration
+          report_redis_failure() {
+            set +e
+            local running exit_code oom_killed docker_error mount_contract
+            running="$(docker container inspect --format '{{.State.Running}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            exit_code="$(docker container inspect --format '{{.State.ExitCode}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            oom_killed="$(docker container inspect --format '{{.State.OOMKilled}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            docker_error="$(docker container inspect --format '{{.State.Error}}' "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable)"
+            mount_contract="$(
+              docker container inspect --format \
+                '{{range .Mounts}}{{if eq .Destination "/usr/local/etc/redis/redis.conf"}}{{.Type}}|{{.Destination}}|{{.RW}}{{end}}{{end}}' \
+                "$CI_REDIS_CONTAINER" 2>/dev/null || printf unavailable
+            )"
 
-    - name: Verify Upload Backup and Restore Workflow
-      run: pnpm ops:test-upload-recovery
+            if [[ "$docker_error" == *"$RUNTIME_VALUE"* ]]; then
+              docker_error='[rejected: disposable credential detected]'
+            fi
 
-    - name: Test Production Standalone Build
-      run: pnpm run build
+            printf 'Redis readiness failure category: %s\n' "${REDIS_FAILURE_CATEGORY:-unknown}" >&2
+            printf 'Redis container running: %s\n' "$running" >&2
+            printf 'Redis container exit code: %s\n' "$exit_code" >&2
+            printf 'Redis container OOM killed: %s\n' "$oom_killed" >&2
+            printf 'Redis Docker error: %s\n' "${docker_error:-none}" >&2
+            printf 'Redis configured runtime user: %s:%s\n' "$REDIS_RUNTIME_UID" "$REDIS_RUNTIME_GID" >&2
+            printf 'Redis configuration mount type|destination|writable: %s\n' "${mount_contract:-missing}" >&2
+
+            while IFS= read -r line; do
+              if [[ "$line" == *"$RUNTIME_VALUE"* ]] ||
+                [[ "$line" == *requirepass* ]] ||
+                [[ "$line" == *REDISCLI_AUTH* ]] ||
+                [[ "$line" == *redis://* ]]; then
+                echo "Redis diagnostic line rejected by the credential filter." >&2
+              else
+                printf 'Redis log: %s\n' "$line" >&2
+              fi
+            done < <(docker logs --tail 40 "$CI_REDIS_CONTAINER" 2>&1)
+          }
+
+          REDIS_READY=false
+          REDIS_FAILURE_CATEGORY=readiness-timeout
+          for attempt in $(seq 1 30); do
+            if ! docker container inspect "$CI_REDIS_CONTAINER" >/dev/null 2>&1; then
+              REDIS_FAILURE_CATEGORY=container-missing
+              break
+            fi
+            if [ "$(docker container inspect --format '{{.State.Running}}' "$CI_REDIS_CONTAINER")" != true ]; then
+              REDIS_FAILURE_CATEGORY=container-exited-before-readiness
+              break
+            fi
+            if PROBE_OUTPUT="$(docker exec "$CI_REDIS_CONTAINER" redis-cli ping 2>&1)"; then
+              if [ "$PROBE_OUTPUT" = PONG ]; then
+                REDIS_READY=true
+                REDIS_FAILURE_CATEGORY=none
+                break
+              fi
+              REDIS_FAILURE_CATEGORY=authenticated-probe-unexpected-response
+            elif grep -q 'NOAUTH' <<< "$PROBE_OUTPUT"; then
+              REDIS_FAILURE_CATEGORY=authenticated-probe-rejected
+            else
+              REDIS_FAILURE_CATEGORY=authenticated-probe-execution-failed
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              break
+            fi
+            sleep 1
+          done
+          unset PROBE_OUTPUT
+
+          if [ "$REDIS_READY" != true ]; then
+            report_redis_failure
+            exit 1
+          fi
+
+          REDIS_PROCESS_UID="$(docker exec --user 0 "$CI_REDIS_CONTAINER" awk '/^Uid:/{print $2}' /proc/1/status)"
+          REDIS_PROCESS_GID="$(docker exec --user 0 "$CI_REDIS_CONTAINER" awk '/^Gid:/{print $2}' /proc/1/status)"
+          if [ "$REDIS_PROCESS_UID:$REDIS_PROCESS_GID" != "$REDIS_RUNTIME_IDENTITY" ]; then
+            REDIS_FAILURE_CATEGORY=runtime-identity-mismatch
+            report_redis_failure
+            exit 1
+          fi
+
+          docker exec --env REDISCLI_AUTH= "$CI_REDIS_CONTAINER" redis-cli ping \
+            > "$RUNNER_TEMP/studyai-ci-redis-unauth.log" 2>&1 || true
+          if ! grep -q 'NOAUTH' "$RUNNER_TEMP/studyai-ci-redis-unauth.log"; then
+            echo "Unauthenticated Redis rejection was not proven." >&2
+            exit 1
+          fi
+          if grep -qx PONG "$RUNNER_TEMP/studyai-ci-redis-unauth.log"; then
+            echo "Unauthenticated Redis access unexpectedly succeeded." >&2
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/studyai-ci-redis-unauth.log"
+
+          echo "REDIS_PASSWORD=$RUNTIME_VALUE" >> "$GITHUB_ENV"
+          echo "REDIS_URL=redis://:${RUNTIME_VALUE}@127.0.0.1:6379" >> "$GITHUB_ENV"
+
+      - name: Verify PostgreSQL and Redis readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @studyai/database exec node -e \
+            "const postgres=require('postgres');const sql=postgres(process.env.DATABASE_URL,{max:1});sql\`select 1 as ready\`.then(()=>sql.end()).catch(async error=>{await sql.end({timeout:0});throw error})"
+          test "$(docker exec "$CI_REDIS_CONTAINER" redis-cli ping)" = "PONG"
+
+      - name: Test and run hardened committed-secret guard
+        run: |
+          node --test scripts/check-no-committed-secrets.test.mjs
+          pnpm security:scan
+
+      - name: Verify Prisma generation contract and clean output
+        shell: bash
+        run: |
+          set -euo pipefail
+          node packages/infrastructure/scripts/verify-prisma-generation-contract.mjs
+          git diff --exit-code
+
+      - name: Validate and apply migrations twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @studyai/database db:check
+          pnpm --filter @studyai/database db:migrate
+          pnpm --filter @studyai/database db:migrate
+
+      - name: Typecheck the complete workspace
+        run: pnpm typecheck
+
+      - name: Lint API and enforce the certified Web warning baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @studyai/api exec eslint src test --ext .ts \
+            --format json --output-file "$RUNNER_TEMP/api-eslint.json"
+          pnpm --filter @studyai/web exec eslint . \
+            --format json --output-file "$RUNNER_TEMP/web-eslint.json"
+          node -e "const fs=require('node:fs');const path=require('node:path');const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));const api=read(process.argv[1]);const web=read(process.argv[2]);const totals=reports=>reports.reduce((sum,item)=>({errors:sum.errors+item.errorCount,warnings:sum.warnings+item.warningCount}),{errors:0,warnings:0});const a=totals(api),w=totals(web);const actual=web.flatMap(item=>item.messages.filter(message=>message.severity===1).map(message=>[path.relative(process.cwd(),item.filePath).replaceAll(path.sep,'/'),message.ruleId])).sort();const expected=[['apps/web/src/app/(dashboard)/study-groups/[id]/page.tsx','@next/next/no-img-element'],['apps/web/src/app/(tutor)/tutor/[documentId]/page.tsx','react-hooks/exhaustive-deps'],['apps/web/src/components/assessment/assessment-provider.tsx','react-hooks/exhaustive-deps']].sort();if(a.errors!==0||a.warnings!==0||w.errors!==0||JSON.stringify(actual)!==JSON.stringify(expected)){throw new Error('ESLint warning baseline changed')}console.log('ESLint passed: API errors/warnings=0/0; Web errors=0, certified warnings=3')" \
+            "$RUNNER_TEMP/api-eslint.json" \
+            "$RUNNER_TEMP/web-eslint.json"
+
+      - name: Run complete library, API, and Web tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @studyai/ast exec vitest run --reporter=json --outputFile="$RUNNER_TEMP/ast-tests.json"
+          pnpm --filter @studyai/database exec vitest run --reporter=json --outputFile="$RUNNER_TEMP/database-tests.json"
+          export TOKEN_ACCOUNTANT_TEST_REDIS_URL=${REDIS_URL}
+          pnpm --filter @studyai/domain exec jest --runInBand --json --outputFile="$RUNNER_TEMP/domain-tests.json"
+          pnpm --filter @studyai/api exec node --experimental-vm-modules node_modules/jest/bin/jest.js \
+            --runInBand --json --outputFile="$RUNNER_TEMP/api-tests.json"
+          pnpm --filter @studyai/web exec vitest run --maxWorkers=1 \
+            --reporter=json --outputFile="$RUNNER_TEMP/web-tests.json"
+
+          node -e "const fs=require('node:fs');const checks=[['AST',process.argv[1],1],['Database',process.argv[2],1],['Domain',process.argv[3],1],['API',process.argv[4],520],['Web',process.argv[5],170]];for(const [name,file,min] of checks){const report=JSON.parse(fs.readFileSync(file,'utf8'));const skipped=(report.numPendingTests||0)+(report.numTodoTests||0);if(report.numFailedTests!==0||skipped!==0||report.numPassedTests<min||report.numPassedTests!==report.numTotalTests){throw new Error(name+' test baseline failed')}console.log(name+' tests passed: '+report.numPassedTests+'/'+report.numTotalTests+', skipped/todo=0')}" \
+            "$RUNNER_TEMP/ast-tests.json" \
+            "$RUNNER_TEMP/database-tests.json" \
+            "$RUNNER_TEMP/domain-tests.json" \
+            "$RUNNER_TEMP/api-tests.json" \
+            "$RUNNER_TEMP/web-tests.json"
+
+      - name: Run authoritative API integration suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @studyai/api test:integration \
+            --json --outputFile="$RUNNER_TEMP/api-integration-tests.json"
+          node -e "const fs=require('node:fs');const report=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const skipped=(report.numPendingTests||0)+(report.numTodoTests||0);const assertions=(report.testResults||[]).flatMap(result=>result.assertionResults||[]);const jpeg=assertions.some(item=>item.status==='passed'&&item.fullName.includes('processes an authenticated JPEG through real storage, queue, worker, DI, and persistence'));if(report.numFailedTests!==0||skipped!==0||report.numPassedTests!==report.numTotalTests||!jpeg){throw new Error('API integration or valid-JPEG authority failed')}console.log('API integration passed: '+report.numPassedTests+'/'+report.numTotalTests+', skipped/todo=0, valid-JPEG=1')}" \
+            "$RUNNER_TEMP/api-integration-tests.json"
+
+      - name: Verify upload backup and restore workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          RECOVERY_ROOT="$RUNNER_TEMP/studyai-upload-recovery"
+          trap 'rm -rf -- "$RECOVERY_ROOT"' EXIT
+          mkdir -p "$RECOVERY_ROOT/scripts"
+          for script in test-upload-recovery.sh backup-uploads.sh restore-uploads.sh; do
+            sed 's/\r$//' "scripts/$script" > "$RECOVERY_ROOT/scripts/$script"
+          done
+          chmod 700 "$RECOVERY_ROOT/scripts/"*.sh
+          cd "$RECOVERY_ROOT"
+          bash scripts/test-upload-recovery.sh
+
+      - name: Build API production artifacts
+        run: pnpm exec turbo build --filter=@studyai/api...
+
+      - name: Build and verify API runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --file docker/Dockerfile.api \
+            --target runner \
+            --tag "$CI_API_IMAGE" \
+            .
+          node scripts/verify-api-runtime-image.mjs "$CI_API_IMAGE"
+
+      - name: Cold-start API on isolated Linux runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          API_ENV_FILE="$RUNNER_TEMP/studyai-ci-api.env"
+          umask 077
+          {
+            printf 'NODE_ENV=production\n'
+            printf 'APP_PORT=%s\n' "$CI_API_PORT"
+            printf 'APP_URL=http://127.0.0.1:%s\n' "$CI_API_PORT"
+            printf 'FRONTEND_URL=http://127.0.0.1:%s\n' "$CI_WEB_PORT"
+            printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+            printf 'REDIS_URL=%s\n' "$REDIS_URL"
+            printf 'REDIS_HOST=%s\n' "$REDIS_HOST"
+            printf 'REDIS_PORT=%s\n' "$REDIS_PORT"
+            printf 'REDIS_PASSWORD=%s\n' "$REDIS_PASSWORD"
+            printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
+            printf 'JWT_REFRESH_SECRET=%s\n' "$JWT_REFRESH_SECRET"
+            printf 'STRIPE_SECRET_KEY=%s\n' "$STRIPE_SECRET_KEY"
+            printf 'STORAGE_PATH=/app/apps/api/uploads\n'
+          } > "$API_ENV_FILE"
+          chmod 600 "$API_ENV_FILE"
+          echo "CI_API_ENV_FILE=$API_ENV_FILE" >> "$GITHUB_ENV"
+
+          docker run --detach \
+            --name "$CI_API_CONTAINER" \
+            --network host \
+            --env-file "$API_ENV_FILE" \
+            --mount "type=bind,src=$STORAGE_PATH,dst=/app/apps/api/uploads" \
+            --health-cmd "node -e \"fetch('http://127.0.0.1:${CI_API_PORT}/api/health').then(response=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))\"" \
+            --health-interval 2s \
+            --health-timeout 5s \
+            --health-retries 30 \
+            --health-start-period 10s \
+            "$CI_API_IMAGE" >/dev/null
+
+          for attempt in $(seq 1 60); do
+            if curl --silent --show-error --fail --max-time 5 \
+              "http://127.0.0.1:${CI_API_PORT}/api/health" \
+              --output "$RUNNER_TEMP/studyai-ci-api-health.json"; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              docker logs "$CI_API_CONTAINER" > "$RUNNER_TEMP/studyai-ci-api.log" 2>&1 || true
+              echo "API cold start did not become healthy." >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          node -e "const fs=require('node:fs');const health=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(health.status!=='ok'||health.services?.database!=='UP'||health.services?.cache!=='UP'){throw new Error('API dependency health contract failed')}console.log('API cold-start health passed: HTTP 200, database=UP, cache=UP')" \
+            "$RUNNER_TEMP/studyai-ci-api-health.json"
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$CI_API_CONTAINER")" = "healthy"
+          docker logs "$CI_API_CONTAINER" > "$RUNNER_TEMP/studyai-ci-api.log" 2>&1
+
+      - name: Build and smoke-test Web standalone output
+        shell: bash
+        env:
+          INTERNAL_API_URL: http://127.0.0.1:14000
+        run: |
+          set -euo pipefail
+          pnpm exec turbo build --filter=@studyai/web... --force \
+            2>&1 | tee "$RUNNER_TEMP/studyai-ci-web-build.log"
+          grep -Fq 'Generating static pages (33/33)' "$RUNNER_TEMP/studyai-ci-web-build.log"
+
+          test -s apps/web/public/vendor/pdfjs/pdf.mjs
+          test -s apps/web/public/vendor/pdfjs/pdf.worker.mjs
+          test -f apps/web/.next/standalone/apps/web/server.js
+          mkdir -p apps/web/.next/standalone/apps/web/public
+          mkdir -p apps/web/.next/standalone/apps/web/.next/static
+          cp -a apps/web/public/. apps/web/.next/standalone/apps/web/public/
+          cp -a apps/web/.next/static/. apps/web/.next/standalone/apps/web/.next/static/
+          test -s apps/web/.next/standalone/apps/web/public/vendor/pdfjs/pdf.mjs
+          test -s apps/web/.next/standalone/apps/web/public/vendor/pdfjs/pdf.worker.mjs
+
+          pushd apps/web/.next/standalone >/dev/null
+          env PORT="$CI_WEB_PORT" HOSTNAME=127.0.0.1 \
+            INTERNAL_API_URL="http://127.0.0.1:${CI_API_PORT}" \
+            node apps/web/server.js > "$RUNNER_TEMP/studyai-ci-web-runtime.log" 2>&1 &
+          WEB_PID=$!
+          popd >/dev/null
+
+          cleanup_web() {
+            if kill -0 "$WEB_PID" 2>/dev/null; then
+              kill "$WEB_PID"
+              wait "$WEB_PID" || true
+            fi
+          }
+          trap cleanup_web EXIT
+
+          for attempt in $(seq 1 60); do
+            if curl --silent --show-error --fail --max-time 5 \
+              "http://127.0.0.1:${CI_WEB_PORT}/" --output /dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "Web standalone server did not become ready." >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          for route in / /login /register /files /exams; do
+            STATUS="$(curl --silent --show-error --max-time 10 \
+              --output /dev/null --write-out '%{http_code}' \
+              "http://127.0.0.1:${CI_WEB_PORT}${route}")"
+            test "$STATUS" = "200"
+          done
+
+          curl --silent --show-error --max-time 10 \
+            --output /dev/null --dump-header "$RUNNER_TEMP/studyai-ci-dashboard.headers" \
+            "http://127.0.0.1:${CI_WEB_PORT}/dashboard"
+          STATUS="$(awk 'NR==1 {print $2}' "$RUNNER_TEMP/studyai-ci-dashboard.headers")"
+          LOCATION="$(awk 'tolower($1)=="location:" {gsub("\r","",$2); print $2}' "$RUNNER_TEMP/studyai-ci-dashboard.headers")"
+          test "$STATUS" = "307"
+          test "$LOCATION" = "/files"
+
+          for attempt in $(seq 1 5); do
+            STATUS="$(curl --silent --show-error --max-time 10 \
+              --output /dev/null --write-out '%{http_code}' \
+              "http://127.0.0.1:${CI_WEB_PORT}/files")"
+            test "$STATUS" = "200"
+          done
+
+          cleanup_web
+          trap - EXIT
+          if kill -0 "$WEB_PID" 2>/dev/null; then
+            echo "Captured Web PID survived cleanup." >&2
+            exit 1
+          fi
+
+      - name: Verify runtime log sanitation and repository integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SENSITIVE_PATTERN='(postgres(ql)?|rediss?|amqp)://[^[:space:]/:@]+:[^[:space:]@/]+@|eyJhbGciOi[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{16,}|AIza[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|(code|state|client_secret)=[^&[:space:]]+|authorization:|cookie:'
+          for LOG_FILE in \
+            "$RUNNER_TEMP/studyai-ci-api.log" \
+            "$RUNNER_TEMP/studyai-ci-web-runtime.log" \
+            "$RUNNER_TEMP/studyai-ci-web-build.log"; do
+            if grep -Eiq "$SENSITIVE_PATTERN" "$LOG_FILE"; then
+              echo "Sensitive output pattern detected in a task log." >&2
+              exit 1
+            fi
+            for VALUE in "$JWT_SECRET" "$JWT_REFRESH_SECRET" "$STRIPE_SECRET_KEY" "$REDIS_PASSWORD"; do
+              if grep -Fq "$VALUE" "$LOG_FILE"; then
+                echo "A disposable credential appeared in a task log." >&2
+                exit 1
+              fi
+            done
+          done
+          git diff --check
+          git diff --exit-code
+          pnpm security:scan
+
+      - name: Remove exact disposable resources
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${CI_API_CONTAINER:-}" ]; then
+            docker rm --force "$CI_API_CONTAINER" >/dev/null 2>&1
+          fi
+          if [ -n "${CI_REDIS_CONTAINER:-}" ]; then
+            docker rm --force "$CI_REDIS_CONTAINER" >/dev/null 2>&1
+          fi
+          if [ -n "${CI_API_IMAGE:-}" ]; then
+            docker image rm --force "$CI_API_IMAGE" >/dev/null 2>&1
+          fi
+          rm -f \
+            "${CI_REDIS_CONFIG:-}" \
+            "${CI_REDIS_AUTH_FILE:-}" \
+            "${CI_API_ENV_FILE:-}" \
+            "$RUNNER_TEMP/studyai-ci-api-health.json" \
+            "$RUNNER_TEMP/studyai-ci-api.log" \
+            "$RUNNER_TEMP/studyai-ci-web-runtime.log" \
+            "$RUNNER_TEMP/studyai-ci-web-build.log" \
+            "$RUNNER_TEMP/studyai-ci-dashboard.headers" \
+            "$RUNNER_TEMP/api-eslint.json" \
+            "$RUNNER_TEMP/web-eslint.json" \
+            "$RUNNER_TEMP/ast-tests.json" \
+            "$RUNNER_TEMP/database-tests.json" \
+            "$RUNNER_TEMP/domain-tests.json" \
+            "$RUNNER_TEMP/api-tests.json" \
+            "$RUNNER_TEMP/web-tests.json" \
+            "$RUNNER_TEMP/api-integration-tests.json"
+          rm -rf "${STORAGE_PATH:-$RUNNER_TEMP/studyai-ci-uploads}"
+
+          for TASK_FILE in \
+            "${CI_REDIS_CONFIG:-}" \
+            "${CI_REDIS_AUTH_FILE:-}" \
+            "${CI_API_ENV_FILE:-}"; do
+            if [ -n "$TASK_FILE" ] && [ -e "$TASK_FILE" ]; then
+              echo "Disposable task file residue remains." >&2
+              exit 1
+            fi
+          done
+
+          if [ -n "${CI_API_CONTAINER:-}" ] && docker container inspect "$CI_API_CONTAINER" >/dev/null 2>&1; then
+            echo "Disposable API container residue remains." >&2
+            exit 1
+          fi
+          if [ -n "${CI_REDIS_CONTAINER:-}" ] && docker container inspect "$CI_REDIS_CONTAINER" >/dev/null 2>&1; then
+            echo "Disposable Redis container residue remains." >&2
+            exit 1
+          fi
+          if ss -ltn | grep -Eq ":(${CI_API_PORT}|${CI_WEB_PORT}|${REDIS_PORT})[[:space:]]"; then
+            echo "Disposable listener residue remains." >&2
+            exit 1
+          fi

@@ -72,6 +72,8 @@ function deferred<T>(): Deferred<T> {
 const defaultLabels = {
   loading: 'Loading PDF...',
   failed: 'Failed to load PDF',
+  missing: 'Original PDF is missing',
+  invalid: 'Original file is not a valid PDF',
   retry: 'Retry',
   previous: 'Previous Page',
   next: 'Next Page',
@@ -202,6 +204,10 @@ describe('OriginalPdfReader', () => {
       expect(renderPageTwo).toHaveBeenCalledTimes(1);
     });
     expect(document.querySelectorAll('canvas')).toHaveLength(2);
+    const reader = screen.getByLabelText('Original PDF');
+    expect(reader.className).toContain('bg-card');
+    expect(reader.className).toContain('border-border');
+    expect(reader.className).not.toContain('bg-slate');
 
     const previous = screen.getByRole('button', { name: 'Previous Page' });
     const next = screen.getByRole('button', { name: 'Next Page' });
@@ -298,11 +304,20 @@ describe('OriginalPdfReader', () => {
     expect(mockedFetch).toHaveBeenCalledTimes(fetchesBeforeRetry + 1);
   });
 
+  it('maps a missing stored original to a safe actionable message', async () => {
+    mockedFetch.mockResolvedValueOnce(errorResponse(404));
+    render(<OriginalPdfReader fileId="file-missing" label="Original PDF" labels={defaultLabels} />);
+
+    await waitFor(() => expect(screen.getByText('Original PDF is missing')).toBeTruthy());
+    expect(screen.queryByText('Failed to load PDF')).toBeNull();
+    expect(getDocument).not.toHaveBeenCalled();
+  });
+
   it('rejects an invalid PDF signature before PDF.js receives the response', async () => {
     mockedFetch.mockResolvedValueOnce(pdfResponse('not-a-pdf'));
     render(<OriginalPdfReader fileId="file-invalid" label="Original PDF" labels={defaultLabels} />);
 
-    await waitFor(() => expect(screen.getByText('Failed to load PDF')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Original file is not a valid PDF')).toBeTruthy());
     expect(getDocument).not.toHaveBeenCalled();
   });
 
@@ -311,7 +326,7 @@ describe('OriginalPdfReader', () => {
     getDocument.mockReturnValueOnce(loadingTask);
     render(<OriginalPdfReader fileId="file-parser-error" label="Original PDF" labels={defaultLabels} />);
 
-    await waitFor(() => expect(screen.getByText('Failed to load PDF')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Original file is not a valid PDF')).toBeTruthy());
     expect(screen.queryByText('private parser detail')).toBeNull();
     expect(destroyLoadingTask).toHaveBeenCalledTimes(1);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:studyai-pdf-reader');

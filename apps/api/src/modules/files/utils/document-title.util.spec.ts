@@ -23,6 +23,14 @@ describe('document title semantics', () => {
       .toMatchObject({ documentTitle: 'Linear Algebra', documentTitleSource: 'metadata' });
   });
 
+  it('preserves the intended mixed Arabic and Latin metadata title exactly', () => {
+    const intendedTitle = 'تعلم n8n من الصفر إلى الاحتراف';
+    const initial = createInitialDocumentTitle('downloaded-copy.pdf');
+
+    expect(resolvePublishedDocumentTitle(initial, 'downloaded-copy.pdf', intendedTitle))
+      .toMatchObject({ documentTitle: intendedTitle, documentTitleSource: 'metadata' });
+  });
+
   it('rejects generic metadata and cleans the distribution filename prefix', () => {
     expect(validMetadataTitle('Untitled')).toBeUndefined();
     expect(cleanFilenameTitle('Noor-Book.com--مبادئ_الجبر.pdf')).toBe('مبادئ_الجبر');

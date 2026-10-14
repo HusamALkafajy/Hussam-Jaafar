@@ -144,7 +144,7 @@ class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
-  OPENAI_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
 }
 
 export function validate(config: Record<string, unknown>) {
@@ -156,6 +156,17 @@ export function validate(config: Record<string, unknown>) {
   if (throttleErrors.length > 0) {
     throw new Error(
       `Configuration validation failed:\n- ${throttleErrors.join('\n- ')}\n\nPlease check your environment.`,
+    );
+  }
+
+  const providerErrors = (['GEMINI_API_KEY', 'OPENROUTER_API_KEY'] as const)
+    .filter((name) => Object.prototype.hasOwnProperty.call(config, name))
+    .filter((name) => typeof config[name] !== 'string' || !config[name].trim())
+    .map((name) => `${name} must be a non-empty string when configured.`);
+
+  if (providerErrors.length > 0) {
+    throw new Error(
+      `Configuration validation failed:\n- ${providerErrors.join('\n- ')}\n\nPlease check your environment.`,
     );
   }
 
@@ -225,9 +236,9 @@ export function validate(config: Record<string, unknown>) {
     warnings.push('STRIPE_SECRET_KEY is missing. Payments will not work.');
   }
 
-  if (!validatedConfig.GEMINI_API_KEY && !validatedConfig.OPENAI_API_KEY) {
+  if (!validatedConfig.GEMINI_API_KEY && !validatedConfig.OPENROUTER_API_KEY) {
     warnings.push(
-      'AI Provider API keys (GEMINI_API_KEY or OPENAI_API_KEY) are missing. Core AI generation features will fail.',
+      'AI Provider API keys (GEMINI_API_KEY or OPENROUTER_API_KEY) are missing. Core AI generation features will use intentional mock mode.',
     );
   }
 

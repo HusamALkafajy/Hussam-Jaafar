@@ -123,6 +123,31 @@ describe('core Arabic and English translation contract', () => {
     }
   });
 
+  it('keeps monthly-limit guidance distinct from storage and unavailable checkout actions', () => {
+    expect(en.files.quotaExceeded).toMatch(/monthly upload limit/i);
+    expect(en.files.quotaExceeded).not.toMatch(/storage|delete|remove|upgrade/i);
+    expect(ar.files.quotaExceeded).toContain('حد الرفع الشهري');
+    expect(ar.files.quotaExceeded).not.toMatch(/التخزين|احذف|ترقية|رقِّ/i);
+  });
+
+  it('localizes the proven Arabic achievement values with bidi-isolated numbers', () => {
+    const values = [
+      ar.achievements.totalXpValue,
+      ar.achievements.xpValue,
+      ar.achievements.xpProgress,
+    ];
+
+    for (const value of values) {
+      expect(value).not.toMatch(/\bXP\b/i);
+      expect(value).toContain('\u2068');
+      expect(value).toContain('\u2069');
+    }
+    expect(ar.achievements.totalXpValue).toContain('{count}');
+    expect(ar.achievements.xpValue).toContain('{count}');
+    expect(ar.achievements.xpProgress).toContain('{current}');
+    expect(ar.achievements.xpProgress).toContain('{needed}');
+  });
+
   it('renders the canonical Arabic core labels, accessible names, and user filename', () => {
     render(
       <LocaleProvider initialLocale="ar">

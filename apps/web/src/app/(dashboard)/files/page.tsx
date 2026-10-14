@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { api } from '../../../lib/api-client';
+import { api, QuotaError } from '../../../lib/api-client';
 import { useLocale } from '../../../hooks/use-locale';
 import { Card } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
@@ -59,6 +59,60 @@ import {
 const ALL_SUBJECTS_VALUE = '__all-subjects__';
 const ALL_FILE_TYPES_VALUE = '__all-file-types__';
 const NO_SUBJECT_VALUE = '__no-subject__';
+const PAGE_UPLOAD_CAP_DESCRIPTION_ID = 'monthly-upload-cap-page-explanation';
+const MODAL_UPLOAD_CAP_DESCRIPTION_ID = 'monthly-upload-cap-modal-explanation';
+
+interface MonthlyUploadAllowance {
+  limit: number;
+  remaining: number;
+  resetAt: string | null;
+  used: number;
+}
+
+interface MonthlyUploadCapLatch {
+  resetAt: string | null;
+}
+
+const normalizeMonthlyUploadAllowance = (value: unknown): MonthlyUploadAllowance | null => {
+  if (!value || typeof value !== 'object') return null;
+
+  const record = value as Record<string, unknown>;
+  const limit = record.monthlyFileLimit;
+  const used = record.filesUsedThisMonth;
+
+  if (
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < 0 ||
+    typeof used !== 'number' ||
+    !Number.isInteger(used) ||
+    used < 0
+  ) {
+    return null;
+  }
+
+  const resetAt =
+    typeof record.currentPeriodEnd === 'string' &&
+    Number.isFinite(Date.parse(record.currentPeriodEnd))
+      ? record.currentPeriodEnd
+      : null;
+
+  return {
+    limit,
+    remaining: Math.max(limit - used, 0),
+    resetAt,
+    used,
+  };
+};
+
+const isMonthlyFilesQuotaError = (value: unknown): value is QuotaError =>
+  value instanceof QuotaError &&
+  value.limitType === 'files' &&
+  Number.isInteger(value.used) &&
+  value.used >= 0 &&
+  Number.isInteger(value.limit) &&
+  value.limit >= 0 &&
+  value.used >= value.limit;
 
 const createUploadId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -85,6 +139,11 @@ export default function FilesPage() {
   const [loadError, setLoadError] = useState(false);
   const [filesList, setFilesList] = useState<any[]>([]);
   const [subjectsList, setSubjectsList] = useState<any[]>([]);
+  const [monthlyUploadAllowance, setMonthlyUploadAllowance] =
+    useState<MonthlyUploadAllowance | null>(null);
+  const [monthlyUploadAllowanceLoaded, setMonthlyUploadAllowanceLoaded] = useState(false);
+  const [monthlyUploadCapLatch, setMonthlyUploadCapLatch] =
+    useState<MonthlyUploadCapLatch | null>(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
 
   // Filters
@@ -110,6 +169,8 @@ export default function FilesPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  const uploadInFlightRef = useRef(false);
+  const allowanceRequestIdRef = useRef(0);
 
   const loadData = useCallback(async (page = 1, showSpinner = true) => {
     if (showSpinner) {
@@ -145,6 +206,46 @@ export default function FilesPage() {
     return () => clearTimeout(timer);
   }, [search, subjectId, fileType, loadData]);
 
+  const refreshMonthlyUploadAllowance = useCallback(async () => {
+    const requestId = ++allowanceRequestIdRef.current;
+
+    try {
+      const value = await api.get<unknown>('/subscriptions/current');
+      if (requestId !== allowanceRequestIdRef.current) return;
+
+      const normalized = normalizeMonthlyUploadAllowance(value);
+      setMonthlyUploadAllowance((current) => normalized ?? current);
+      if (normalized) {
+        // A valid current subscription response supersedes any earlier rejection latch.
+        // Its own used/limit values still keep the actions disabled when appropriate.
+        setMonthlyUploadCapLatch(null);
+      }
+    } catch {
+      // Preserve the last valid allowance and any server-derived cap latch. On the
+      // first unavailable request both remain empty, so server authority stays usable.
+    } finally {
+      if (requestId === allowanceRequestIdRef.current) {
+        setMonthlyUploadAllowanceLoaded(true);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMonthlyUploadAllowance();
+    return () => {
+      allowanceRequestIdRef.current += 1;
+    };
+  }, [refreshMonthlyUploadAllowance]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void refreshMonthlyUploadAllowance();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [refreshMonthlyUploadAllowance]);
+
   useEffect(() => {
     const hasProcessing = filesList.some(
       (file) => file.processingStatus === 'pending' || file.processingStatus === 'processing'
@@ -160,8 +261,9 @@ export default function FilesPage() {
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) return;
+    if (!selectedFile || monthlyUploadLimitReached || uploadInFlightRef.current) return;
 
+    uploadInFlightRef.current = true;
     setUploading(true);
     setUploadStatus('idle');
     setUploadError('');
@@ -215,9 +317,20 @@ export default function FilesPage() {
         }
       }
     } catch (err: unknown) {
+      if (isMonthlyFilesQuotaError(err)) {
+        const resetAt = monthlyUploadAllowance?.resetAt ?? null;
+        setMonthlyUploadCapLatch({ resetAt });
+        setMonthlyUploadAllowance({
+          limit: err.limit,
+          remaining: 0,
+          resetAt,
+          used: err.used,
+        });
+      }
       setUploadStatus('error');
       setUploadError(t(uploadErrorMessageKey(err)));
     } finally {
+      uploadInFlightRef.current = false;
       setUploading(false);
     }
   };
@@ -233,6 +346,7 @@ export default function FilesPage() {
 
   const handleUploadOpenChange = (open: boolean) => {
     if (!open && uploading) return;
+    if (open && monthlyUploadLimitReached) return;
 
     setUploadOpen(open);
     if (open) resetUploadState();
@@ -286,6 +400,47 @@ export default function FilesPage() {
   };
 
   const hasActiveFilters = Boolean(search || subjectId || fileType);
+  const monthlyUploadLimitReached = Boolean(
+    monthlyUploadCapLatch ||
+      (monthlyUploadAllowance && monthlyUploadAllowance.used >= monthlyUploadAllowance.limit),
+  );
+  const monthlyUploadResetAt = monthlyUploadCapLatch?.resetAt ?? monthlyUploadAllowance?.resetAt;
+  const monthlyUploadProgress = monthlyUploadAllowance
+    ? monthlyUploadAllowance.limit === 0
+      ? 100
+      : Math.min(
+          100,
+          Math.round((monthlyUploadAllowance.used / monthlyUploadAllowance.limit) * 100),
+        )
+    : 0;
+  const monthlyUploadResetDate = monthlyUploadAllowance?.resetAt
+    ? new Intl.DateTimeFormat(locale === 'ar' ? 'ar-IQ' : 'en-US', {
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'UTC',
+        year: 'numeric',
+      }).format(new Date(monthlyUploadAllowance.resetAt))
+    : null;
+
+  useEffect(() => {
+    if (!monthlyUploadLimitReached || !monthlyUploadResetAt) return;
+
+    const remaining = Date.parse(monthlyUploadResetAt) - Date.now();
+    if (!Number.isFinite(remaining)) return;
+
+    if (remaining <= 0) {
+      // Crossing the browser clock boundary triggers authoritative revalidation;
+      // it never clears a cap on local time alone.
+      void refreshMonthlyUploadAllowance();
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => void refreshMonthlyUploadAllowance(),
+      Math.min(remaining, 2_147_483_647),
+    );
+    return () => window.clearTimeout(timer);
+  }, [monthlyUploadLimitReached, monthlyUploadResetAt, refreshMonthlyUploadAllowance]);
 
   const clearFilters = () => {
     setSearch('');
@@ -308,11 +463,102 @@ export default function FilesPage() {
           </span>
           <span>{t('files.title')}</span>
         </h2>
-        <DialogTrigger render={<Button size="lg" className="w-full gap-2 font-bold sm:w-auto" />}>
+        <DialogTrigger
+          render={
+            <Button
+              size="lg"
+              className="w-full gap-2 font-bold sm:w-auto"
+              disabled={monthlyUploadLimitReached}
+              aria-describedby={
+                monthlyUploadLimitReached ? PAGE_UPLOAD_CAP_DESCRIPTION_ID : undefined
+              }
+            />
+          }
+        >
           <Upload className="size-4.5" aria-hidden="true" />
           <span>{t('dashboard.uploadNewFile')}</span>
         </DialogTrigger>
       </div>
+
+      {monthlyUploadAllowanceLoaded && (
+        <Card
+          role="region"
+          aria-label={t('files.monthlyUploadAllowance')}
+          className="gap-3 bg-card/70 p-4 ring-1 ring-border"
+        >
+          {monthlyUploadAllowance ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-foreground">
+                    {t('files.monthlyUploadAllowance')}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {t('files.monthlyUploadsUsed', {
+                      limit: monthlyUploadAllowance.limit,
+                      used: monthlyUploadAllowance.used,
+                    })}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold text-foreground">
+                  {t('files.monthlyUploadsRemaining', {
+                    remaining: monthlyUploadAllowance.remaining,
+                  })}
+                </p>
+              </div>
+
+              <div
+                role="progressbar"
+                aria-label={t('files.monthlyUploadAllowance')}
+                aria-valuemin={0}
+                aria-valuemax={monthlyUploadAllowance.limit}
+                aria-valuenow={Math.min(
+                  monthlyUploadAllowance.used,
+                  monthlyUploadAllowance.limit,
+                )}
+                className="h-2 overflow-hidden rounded-full bg-muted"
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${monthlyUploadProgress}%` }}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>
+                  {monthlyUploadResetDate
+                    ? t('files.monthlyUploadsReset', { date: monthlyUploadResetDate })
+                    : t('files.monthlyUploadsResetUnavailable')}
+                </span>
+                {monthlyUploadLimitReached && (
+                  <span
+                    id={PAGE_UPLOAD_CAP_DESCRIPTION_ID}
+                    className="inline-flex items-center gap-1.5 font-semibold text-foreground"
+                  >
+                    <AlertTriangle className="size-4" aria-hidden="true" />
+                    {t('files.monthlyUploadLimitReached')}
+                  </span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {t('files.monthlyUploadUsageUnavailable')}
+              </p>
+              {monthlyUploadCapLatch && (
+                <p
+                  id={PAGE_UPLOAD_CAP_DESCRIPTION_ID}
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground"
+                >
+                  <AlertTriangle className="size-4" aria-hidden="true" />
+                  {t('files.monthlyUploadLimitReached')}
+                </p>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Filters Bar */}
       <Card
@@ -454,7 +700,17 @@ export default function FilesPage() {
               {t('files.clearFilters')}
             </Button>
           ) : (
-            <DialogTrigger render={<Button className="gap-2" />}>
+            <DialogTrigger
+              render={
+                <Button
+                  className="gap-2"
+                  disabled={monthlyUploadLimitReached}
+                  aria-describedby={
+                    monthlyUploadLimitReached ? PAGE_UPLOAD_CAP_DESCRIPTION_ID : undefined
+                  }
+                />
+              }
+            >
               <Upload className="size-4" aria-hidden="true" />
               {t('dashboard.uploadNewFile')}
             </DialogTrigger>
@@ -489,7 +745,7 @@ export default function FilesPage() {
                         <FileText className="size-6" aria-hidden="true" />
                       </span>
                       <div className="min-w-0 space-y-1">
-                        <h3 className="block truncate text-sm font-bold text-foreground">
+                        <h3 dir="auto" className="block truncate text-sm font-bold text-foreground [unicode-bidi:plaintext]">
                           {file.titleSource === 'fallback'
                             ? t('files.untitledDocument')
                             : file.title ?? file.originalName}
@@ -659,6 +915,17 @@ export default function FilesPage() {
           </div>
         ) : (
           <form onSubmit={handleUploadSubmit} className="flex flex-col gap-4">
+            {monthlyUploadLimitReached && (
+              <div
+                id={MODAL_UPLOAD_CAP_DESCRIPTION_ID}
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-2.5 rounded-xl border border-border bg-muted/55 px-4 py-3 text-sm font-semibold text-foreground"
+              >
+                <AlertTriangle className="size-5 shrink-0" aria-hidden="true" />
+                <span>{t('files.monthlyUploadLimitReached')}</span>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="upload-title" className="text-sm font-medium text-foreground">
                 {t('files.documentTitle')}
@@ -782,7 +1049,10 @@ export default function FilesPage() {
               </DialogClose>
               <Button
                 type="submit"
-                disabled={!selectedFile}
+                disabled={!selectedFile || monthlyUploadLimitReached || uploading}
+                aria-describedby={
+                  monthlyUploadLimitReached ? MODAL_UPLOAD_CAP_DESCRIPTION_ID : undefined
+                }
                 className="font-bold py-2.5"
               >
                 <span>

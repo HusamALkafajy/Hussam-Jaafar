@@ -1,3 +1,5 @@
+import { StructuredLogger } from '../common/logging/structured-logger';
+import aiConfig from './ai.config';
 import { MAX_THROTTLE_TTL_MS, validate } from './env.validation';
 
 const REQUIRED_BASE = {
@@ -7,6 +9,22 @@ const REQUIRED_BASE = {
 };
 
 describe('environment validation', () => {
+  const originalProviderEnvironment = {
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    for (const [name, value] of Object.entries(originalProviderEnvironment)) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  });
+
   it('accepts production startup with explicit infrastructure and optional OAuth disabled', () => {
     expect(
       validate({
@@ -103,5 +121,82 @@ describe('environment validation', () => {
   it('rejects an invalid throttle value even when the companion value is valid', () => {
     expect(() => validate({ ...REQUIRED_BASE, THROTTLE_LIMIT: '25', THROTTLE_TTL: '0' }))
       .toThrow('THROTTLE_TTL');
+  });
+
+  it('accepts Gemini as the only configured AI provider', () => {
+    const geminiCredential = ['gemini', 'provider', 'canary'].join('-');
+
+    expect(validate({ ...REQUIRED_BASE, GEMINI_API_KEY: geminiCredential })).toMatchObject({
+      GEMINI_API_KEY: geminiCredential,
+    });
+  });
+
+  it('accepts OpenRouter as the only configured AI provider', () => {
+    expect(
+      validate({ ...REQUIRED_BASE, OPENROUTER_API_KEY: 'openrouter-provider-canary' }),
+    ).toMatchObject({ OPENROUTER_API_KEY: 'openrouter-provider-canary' });
+  });
+
+  it('preserves intentional mock-mode startup when neither supported provider is configured', () => {
+    const warning = jest.spyOn(StructuredLogger.prototype, 'warn').mockImplementation();
+
+    validate({ ...REQUIRED_BASE });
+
+    expect(warning).toHaveBeenCalledWith(
+      'Optional configuration is incomplete',
+      expect.objectContaining({
+        warnings: expect.arrayContaining([
+          expect.stringContaining('GEMINI_API_KEY or OPENROUTER_API_KEY'),
+        ]),
+      }),
+    );
+  });
+
+  it.each([
+    ['GEMINI_API_KEY', ''],
+    ['GEMINI_API_KEY', '   '],
+    ['OPENROUTER_API_KEY', ''],
+    ['OPENROUTER_API_KEY', '\t\r\n'],
+  ])('rejects an empty configured %s value', (name, value) => {
+    expect(() => validate({ ...REQUIRED_BASE, [name]: value })).toThrow(
+      `${name} must be a non-empty string when configured.`,
+    );
+  });
+
+  it('does not treat OPENAI_API_KEY as an OpenRouter credential', () => {
+    const warning = jest.spyOn(StructuredLogger.prototype, 'warn').mockImplementation();
+
+    validate({ ...REQUIRED_BASE, OPENAI_API_KEY: 'irrelevant-provider-canary' });
+
+    expect(warning).toHaveBeenCalledWith(
+      'Optional configuration is incomplete',
+      expect.objectContaining({
+        warnings: expect.arrayContaining([
+          expect.stringContaining('GEMINI_API_KEY or OPENROUTER_API_KEY'),
+        ]),
+      }),
+    );
+  });
+
+  it('preserves deterministic OpenRouter precedence when both supported providers exist', () => {
+    const openRouterCredential = 'openrouter-precedence-canary';
+    const geminiCredential = 'gemini-precedence-canary';
+    validate({
+      ...REQUIRED_BASE,
+      OPENROUTER_API_KEY: openRouterCredential,
+      GEMINI_API_KEY: geminiCredential,
+    });
+    process.env.OPENROUTER_API_KEY = openRouterCredential;
+    process.env.GEMINI_API_KEY = geminiCredential;
+
+    expect(aiConfig()).toEqual(
+      expect.objectContaining({
+        apiKey: openRouterCredential,
+        openRouterApiKey: openRouterCredential,
+        geminiApiKey: geminiCredential,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        useGeminiSdk: false,
+      }),
+    );
   });
 });

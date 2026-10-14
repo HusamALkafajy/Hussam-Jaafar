@@ -1,4 +1,6 @@
 import React from 'react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -13,6 +15,23 @@ type SupportedLocale = 'ar' | 'en';
 
 let activeLocale: SupportedLocale = 'en';
 const credentialInput = ['Valid', 'Pass', '123!'].join('');
+
+function relativeLuminance(hex: string) {
+  const channels = hex
+    .slice(1)
+    .match(/.{2}/g)!
+    .map((channel) => Number.parseInt(channel, 16) / 255)
+    .map((channel) =>
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+    );
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+function contrastRatio(first: string, second: string) {
+  const lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
+  const darker = Math.min(relativeLuminance(first), relativeLuminance(second));
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 vi.mock('../src/hooks/use-auth', () => ({
   useAuth: () => ({ register: mockRegister }),
@@ -104,6 +123,32 @@ describe('registration page', () => {
     expect(
       screen.getByRole('link', { name: en.auth.loginWithApple }).getAttribute('href'),
     ).toBe('/api/auth/apple');
+  });
+
+  it.each([
+    ['login', LoginPage],
+    ['registration', RegisterPage],
+  ])('renders an integrated, token-based divider on the %s page', (_name, Page) => {
+    render(<Page />);
+
+    const separator = screen.getByRole('separator', { name: en.auth.or });
+    expect(separator.className).toContain('flex');
+    expect(separator.querySelectorAll('[aria-hidden="true"].bg-border')).toHaveLength(2);
+
+    const label = separator.querySelector('.text-muted-foreground');
+    expect(label?.textContent).toBe(en.auth.or);
+    expect(label?.className).not.toContain('text-slate-500');
+
+    const css = fs.readFileSync(path.join(process.cwd(), 'src/app/globals.css'), 'utf8');
+    const darkTheme = css.match(/\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const card = darkTheme.match(/--card:\s*(#[0-9a-f]{6})/i)?.[1];
+    const mutedForeground = darkTheme.match(
+      /--muted-foreground:\s*(#[0-9a-f]{6})/i,
+    )?.[1];
+
+    expect(card).toBeDefined();
+    expect(mutedForeground).toBeDefined();
+    expect(contrastRatio(card!, mutedForeground!)).toBeGreaterThanOrEqual(4.5);
   });
 
   it('keeps confirmPassword as browser-only validation', async () => {

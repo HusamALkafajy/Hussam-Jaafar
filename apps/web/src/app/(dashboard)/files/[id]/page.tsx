@@ -55,7 +55,7 @@ function TabNav({ active, onChange }: { active: TabId; onChange: (id: TabId) => 
   return (
     <div className="relative">
       {/* Scrollable row */}
-      <div className="flex overflow-x-auto scrollbar-none gap-1 p-1 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-white/5">
+      <div className="flex gap-1 overflow-x-auto rounded-2xl border border-border bg-muted/60 p-1 scrollbar-none">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = active === tab.id;
@@ -66,7 +66,7 @@ function TabNav({ active, onChange }: { active: TabId; onChange: (id: TabId) => 
               onClick={() => onChange(tab.id)}
               className={cn(
                 "rounded-xl gap-2",
-                tab.id === "extracted" && "hidden", isActive ? "shadow-lg shadow-indigo-600/25" : "text-slate-400 hover:text-slate-200"
+                tab.id === "extracted" && "hidden", isActive ? "shadow-sm" : "text-muted-foreground hover:text-foreground"
               )}
             >
               <Icon className="w-4 h-4 shrink-0" />
@@ -90,54 +90,54 @@ function FileHeader({
 }) {
   const { t } = useLocale();
   const statusMap = {
-    completed: { label: t('files.statusCompleted'), icon: CheckCircle2, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-    failed: { label: t('files.statusFailed'), icon: XCircle, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
-    processing: { label: t('files.statusProcessing'), icon: RefreshCw, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
-    pending: { label: t('files.statusPending'), icon: Clock, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
-    ocr_required: { label: t('files.statusOcrRequired'), icon: AlertTriangle, color: 'text-amber-300 bg-amber-500/10 border-amber-500/20' },
+    completed: { label: t('files.statusCompleted'), icon: CheckCircle2, color: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' },
+    failed: { label: t('files.statusFailed'), icon: XCircle, color: 'border-destructive/25 bg-destructive/10 text-destructive' },
+    processing: { label: t('files.statusProcessing'), icon: RefreshCw, color: 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300' },
+    pending: { label: t('files.statusPending'), icon: Clock, color: 'border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300' },
+    ocr_required: { label: t('files.statusOcrRequired'), icon: AlertTriangle, color: 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300' },
   } as const;
 
   const status = statusMap[(file.processingStatus as keyof typeof statusMap)] ?? statusMap.pending;
   const StatusIcon = status.icon;
 
   return (
-    <Card className="relative overflow-hidden border border-white/5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-indigo-950/30 p-6 shadow-xl ring-0">
+    <Card className="relative overflow-hidden border border-border bg-card p-6 shadow-sm ring-0">
       {/* Decorative glow */}
-      <div className="pointer-events-none absolute -top-20 -right-20 w-64 h-64 rounded-full bg-indigo-600/10 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/5 blur-3xl" />
 
       <div className="relative flex flex-col md:flex-row md:items-start gap-5">
         {/* Back + icon */}
         <div className="flex items-start gap-4">
           <Link
             href="/files"
-            className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "mt-1 rounded-xl border-white/10 bg-transparent hover:bg-white/5 text-slate-400 hover:text-white")}
+            className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), "mt-1 rounded-xl text-muted-foreground hover:text-foreground")}
           >
             <ArrowLeft className="w-4 h-4 rtl-flip" />
           </Link>
 
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 flex items-center justify-center shrink-0">
-            <FileText className="w-6 h-6 text-indigo-400" />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+            <FileText className="h-6 w-6 text-primary" />
           </div>
         </div>
 
         {/* Title & meta */}
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold text-white truncate max-w-[500px] mb-3">
+          <h1 dir="auto" className="mb-3 max-w-[500px] truncate text-xl font-bold text-foreground [unicode-bidi:plaintext]">
             {file.titleSource === 'fallback'
               ? t('files.untitledDocument')
               : file.title ?? file.originalName}
           </h1>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-slate-500" />
+              <Calendar className="h-3.5 w-3.5" />
               {formatDate(file.createdAt, locale)}
             </span>
             <span className="flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-slate-500" />
+              <Layers className="h-3.5 w-3.5" />
               {formatBytes(file.fileSize)}
             </span>
             <span className="flex items-center gap-1.5">
-              <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+              <FileCheck className="h-3.5 w-3.5" />
               <span className="capitalize">{file.fileType}</span>
             </span>
           </div>
@@ -178,16 +178,16 @@ function ProcessingState() {
   return (
     <div className="py-16 flex flex-col items-center gap-6 text-center">
       <div className="relative">
-        <div className="w-20 h-20 rounded-full bg-indigo-500/10 flex items-center justify-center">
-          <Spinner className="w-8 h-8 text-indigo-400" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+          <Spinner className="h-8 w-8 text-primary" />
         </div>
-        <div className="absolute inset-0 rounded-full bg-indigo-500/5 animate-ping" />
+        <div className="absolute inset-0 animate-ping rounded-full bg-primary/5" />
       </div>
       <div>
-        <h3 className="text-base font-bold text-white mb-2">
+        <h3 className="mb-2 text-base font-bold text-foreground">
           {t('workspace.analyzingTitle')}
         </h3>
-        <p className="text-sm text-slate-400 max-w-xs leading-relaxed">
+        <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
           {t('workspace.analyzingDescription')}
         </p>
       </div>
@@ -205,10 +205,10 @@ function FailedState({ onReprocess, reprocessing }: { onReprocess: () => void; r
         <AlertTriangle className="w-9 h-9 text-rose-400" />
       </div>
       <div>
-        <h3 className="text-base font-bold text-white mb-2">
+        <h3 className="mb-2 text-base font-bold text-foreground">
           {t('workspace.analysisFailedTitle')}
         </h3>
-        <p className="text-sm text-slate-400 leading-relaxed">
+        <p className="text-sm leading-relaxed text-muted-foreground">
           {t('workspace.analysisFailedDescription')}
         </p>
       </div>
@@ -225,8 +225,8 @@ function OcrRequiredState() {
   return (
     <div className="py-14 flex flex-col items-center gap-4 max-w-md mx-auto text-center" role="status">
       <AlertTriangle className="w-10 h-10 text-amber-400" aria-hidden="true" />
-      <h3 className="text-base font-bold text-white">{t('files.ocrRequiredTitle')}</h3>
-      <p className="text-sm text-slate-400 leading-relaxed">{t('files.ocrRequiredDescription')}</p>
+      <h3 className="text-base font-bold text-foreground">{t('files.ocrRequiredTitle')}</h3>
+      <p className="text-sm leading-relaxed text-muted-foreground">{t('files.ocrRequiredDescription')}</p>
     </div>
   );
 }
@@ -593,9 +593,9 @@ export default function FileDetailPage({ params }: PageProps) {
   if (loading) {
     return (
       <div className="flex flex-col gap-6 animate-pulse">
-        <div className="h-32 rounded-2xl bg-white/5" />
-        <div className="h-12 rounded-2xl bg-white/5" />
-        <div className="h-64 rounded-2xl bg-white/5" />
+        <div className="h-32 rounded-2xl bg-muted" />
+        <div className="h-12 rounded-2xl bg-muted" />
+        <div className="h-64 rounded-2xl bg-muted" />
       </div>
     );
   }
@@ -607,8 +607,8 @@ export default function FileDetailPage({ params }: PageProps) {
           <XCircle className="w-8 h-8 text-rose-400" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-white mb-1">{t('files.notFoundTitle')}</h3>
-          <p className="text-sm text-slate-400">{t('files.notFoundDescription')}</p>
+          <h3 className="mb-1 text-base font-bold text-foreground">{t('files.notFoundTitle')}</h3>
+          <p className="text-sm text-muted-foreground">{t('files.notFoundDescription')}</p>
         </div>
         <Button nativeButton={false} render={<Link href="/files" />}>
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -642,6 +642,8 @@ export default function FileDetailPage({ params }: PageProps) {
               labels={{
                 loading: t('files.pdfLoading'),
                 failed: t('files.pdfLoadFailed'),
+                missing: t('files.pdfMissing'),
+                invalid: t('files.pdfInvalid'),
                 retry: t('workspace.retry'),
                 previous: t('files.pdfPreviousPage'),
                 next: t('files.pdfNextPage'),

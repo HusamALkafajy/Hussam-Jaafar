@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DocumentExtractor, DocumentExtractionContext, MissingTextLayerError } from '../../contracts/document-extractor';
 import { ExtractedDocument } from '../../contracts/extracted-document';
 import { AiService } from '../../../ai/ai.service';
@@ -12,6 +12,7 @@ import * as mammoth from 'mammoth';
  * This ensures that E1 can be deployed independently without regressing
  * current PDF and image capabilities, which still rely on AiService.
  */
+@Injectable()
 export class LegacyFallbackAdapter implements DocumentExtractor {
   private readonly logger = new Logger(LegacyFallbackAdapter.name);
 

@@ -59,6 +59,22 @@ const chunkUploadOptions = {
   limits: { fileSize: UPLOAD_CHUNK_BYTES + 1, files: 1 },
 };
 
+const encodeRfc5987Value = (value: string): string =>
+  encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+export const buildInlineContentDisposition = (originalName: string): string => {
+  const normalizedName = originalName
+    .normalize('NFC')
+    .replace(/[\u0000-\u001f\u007f"\\\ud800-\udfff]/g, '_')
+    .trim()
+    .slice(0, 180) || 'document.pdf';
+  const asciiFallback = normalizedName.replace(/[^\x20-\x7e]/g, '_');
+
+  return `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987Value(normalizedName)}`;
+};
+
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class FilesController {
@@ -152,7 +168,7 @@ export class FilesController {
     response.setHeader('Content-Type', mimeType);
     response.setHeader('Content-Length', String(length));
     response.setHeader('Accept-Ranges', 'bytes');
-    response.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    response.setHeader('Content-Disposition', buildInlineContentDisposition(fileName));
     response.setHeader('X-Content-Type-Options', 'nosniff');
     if (range) response.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
 
