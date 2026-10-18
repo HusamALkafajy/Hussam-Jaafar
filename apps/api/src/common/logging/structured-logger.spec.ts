@@ -4,6 +4,29 @@ import { redactLogValue, StructuredLogger } from './structured-logger';
 describe('StructuredLogger', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('removes complete HTTP URLs including opaque paths and queries', () => {
+    const marker = `private-${Date.now()}-${Math.random()}`;
+    const value = `request https://example.test/reset/${marker}?code=${marker}`;
+    expect(redactLogValue(value)).toBe('request [REDACTED]');
+  });
+  it('redacts Basic authentication and generic query values', () => {
+    expect(redactLogValue('Basic dGVzdDp0ZXN0 /callback?code=opaque&state=private'))
+      .toBe('Basic [REDACTED] /callback?code=[REDACTED]&state=[REDACTED]');
+  });
+  it('redacts OAuth credentials, AI contents, and generic token fields', () => {
+    const marker = `private-${Date.now()}-${Math.random()}`;
+    expect(redactLogValue({ client_secret: marker, id_token: marker, rawResponse: marker,
+      privateKey: marker, nested: { api_key: marker } })).toEqual({
+      client_secret: '[REDACTED]', id_token: '[REDACTED]', rawResponse: '[REDACTED]',
+      privateKey: '[REDACTED]', nested: { api_key: '[REDACTED]' },
+    });
+  });
+  it('handles cycles without exposing sensitive contents', () => {
+    const entry: Record<string, unknown> = { status: 500 };
+    entry.self = entry;
+    expect(redactLogValue(entry)).toEqual({ status: 500, self: '[Circular]' });
+  });
+
   it('emits machine-readable production logs with request correlation', () => {
     const output = jest.spyOn(console, 'log').mockImplementation();
     const logger = new StructuredLogger(true);

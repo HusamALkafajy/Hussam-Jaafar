@@ -16,6 +16,9 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { HttpStatus } from '@nestjs/common';
 
+// Keep token-transport tests independent of database initialization and sockets.
+jest.mock('@studyai/database', () => ({ db: { transaction: jest.fn() } }));
+
 jest.mock('bcrypt', () => ({
   compare: jest.fn(),
   genSalt: jest.fn(),

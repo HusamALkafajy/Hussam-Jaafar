@@ -12,6 +12,7 @@ import {
   validateSync,
 } from 'class-validator';
 import { StructuredLogger } from '../common/logging/structured-logger';
+import { assertJwtSecrets } from './jwt-secrets';
 
 enum Environment {
   Development = 'development',
@@ -176,6 +177,11 @@ export function validate(config: Record<string, unknown>) {
   }
 
   const deploymentErrors: string[] = [];
+  assertJwtSecrets(
+    validatedConfig.JWT_SECRET,
+    validatedConfig.JWT_REFRESH_SECRET,
+    validatedConfig.NODE_ENV === Environment.Production,
+  );
   const warnings: string[] = [];
 
   if (validatedConfig.NODE_ENV === Environment.Production) {

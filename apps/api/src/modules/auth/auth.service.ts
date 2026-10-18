@@ -7,6 +7,7 @@ import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserRole, AuthProvider, Locale } from '@studyai/types';
 import { db } from '@studyai/database';
+import { assertJwtSecrets } from '../../config/jwt-secrets';
 
 type AuthUser = {
   id: string;
@@ -102,13 +103,16 @@ export class AuthService {
     }
 
     const payload = { sub: user.id, email: user.email, role: user.role };
+    const accessSecret = this.configService.getOrThrow<string>('auth.jwtSecret');
+    const refreshSecret = this.configService.getOrThrow<string>('auth.jwtRefreshSecret');
+    assertJwtSecrets(accessSecret, refreshSecret, this.configService.get<string>('NODE_ENV') === 'production');
     const accessToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.getOrThrow<string>('auth.jwtSecret'),
+      secret: accessSecret,
       expiresIn: this.configService.get<string>('auth.jwtAccessExpiration') as any,
     });
 
     const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('auth.jwtRefreshSecret'),
+      secret: refreshSecret,
       expiresIn: this.configService.get<string>('auth.jwtRefreshExpiration') as any,
     });
 
@@ -273,7 +277,7 @@ export class AuthService {
     let payload: { sub: string };
     try {
       payload = await this.jwtService.verifyAsync(refreshToken, {
-        secret: this.configService.get<string>('auth.jwtRefreshSecret'),
+        secret: this.configService.getOrThrow<string>('auth.jwtRefreshSecret'),
       });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -295,7 +299,7 @@ export class AuthService {
   private async sendVerificationEmail(email: string, name: string, token: string) {
     const url = `${this.configService.get<string>('FRONTEND_URL')}/verify-email?token=${token}`;
     // Do not log tokens or full verification URLs. Log an event instead.
-    this.logger.log(`Verification email prepared for ${email}`);
+    this.logger.log({ event: 'auth.verification-email-prepared' });
 
     if (this.transporter) {
       try {
@@ -307,7 +311,7 @@ export class AuthService {
           html: `<p>Hello ${name},</p><p>Please verify your email by clicking <a href="${url}">here</a>.</p>`,
         });
       } catch (e) {
-        this.logger.error(`Failed to send verification email to ${email}: ${e.message}`);
+        this.logger.error({ event: 'auth.verification-email-failed' });
       }
     }
   }
@@ -315,7 +319,7 @@ export class AuthService {
   private async sendResetEmail(email: string, name: string, token: string) {
     const url = `${this.configService.get<string>('FRONTEND_URL')}/reset-password?token=${token}`;
     // Do not log tokens or full reset URLs. Log an event instead.
-    this.logger.log(`Password reset email prepared for ${email}`);
+    this.logger.log({ event: 'auth.password-reset-email-prepared' });
 
     if (this.transporter) {
       const from = this.configService.get<string>('SMTP_FROM') || 'StudyAI <noreply@studyai.com>';

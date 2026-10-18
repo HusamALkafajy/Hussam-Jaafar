@@ -3,13 +3,16 @@ import { requestContext } from '../request-context';
 
 const REDACTED = '[REDACTED]';
 const SENSITIVE_KEY =
-  /(password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key|email|jwt|prompt|raw.?response|response.?text)/i;
+  /(password|passphrase|token|authorization|cookie|secret|api.?key|email|jwt|prompt|raw.?response|response.?text|client.?assertion|private.?key)/i;
 const DATABASE_OR_CACHE_URL =
   /\b(?:postgres(?:ql)?|redis(?:s)?|mysql|mariadb|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi;
 const CREDENTIAL_URL =
   /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:[^@/\s]+@[^\s"'<>]+/gi;
 const EMAIL_ADDRESS = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const JWT_TOKEN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+// URLs can carry opaque credentials in paths as well as queries. Keep neither.
+const HTTP_URL = /\bhttps?:\/\/[^\s"'<>]+/gi;
+const PROVIDER_KEY = /\b(?:sk-(?:or-v1-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g;
 
 type LogLevel = 'log' | 'error' | 'warn' | 'debug' | 'verbose' | 'fatal';
 
@@ -18,9 +21,12 @@ export function redactLogValue(value: unknown, seen = new WeakSet<object>()): un
     return value
       .replace(DATABASE_OR_CACHE_URL, REDACTED)
       .replace(CREDENTIAL_URL, REDACTED)
+      .replace(HTTP_URL, REDACTED)
+      .replace(PROVIDER_KEY, REDACTED)
       .replace(EMAIL_ADDRESS, REDACTED)
       .replace(JWT_TOKEN, REDACTED)
-      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED}`)
+      .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, `$1 ${REDACTED}`)
+      .replace(/([?&][^=\s&]+)=([^&\s]*)/g, `$1=${REDACTED}`)
       .replace(
         /((?:password|passphrase|access.?token|refresh.?token|authorization|cookie|secret|api.?key)\s*[:=]\s*)(Bearer\s+[^\s,;]+|"[^"]*"|'[^']*'|[^\s,;]+)/gi,
         `$1${REDACTED}`,
@@ -100,7 +106,7 @@ export class StructuredLogger implements LoggerService {
       timestamp: new Date().toISOString(),
       level,
       source: this.source,
-      requestId: context?.requestId,
+      requestId: redactLogValue(context?.requestId),
       message: safeMessage,
       ...(safeParams.length > 0 ? { context: safeParams } : {}),
     };

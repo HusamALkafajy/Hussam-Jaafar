@@ -1,5 +1,8 @@
 name: StudyAI CI/CD Pipeline
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main ]
@@ -44,15 +47,17 @@ jobs:
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      with:
+        persist-credentials: false
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
         node-version: 20
 
     - name: Install pnpm
-      uses: pnpm/action-setup@v3
+      uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
       with:
         version: 9.15.0
 
@@ -62,12 +67,19 @@ jobs:
         echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
     - name: Cache pnpm Dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ env.STORE_PATH }}
         key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
+
+    # Inspect checked-out source before generators/platform rebuilds can alter bytes.
+    - name: Test Secret Guard Fail-Closed Policy
+      run: node --test scripts/check-no-committed-secrets.test.mjs
+
+    - name: Scan Tracked Content for Committed Secrets
+      run: node scripts/check-no-committed-secrets.mjs
 
     - name: Install Dependencies
       run: pnpm install --frozen-lockfile
@@ -90,9 +102,6 @@ jobs:
         TMP_STRIPE=$(node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))")
         echo "::add-mask::$TMP_STRIPE"
         echo "STRIPE_SECRET_KEY=$TMP_STRIPE" >> "$GITHUB_ENV"
-
-    - name: Scan Tracked Content for Committed Secrets
-      run: pnpm security:scan
 
     - name: Verify Workspace Linting
       run: pnpm lint

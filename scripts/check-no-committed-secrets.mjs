@@ -1,134 +1,113 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const textExtensions = new Set([
-  '.cjs', '.conf', '.css', '.env', '.html', '.ini', '.js', '.json', '.mjs',
-  '.md', '.ps1', '.sh', '.sql', '.toml', '.ts', '.tsx', '.txt', '.yaml', '.yml',
-]);
+const hash = value => crypto.createHash('sha256').update(value).digest('hex');
+export const canonicalSourceSHA256 = bytes => hash(bytes.toString('utf8').replace(/\r\n/g, '\n'));
+function entropy(value) {
+  const counts = new Map();
+  for (const c of value) counts.set(c, (counts.get(c) || 0) + 1);
+  return [...counts.values()].reduce((sum, count) => sum - (count / value.length) * Math.log2(count / value.length), 0);
+}
 
-const credentialUriPattern = /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqp|https?):\/\/[^/\s:@]+:[^@\s/]+@/gi;
-const privateKeyPattern = /-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----/g;
-const providerKeyPatterns = [
-  /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]+\b/g,
-  /\bAIza[A-Za-z0-9_-]{20,}\b/g,
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
-  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+// Values stay in memory; exact reviewed exceptions contain fingerprints only.
+export function inspectText(content) {
+  const found = [];
+  const stats = { bytesScanned: 0, excludedHashOrIntegrity: 0, environmentReferences: 0 };
+  function add(_source, key, value, provider, kind, offset = 0) {
+    if (!value || value.length > 65536) return;
+    found.push({ key, fingerprint: hash(Buffer.from(value, 'utf8')), provider, kind,
+      line: content.slice(0, offset).split('\n').length });
+  }
+const strong=[
+ ['Google/Gemini API key',/\bAIza[0-9A-Za-z_-]{35}\b/g],
+ ['GitHub PAT',/\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})\b/g],
+ ['OpenAI/Anthropic API key',/\bsk-(?:proj-|ant-api\d+-)?[A-Za-z0-9_-]{20,255}\b/g],
+ ['AWS access-key identifier',/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
+ ['Stripe secret key',/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,255}\b/g],
+ ['Slack token',/\bxox[baprs]-[0-9A-Za-z-]{15,255}\b/g],
+ ['HTTP authorization credential', /\b(?:Bearer|Basic)\s+([A-Za-z0-9+_\/=.-]{20,})/g],
+ ['JWT literal',/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g]
 ];
-const sensitiveNamePattern = /(?:password|passwd|secret|api[_-]?key|apikey|private[_-]?key|access[_-]?key|database[_-]?url|databaseurl|redis[_-]?url|redisurl|connection[_-]?string)/i;
-const assignmentPattern = /^\s*(?:export\s+)?["']?([A-Za-z][A-Za-z0-9_.-]*)["']?\s*[:=]\s*(.*?)\s*$/;
-
-function isTextFile(file) {
-  const baseName = path.basename(file);
-  return textExtensions.has(path.extname(file).toLowerCase()) ||
-    baseName.startsWith('.env') ||
-    baseName === 'Dockerfile' ||
-    baseName.startsWith('docker-compose');
+function scan(buf,src){
+ stats.bytesScanned+=buf.length;let binary=buf.subarray(0,Math.min(buf.length,16384)).includes(0);
+ let t=buf.toString('utf8');src._text=t;
+ if(src.kind==='BLOB'){if(binary)stats.binaryBlobs++;else stats.textBlobs++;}
+ for(const[p,re]of strong){re.lastIndex=0;for(const x of t.matchAll(re))add(src,'TOKEN_PREFIX',x[1]||x[0],p,'STRONG',x.index);}
+ const pem=/-----BEGIN ((?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY)-----[\s\S]{10,20000}?-----END \1-----/g;
+ for(const x of t.matchAll(pem))add(src,'PRIVATE_KEY',x[0],'Private key material','STRONG',x.index);
+ const conn=/(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis(?:s)?|amqp(?:s)?):\/\/(?:[^\/\s:@"']+)?(?::([^@\s\/"']+))?@[^\/\s"'`]+/g;
+ for(const x of t.matchAll(conn)){if(x[1]){let v=x[1];try{v=decodeURIComponent(v)}catch{}add(src,'CONNECTION_URL_PASSWORD',v,'Database/cache/queue password','CONNECTION',x.index);}}
+ const query=/[?&](api[_-]?key|access[_-]?token|secret|token)=([^&\s"'<>]+)/gi;
+ for(const x of t.matchAll(query))add(src,x[1],x[2],'Credential in URL query','GENERIC',x.index);
+ if(!binary){
+  let pos=0;for(const line of t.split('\n')){
+   let a=line.match(/^\s*(?:(?:export|const|let|var)\s+)?["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*[:=]\s*(.{1,4096})/);
+   if(a&&/(password|passwd|pwd|secret|api.?key|access.?key|private.?key|token|database.?url|redis.?url|connection.?string|authorization)/i.test(a[1])&&!/(?:expires|expiry|ttl|max|limit|enabled|length|status|count|timeout|algorithm|duration|name|header)$/i.test(a[1])){
+    let rest=a[2].trim(),v=null;if(/^['"]/.test(rest)){let q=rest.match(/^(['"])(.*?)\1/);if(q)v=q[2];}else if(!/[(){}\[\]]/.test(rest)&&!rest.startsWith('process.')&&!rest.startsWith('config.')&&!rest.startsWith('this.'))v=rest.replace(/\s+#.*$/,'').replace(/[,;]\s*$/,'').trim();
+    if(v&&v.length>=3&&!/^(?:true|false|null|undefined|boolean|string|number)$/.test(v)&&!/^https?:\/\/[^@]*$/.test(v)&&!v.includes('://')){
+     if(/\$\{|^\{\{|^process\.env|^secrets\./.test(v)){stats.environmentReferences++;}
+     else if(a[1].match(/public|client.?id/i)){add(src,a[1],v,'Public identifier','FALSE',pos);}
+     else add(src,a[1],v,'Named credential/secret','GENERIC',pos);
+    }
+   }
+   const quotes=/(?<![A-Za-z0-9])(["'])([A-Za-z0-9+_\/=-]{24,256})\1/g;
+   for(const q of line.matchAll(quotes)){
+    let v=q[2];if(/^[a-f0-9]{32,128}$/i.test(v)||/sha(?:256|384|512)-/i.test(line)||/\bintegrity\b|\bchecksum\b|\bsha256\b/i.test(line)){stats.excludedHashOrIntegrity++;continue;}
+    if(entropy(v)>4.2&&/[a-z]/i.test(v)&&/[0-9]/.test(v))add(src,'HIGH_ENTROPY_QUOTED_LITERAL',v,'Unclassified high-entropy literal','ENTROPY',pos+q.index);
+   }
+   pos+=line.length+1;
+  }
+ }
+ delete src._text;
+ return binary;
 }
 
-function lineNumberAt(content, index) {
-  return content.slice(0, index).split('\n').length;
+  scan(Buffer.from(content, 'utf8'), { kind: 'CURRENT_TREE' });
+  return found;
 }
 
-function isEnvironmentReference(value) {
-  const normalized = value
-    .replace(/(?:,|;)\s*$/, '')
-    .replace(/\s*#.*$/, '')
-    .trim();
-
-  return normalized === '' ||
-    normalized === 'undefined' ||
-    /^\$\{[A-Za-z_][A-Za-z0-9_]*(?::[-?][^}]*)?\}$/.test(normalized) ||
-    /^process\.env\.[A-Za-z_][A-Za-z0-9_]*$/.test(normalized) ||
-    /^\$env:[A-Za-z_][A-Za-z0-9_]*$/i.test(normalized);
+export function isReviewed(finding, file, fileSHA256, baseline) {
+  return baseline.entries.some(entry =>
+    entry.file === file && entry.fileSHA256 === fileSHA256 &&
+    entry.fingerprint === finding.fingerprint && entry.line === finding.line &&
+    entry.key === finding.key && typeof entry.reason === 'string' && entry.reason.length > 20);
 }
 
-function isSensitiveKey(file, key) {
-  if (!sensitiveNamePattern.test(key)) {
-    return false;
-  }
-
-  if (/^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(key) && key !== 'api-key' && key !== 'private-key') {
-    return false;
-  }
-
-  return !(/passwordhash|passwordfield|displayname$/i.test(key) || file.includes('/i18n/'));
-}
-
-function isSafeSensitiveAssignment(file, key, value) {
-  const normalized = value
-    .replace(/(?:,|;)\s*$/, '')
-    .replace(/\s*#.*$/, '')
-    .trim();
-
-  if (isEnvironmentReference(normalized)) {
-    return true;
-  }
-
-  if (/^(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqp):\/\/(?![^/\s:@]+:[^@\s/]+@)/i.test(normalized)) {
-    return true;
-  }
-
-  if (/^(?:\{|\[|z\.|Joi\.|typeof\b|String\b|Boolean\b|number\b|unknown\b|true\b|false\b|null\b)/.test(normalized)) {
-    return true;
-  }
-
-  const extension = path.extname(file).toLowerCase();
-  const configurationLikeFile = ['.env', '.example', '.ini', '.json', '.md', '.toml', '.yaml', '.yml'].includes(extension) ||
-    path.basename(file).startsWith('docker-compose');
-
-  if (/^["'`]/.test(normalized) || configurationLikeFile) {
-    return false;
-  }
-
-  return true;
-}
-
-function inspectFile(file) {
-  const content = readFileSync(file, 'utf8');
-  const findings = [];
-  const patterns = [
-    ['credential-bearing URI', credentialUriPattern],
-    ['private key block', privateKeyPattern],
-    ...providerKeyPatterns.map(pattern => ['provider key signature', pattern]),
-  ];
-
-  for (const [category, pattern] of patterns) {
-    pattern.lastIndex = 0;
-    for (const match of content.matchAll(pattern)) {
-      findings.push({ file, line: lineNumberAt(content, match.index), category });
+export function checkCurrentTree(repo = process.cwd()) {
+  const git = process.platform === 'win32' ? 'C:/Program Files/Git/cmd/git.exe' : 'git';
+  const readGit = args => execFileSync(git, ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', repo, ...args],
+    { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0' } });
+  const baseline = JSON.parse(fs.readFileSync(path.join(repo, '.security/secret-review-baseline.json'), 'utf8'));
+  if (baseline.schema !== 'StudyAI-exact-reviewed-noncredential-baseline-v1') throw new Error('Unqualified baseline schema');
+  const gitlinks = readGit(['ls-files', '--stage', '-z']).split('\0')
+    .filter(row => row.startsWith('160000 ')).map(row => row.slice(row.indexOf('\t') + 1));
+  const files = [...new Set(readGit(['ls-files', '--cached', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean))];
+  const unresolved = [];
+  let inspected = 0;
+  for (const file of files) {
+    if (gitlinks.includes(file)) continue; // Git-mode 160000 is a separate object boundary.
+    const full = path.join(repo, file);
+    if (!fs.existsSync(full)) continue; // Tracked deletion: no current bytes.
+    const stat = fs.lstatSync(full);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Non-ordinary source object');
+    const bytes = fs.readFileSync(full);
+    inspected++;
+    for (const finding of inspectText(bytes.toString('utf8'))) {
+      if (!isReviewed(finding, file, canonicalSourceSHA256(bytes), baseline)) unresolved.push({ file, ...finding });
     }
   }
-
-  const lines = content.split(/\r?\n/);
-  lines.forEach((line, index) => {
-    const match = line.match(assignmentPattern);
-    if (!match || !isSensitiveKey(file, match[1])) {
-      return;
-    }
-
-    if (!isSafeSensitiveAssignment(file, match[1], match[2])) {
-      findings.push({ file, line: index + 1, category: 'literal sensitive assignment' });
-    }
-  });
-
-  return findings;
+  return { inspected, gitlinks, unresolved };
 }
 
-const trackedFiles = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
-  .split('\0')
-  .filter(Boolean)
-  .filter(isTextFile);
-
-const findings = trackedFiles.flatMap(inspectFile);
-
-if (findings.length > 0) {
-  console.error('Committed-secret guard failed. Values are intentionally not printed.');
-  for (const finding of findings) {
-    console.error(`${finding.file}:${finding.line} [${finding.category}]`);
-  }
-  process.exitCode = 1;
-} else {
-  console.log(`Committed-secret guard passed for ${trackedFiles.length} tracked text files.`);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const result = checkCurrentTree();
+  if (result.unresolved.length) {
+    console.error(JSON.stringify({ result: 'FAIL', unresolved: result.unresolved }, null, 2));
+    process.exitCode = 1;
+  } else console.log(JSON.stringify({ result: 'PASS', inspected: result.inspected,
+    gitlinkCount: result.gitlinks.length, unresolved: 0, rawValuesPrinted: false }));
 }

@@ -61,8 +61,8 @@ Daily Available Minutes: ${dto.dailyAvailableMinutes || 30}`;
     try {
       responseJsonStr = await this.aiService.getCompletion(userPrompt, systemPrompt, true);
     } catch (err: any) {
-      this.logger.error('Failed to get learning path completion from AI service', err);
-      throw new BadRequestException(`AI Roadmap Generation failed: ${err.message}`);
+      this.logger.error({ event: 'learning-path.ai-request-failed' });
+      throw new BadRequestException('AI Roadmap Generation failed');
     }
 
     let parsedRoadmap: any;
@@ -71,7 +71,7 @@ Daily Available Minutes: ${dto.dailyAvailableMinutes || 30}`;
       const cleanJsonStr = this.cleanJson(responseJsonStr);
       parsedRoadmap = JSON.parse(cleanJsonStr);
     } catch (err: any) {
-      this.logger.error('Failed to parse AI response as JSON. Response was: ' + responseJsonStr, err);
+      this.logger.error({ event: 'learning-path.ai-json-invalid', responseLength: responseJsonStr.length });
       throw new BadRequestException('AI generated an invalid JSON roadmap structure');
     }
 

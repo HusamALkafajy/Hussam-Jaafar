@@ -1,5 +1,6 @@
 import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus, Logger, LoggerService } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { redactLogValue } from '../logging/structured-logger';
 import {
   isMulterFileSizeError,
   uploadFileSizeException,
@@ -39,14 +40,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const errorCode = exceptionResponse?.errorCode;
 
     // Log the error with minimal, sanitized information to avoid leaking tokens/PII
-    const safeLog = {
-      path: request.url,
+    // Framework route templates contain no user-supplied path/query credentials.
+    const routePath = typeof request.route?.path === 'string' ? request.route.path : '[unmatched-route]';
+    const safeLog = redactLogValue({
+      path: routePath,
       status,
       error,
       message: Array.isArray(message) ? message[0] : message,
       ...(errorCode ? { errorCode } : {}),
       timestamp: new Date().toISOString(),
-    };
+    });
     this.logger.error(safeLog);
 
 
@@ -62,7 +65,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ...(exceptionResponse?.limit !== undefined ? { limit: exceptionResponse.limit } : {}),
       ...(exceptionResponse?.tier ? { tier: exceptionResponse.tier } : {}),
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path: routePath,
     });
   }
 }

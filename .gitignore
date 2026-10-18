@@ -17,12 +17,29 @@ apps/web/public/vendor/pdfjs/
 .env.local
 .env.staging
 .env.*.local
+# All local environment variants/backups are secret stores, never templates.
+.env.*
 # Local test environment files — contain real DB credentials, must never be committed
 apps/api/.env.test
 docker/.env.prod
 !.env.example
 !apps/api/.env.example
 !docker/.env.prod.example
+!.env.staging.example
+
+# Private keys, signing stores, credential exports and secret snapshots
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+service-account*.json
+secrets.json
+secret-snapshots/
+environment-backups/
+database-export*.sql
 
 # IDE
 .vscode/

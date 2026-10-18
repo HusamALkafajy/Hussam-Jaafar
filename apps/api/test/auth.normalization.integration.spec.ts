@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
@@ -41,7 +42,7 @@ describe('Auth Email Normalization (Integration)', () => {
   it('1. leading/trailing whitespace is normalized', async () => {
     const emailBase = generateEmail('whitespace');
     const emailWithSpaces = `   ${emailBase}   `;
-    const password = 'TestPassword123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     const res = await request(app.getHttpServer())
       .post('/api/auth/register')
@@ -64,7 +65,7 @@ describe('Auth Email Normalization (Integration)', () => {
     const emailBase = generateEmail('uppercase');
     const emailMixedCase = `UpPeR${emailBase}`;
     const emailExpected = emailMixedCase.toLowerCase();
-    const password = 'TestPassword123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     const res = await request(app.getHttpServer())
       .post('/api/auth/register')
@@ -84,7 +85,7 @@ describe('Auth Email Normalization (Integration)', () => {
 
   it('3. already-normalized emails remain unchanged', async () => {
     const emailExpected = generateEmail('normal');
-    const password = 'TestPassword123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     const res = await request(app.getHttpServer())
       .post('/api/auth/register')
@@ -104,7 +105,7 @@ describe('Auth Email Normalization (Integration)', () => {
 
   it('4. malformed emails remain rejected after normalization', async () => {
     const emailMalformed = `   not-an-email   `;
-    const password = 'TestPassword123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     const res = await request(app.getHttpServer())
       .post('/api/auth/register')
@@ -122,7 +123,7 @@ describe('Auth Email Normalization (Integration)', () => {
 
   it('5. duplicate-account behavior remains correct after case normalization', async () => {
     const emailBase = generateEmail('duplicate');
-    const password = 'TestPassword123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     // Register first one
     await request(app.getHttpServer())
@@ -153,7 +154,7 @@ describe('Auth Email Normalization (Integration)', () => {
 
   it('6. login works consistently with normalized casing and whitespace where intended', async () => {
     const emailBase = generateEmail('login-test');
-    const password = 'TestPassword123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     await request(app.getHttpServer())
       .post('/api/auth/register')

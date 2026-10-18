@@ -1,8 +1,9 @@
 import { MAX_THROTTLE_TTL_MS, validate } from './env.validation';
+import { randomBytes } from 'crypto';
 
 const REQUIRED_BASE = {
-  JWT_SECRET: Array(33).join('a'),
-  JWT_REFRESH_SECRET: Array(33).join('b'),
+  JWT_SECRET: randomBytes(48).toString('hex'),
+  JWT_REFRESH_SECRET: randomBytes(48).toString('hex'),
   DATABASE_URL: String('postgresql://localhost/studyai'),
 };
 
