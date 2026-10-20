@@ -1,4 +1,7 @@
 import { db, aiTokenUsage } from '@studyai/database';
+import { StructuredLogger } from '../../common/logging/structured-logger';
+
+const logger = new StructuredLogger(true, 'AITokenTracking');
 
 export const saveTokenUsage = async (userId: string, agentType: string, promptTokens: number, completionTokens: number, model: string) => {
   if (!userId || !agentType) return;
@@ -16,7 +19,7 @@ export const saveTokenUsage = async (userId: string, agentType: string, promptTo
       completionTokens,
       costUSD: costUSD.toString(),
     });
-  } catch (err) {
-    console.error('Failed to save token usage:', err);
+  } catch {
+    logger.error('AI token usage save failed', { operation: 'save_token_usage', status: 'failed' });
   }
 };

@@ -27,6 +27,16 @@ function productionTypeScriptFiles(directory: string): string[] {
 }
 
 describe('production logging boundary', () => {
+  it.each([
+    'console.error({ jwt: "VALIDATION_ONLY_TOKEN" });',
+    'console.warn({ Authorization: "VALIDATION_ONLY_AUTH" });',
+    'console.log({ DATABASE_URL: "VALIDATION_ONLY_DATABASE" });',
+    'console.debug({ body: "VALIDATION_ONLY_BODY" });',
+    'console.info({ rawOutput: "VALIDATION_ONLY_OUTPUT" });',
+  ])('detects a prohibited direct-output fixture: %s', (source) => {
+    expect(consoleCall.test(source)).toBe(true);
+  });
+
   it('allows direct console emission only inside StructuredLogger', () => {
     const violations = productionTypeScriptFiles(sourceRoot)
       .filter((filePath) => path.resolve(filePath) !== structuredLoggerSink)

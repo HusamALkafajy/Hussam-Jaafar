@@ -1,8 +1,10 @@
 import { db, aiTokenUsage } from '@studyai/database';
 import { eq, sql, and, gte } from 'drizzle-orm';
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { StructuredLogger } from '../../common/logging/structured-logger';
 
 const MAX_FREE_TIER_COST_USD = 0.50; // hardcoded limit
+const logger = new StructuredLogger(true, 'AIQuotaGuard');
 
 export const checkQuota = async (userId: string) => {
   if (!userId) return; // Skip if no user context
@@ -29,6 +31,6 @@ export const checkQuota = async (userId: string) => {
     }
   } catch (err) {
     if (err instanceof HttpException) throw err;
-    console.error('Failed to check quota:', err);
+    logger.error('AI quota check failed', { operation: 'check_quota', status: 'failed' });
   }
 };
