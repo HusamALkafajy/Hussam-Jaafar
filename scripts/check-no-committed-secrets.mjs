@@ -55,7 +55,11 @@ function scan(buf,src){
    }
    const quotes=/(?<![A-Za-z0-9])(["'])([A-Za-z0-9+_\/=-]{24,256})\1/g;
    for(const q of line.matchAll(quotes)){
-    let v=q[2];if(/^[a-f0-9]{32,128}$/i.test(v)||/sha(?:256|384|512)-/i.test(line)||/\bintegrity\b|\bchecksum\b|\bsha256\b/i.test(line)){stats.excludedHashOrIntegrity++;continue;}
+    let v=q[2];
+    const hex=/^[a-f0-9]{32,128}$/i.test(v);
+    const hashField=/^\s*"(?:authoritativeAdjudicationSHA256|fileSHA256|fingerprint|inlineSchemaHash)"\s*:/.test(line);
+    if((hex&&v.length!==64)||(hex&&hashField)||/sha(?:256|384|512)-/i.test(line)||/\bintegrity\b|\bchecksum\b|\bsha256\b/i.test(line)){stats.excludedHashOrIntegrity++;continue;}
+    if(hex&&v.length===64)add(src,'UNCLASSIFIED_HEX_LITERAL',v,'Unclassified 64-hex literal','ENTROPY',pos+q.index);
     if(entropy(v)>4.2&&/[a-z]/i.test(v)&&/[0-9]/.test(v))add(src,'HIGH_ENTROPY_QUOTED_LITERAL',v,'Unclassified high-entropy literal','ENTROPY',pos+q.index);
    }
    pos+=line.length+1;
@@ -76,6 +80,25 @@ export function isReviewed(finding, file, fileSHA256, baseline) {
     entry.key === finding.key && typeof entry.reason === 'string' && entry.reason.length > 20);
 }
 
+// Prisma 5.22 getUniquePackageName hashes the unexpanded datamodel text.
+// Only this one JSON field's entropy finding is explained; every other rule
+// and every other byte in the generated client remains subject to scanning.
+export function inspectFile(content, file, generatedSchema) {
+  const findings = inspectText(content);
+  if (file !== 'packages/infrastructure/src/prisma-client/package.json' || typeof generatedSchema !== 'string') return findings;
+  let metadata;
+  try { metadata = JSON.parse(content); } catch { return findings; }
+  if (!metadata || Array.isArray(metadata) || typeof metadata.name !== 'string' ||
+      !/^prisma-client-[0-9a-f]{64}$/.test(metadata.name) ||
+      metadata.name !== 'prisma-client-' + hash(Buffer.from(generatedSchema, 'utf8'))) return findings;
+  // Require the generator's exact first-property representation, and reject
+  // duplicate/nested name keys rather than accepting ambiguous JSON evidence.
+  const prefix = content.match(/^\{\r?\n  "name": "(prisma-client-[0-9a-f]{64})",?\r?\n/);
+  if (!prefix || prefix[1] !== metadata.name || [...content.matchAll(/"name"\s*:/g)].length !== 1) return findings;
+  return findings.filter(finding => !(finding.key === 'HIGH_ENTROPY_QUOTED_LITERAL' &&
+    finding.kind === 'ENTROPY' && finding.line === 2 && finding.fingerprint === hash(metadata.name)));
+}
+
 export function checkCurrentTree(repo = process.cwd()) {
   const git = process.platform === 'win32' ? 'C:/Program Files/Git/cmd/git.exe' : 'git';
   const readGit = args => execFileSync(git, ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', repo, ...args],
@@ -87,6 +110,7 @@ export function checkCurrentTree(repo = process.cwd()) {
     .filter(row => row.startsWith('160000 ')).map(row => row.slice(row.indexOf('\t') + 1));
   const files = [...new Set(readGit(['ls-files', '--cached', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean))];
   const unresolved = [];
+  const generatedPrismaFiles = [];
   let inspected = 0;
   for (const file of files) {
     if (gitlinks.includes(file)) continue; // Git-mode 160000 is a separate object boundary.
@@ -96,11 +120,19 @@ export function checkCurrentTree(repo = process.cwd()) {
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Non-ordinary source object');
     const bytes = fs.readFileSync(full);
     inspected++;
-    for (const finding of inspectText(bytes.toString('utf8'))) {
+    if (file.startsWith('packages/infrastructure/src/prisma-client/')) generatedPrismaFiles.push(file);
+    let generatedSchema;
+    if (file === 'packages/infrastructure/src/prisma-client/package.json') {
+      const schemaPath = path.join(repo, 'packages/infrastructure/src/prisma-client/schema.prisma');
+      const schemaStat = fs.lstatSync(schemaPath);
+      if (!schemaStat.isFile() || schemaStat.isSymbolicLink()) throw new Error('Non-ordinary generated schema');
+      generatedSchema = fs.readFileSync(schemaPath, 'utf8');
+    }
+    for (const finding of inspectFile(bytes.toString('utf8'), file, generatedSchema)) {
       if (!isReviewed(finding, file, canonicalSourceSHA256(bytes), baseline)) unresolved.push({ file, ...finding });
     }
   }
-  return { inspected, gitlinks, unresolved };
+  return { inspected, gitlinks, unresolved, generatedPrismaFiles };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -109,5 +141,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error(JSON.stringify({ result: 'FAIL', unresolved: result.unresolved }, null, 2));
     process.exitCode = 1;
   } else console.log(JSON.stringify({ result: 'PASS', inspected: result.inspected,
-    gitlinkCount: result.gitlinks.length, unresolved: 0, rawValuesPrinted: false }));
+    gitlinkCount: result.gitlinks.length, generatedPrismaFiles: result.generatedPrismaFiles,
+    unresolved: 0, rawValuesPrinted: false }));
 }
