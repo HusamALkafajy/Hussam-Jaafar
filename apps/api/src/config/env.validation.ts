@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { StructuredLogger } from '../common/logging/structured-logger';
 import { assertJwtSecrets } from './jwt-secrets';
+import { isIP } from 'node:net';
 
 enum Environment {
   Development = 'development',
@@ -28,6 +29,17 @@ export const DEFAULT_THROTTLE_TTL_MS = 60_000;
 export const MAX_THROTTLE_TTL_MS = 2_147_483_647;
 
 const POSITIVE_BASE_10_INTEGER = /^[1-9]\d*$/;
+const DNS_HOST = /^(?=.{1,253}\.?$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.?$/i;
+
+function normalizeListenHost(config: Record<string, unknown>): void {
+  if (!Object.prototype.hasOwnProperty.call(config, 'APP_HOST')) return;
+  const raw = config.APP_HOST;
+  const host = typeof raw === 'string' ? raw.trim() : '';
+  if (!host || (!isIP(host) && (!DNS_HOST.test(host) || /^\d+$/.test(host)))) {
+    throw new Error('APP_HOST must be an IP address or DNS hostname without a URL, port, or whitespace.');
+  }
+  config.APP_HOST = host;
+}
 
 function normalizeThrottleValue(
   config: Record<string, unknown>,
@@ -63,6 +75,10 @@ class EnvironmentVariables {
   @IsNumber()
   @IsOptional()
   APP_PORT?: number;
+
+  @IsString()
+  @IsOptional()
+  APP_HOST?: string;
 
   @IsInt()
   @Min(1)
@@ -149,6 +165,7 @@ class EnvironmentVariables {
 }
 
 export function validate(config: Record<string, unknown>) {
+  normalizeListenHost(config);
   const throttleErrors = [
     normalizeThrottleValue(config, 'THROTTLE_LIMIT', Number.MAX_SAFE_INTEGER),
     normalizeThrottleValue(config, 'THROTTLE_TTL', MAX_THROTTLE_TTL_MS),
