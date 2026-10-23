@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { db, users, subscriptions, eq } from '@studyai/database';
+import { db, users, subscriptions, eq, and } from '@studyai/database';
 import { UserRole, AuthProvider, Locale, SubscriptionTier, PLAN_LIMITS } from '@studyai/types';
 
 // Narrow type that both the global `db` and a Drizzle `PgTransaction` satisfy.
@@ -128,6 +128,15 @@ export class UsersService {
       .update(users)
       .set({ refreshTokenHash, updatedAt: new Date() })
       .where(eq(users.id, id));
+  }
+
+  async rotateRefreshTokenHash(id: string, expectedCurrentHash: string, replacementHash: string): Promise<boolean> {
+    const updated = await db
+      .update(users)
+      .set({ refreshTokenHash: replacementHash, updatedAt: new Date() })
+      .where(and(eq(users.id, id), eq(users.refreshTokenHash, expectedCurrentHash)))
+      .returning({ id: users.id });
+    return updated.length === 1;
   }
 
   async updateLocale(id: string, locale: Locale) {

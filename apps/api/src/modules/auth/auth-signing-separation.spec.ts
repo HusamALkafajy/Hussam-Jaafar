@@ -17,7 +17,7 @@ describe('AuthService real JWT signing paths (persistence mocked)', () => {
   const user = { id: 'test-id', email: 'test@example.test', firstName: 'Test', lastName: 'User',
     role: 'student', refreshTokenHash: 'inert-hash' };
   const jwt = new JwtService();
-  const users = { updateRefreshTokenHash: jest.fn(), findById: jest.fn().mockResolvedValue(user) };
+  const users = { updateRefreshTokenHash: jest.fn(), rotateRefreshTokenHash: jest.fn().mockResolvedValue(true), findById: jest.fn().mockResolvedValue(user) };
   function service(refreshValue: string | undefined = refresh) {
     const values: Record<string, string | undefined> = {
       NODE_ENV: 'production', 'auth.jwtSecret': access, 'auth.jwtRefreshSecret': refreshValue,

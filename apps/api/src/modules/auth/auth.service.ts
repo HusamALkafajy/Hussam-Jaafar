@@ -8,6 +8,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserRole, AuthProvider, Locale } from '@studyai/types';
 import { db } from '@studyai/database';
 import { assertJwtSecrets } from '../../config/jwt-secrets';
+import { createHash } from 'node:crypto';
 
 type AuthUser = {
   id: string;
@@ -96,6 +97,12 @@ export class AuthService {
   }
 
   async login(user: AuthUser) {
+    const { refreshTokenHash, ...tokens } = await this.issueTokens(user);
+    await this.usersService.updateRefreshTokenHash(user.id, refreshTokenHash);
+    return tokens;
+  }
+
+  private async issueTokens(user: AuthUser) {
     const superAdminEmail = this.configService.get<string>('auth.superAdminEmail');
     if (superAdminEmail && user.email.toLowerCase() === superAdminEmail.toLowerCase() && user.role !== UserRole.ADMIN) {
       const updated = await this.usersService.update(user.id, { role: UserRole.ADMIN });
@@ -113,17 +120,20 @@ export class AuthService {
 
     const refreshToken = await this.jwtService.signAsync(payload, {
       secret: refreshSecret,
+      jwtid: uuidv4(),
       expiresIn: this.configService.get<string>('auth.jwtRefreshExpiration') as any,
     });
 
 
     const salt = await bcrypt.genSalt(12);
-    const refreshTokenHash = await bcrypt.hash(refreshToken, salt);
-    await this.usersService.updateRefreshTokenHash(user.id, refreshTokenHash);
+    // bcrypt truncates inputs after 72 bytes. Bind the entire signed JWT,
+    // including its per-issuance JTI, using a fixed-length digest first.
+    const refreshTokenHash = await bcrypt.hash(this.refreshTokenDigest(refreshToken), salt);
 
     return {
       accessToken,
       refreshToken,
+      refreshTokenHash,
       user: {
         id: user.id,
         email: user.email,
@@ -138,7 +148,16 @@ export class AuthService {
   async refresh(refreshToken: string) {
     try {
       const user = await this.getUserForRefreshToken(refreshToken);
-      return this.login(user);
+      const { refreshTokenHash, ...tokens } = await this.issueTokens(user);
+      const rotated = await this.usersService.rotateRefreshTokenHash(
+        user.id,
+        user.refreshTokenHash,
+        refreshTokenHash,
+      );
+      if (!rotated) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+      return tokens;
     } catch (e) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -273,7 +292,11 @@ export class AuthService {
     response.clearCookie('csrf_token', { path: '/' });
   }
 
-  private async getUserForRefreshToken(refreshToken: string): Promise<AuthUser> {
+  private refreshTokenDigest(refreshToken: string): string {
+    return createHash('sha256').update(refreshToken, 'utf8').digest('hex');
+  }
+
+  private async getUserForRefreshToken(refreshToken: string): Promise<AuthUser & { refreshTokenHash: string }> {
     let payload: { sub: string };
     try {
       payload = await this.jwtService.verifyAsync(refreshToken, {
@@ -288,12 +311,12 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+    const isMatch = await bcrypt.compare(this.refreshTokenDigest(refreshToken), user.refreshTokenHash);
     if (!isMatch) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    return user;
+    return { ...user, refreshTokenHash: user.refreshTokenHash };
   }
 
   private async sendVerificationEmail(email: string, name: string, token: string) {

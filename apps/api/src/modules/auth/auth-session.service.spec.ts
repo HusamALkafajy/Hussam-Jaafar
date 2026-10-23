@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { createHash } from 'node:crypto';
 
 jest.mock('@studyai/database', () => ({ db: { transaction: jest.fn() } }));
 jest.mock('bcrypt', () => ({
@@ -28,6 +29,7 @@ describe('AuthService refresh session contract', () => {
   let usersService: {
     findById: jest.Mock;
     updateRefreshTokenHash: jest.Mock;
+    rotateRefreshTokenHash: jest.Mock;
   };
   let jwtService: {
     verifyAsync: jest.Mock;
@@ -41,6 +43,11 @@ describe('AuthService refresh session contract', () => {
       findById: jest.fn(async () => ({ ...user, refreshTokenHash: currentRefreshHash })),
       updateRefreshTokenHash: jest.fn(async (_userId: string, nextHash: string | null) => {
         currentRefreshHash = nextHash;
+      }),
+      rotateRefreshTokenHash: jest.fn(async (_id: string, expected: string, next: string) => {
+        if (currentRefreshHash !== expected) return false;
+        currentRefreshHash = next;
+        return true;
       }),
     };
     jwtService = {
@@ -79,7 +86,7 @@ describe('AuthService refresh session contract', () => {
     bcrypt.genSalt.mockResolvedValue('new-salt');
     bcrypt.hash.mockResolvedValue('hash-after-rotation');
     bcrypt.compare.mockImplementation(async (token: string, hash: string | null) =>
-      token === 'refresh-before-rotation' && hash === 'hash-before-rotation',
+      token === createHash('sha256').update('refresh-before-rotation').digest('hex') && hash === 'hash-before-rotation',
     );
   });
 
@@ -87,10 +94,12 @@ describe('AuthService refresh session contract', () => {
     const result = await service.refresh('refresh-before-rotation');
 
     expect(result.refreshToken).toBe('refresh-after-rotation');
-    expect(usersService.updateRefreshTokenHash).toHaveBeenCalledWith(
+    expect(usersService.rotateRefreshTokenHash).toHaveBeenCalledWith(
       user.id,
+      'hash-before-rotation',
       'hash-after-rotation',
     );
+    expect(usersService.updateRefreshTokenHash).not.toHaveBeenCalled();
 
     await expect(service.refresh('refresh-before-rotation')).rejects.toBeInstanceOf(
       UnauthorizedException,
