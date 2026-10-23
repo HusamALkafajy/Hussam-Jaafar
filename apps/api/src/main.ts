@@ -14,6 +14,7 @@ import { StructuredLogger } from './common/logging/structured-logger';
 import { reportBootstrapFailure } from './common/bootstrap/bootstrap-failure';
 import { createCsrfProtectionMiddleware } from './common/middleware/csrf-protection.middleware';
 import { resolveCorsOrigins } from './config/cors-origins';
+import { listenApi } from './common/bootstrap/listen';
 
 // Bootstrap runs before ConfigService is available to dependency injection.
 // eslint-disable-next-line no-restricted-syntax
@@ -35,6 +36,7 @@ export async function bootstrap() {
   app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 
   const port = configService.get<number>('app.port') || 4000;
+  const host = configService.get<string>('app.host');
   const frontendUrl = configService.get<string>('app.frontendUrl') || 'http://localhost:3000';
   const nodeEnvironment = configService.get<string>('app.nodeEnv');
   const corsOrigins = resolveCorsOrigins(frontendUrl, nodeEnvironment);
@@ -92,7 +94,7 @@ export async function bootstrap() {
     next();
   });
 
-  await app.listen(port);
+  await listenApi(app, port, host);
   appLogger.log(`StudyAI NestJS API Gateway successfully running on port: ${port}`);
   appLogger.log(`CORS allowed origins configured for: ${frontendUrl}`);
 }

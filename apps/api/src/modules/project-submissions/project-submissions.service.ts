@@ -74,15 +74,15 @@ ${dto.studentSubmission}`;
     try {
       responseJsonStr = await this.aiService.getCompletion(userPrompt, systemPrompt, true);
     } catch (err: any) {
-      this.logger.error(`AI project evaluation failed for project ${projectId}`, err);
-      throw new BadRequestException(`AI evaluation failed: ${err.message}`);
+      this.logger.error({ event: 'project.ai-evaluation-failed', projectId });
+      throw new BadRequestException('AI evaluation failed');
     }
 
     let evaluation: any;
     try {
       evaluation = JSON.parse(this.cleanJson(responseJsonStr));
     } catch (err: any) {
-      this.logger.error(`Failed to parse AI evaluation response: ${responseJsonStr}`, err);
+      this.logger.error({ event: 'project.ai-json-invalid', responseLength: responseJsonStr.length });
       throw new BadRequestException('AI returned an invalid evaluation JSON structure');
     }
 

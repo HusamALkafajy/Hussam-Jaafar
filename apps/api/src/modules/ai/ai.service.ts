@@ -353,15 +353,9 @@ export class AiService {
       })
         .then(async (res) => {
           if (!res.ok) {
-            let errorMsg = res.statusText || '(no status text)';
-            try {
-              const errorJson = await res.json();
-              errorMsg = errorJson?.error?.message || JSON.stringify(errorJson);
-            } catch (e) {
-              // response body may not be JSON — keep statusText
-            }
-            const fullError = `OpenRouter API call failed (HTTP ${res.status}): ${errorMsg}`;
-            this.logger.error(`[AiService] callOpenRouterStream: ${fullError} | url=${url}`);
+            // Provider bodies may echo submitted private content or credentials.
+            const fullError = `OpenRouter API call failed (HTTP ${res.status})`;
+            this.logger.error({ event: 'ai.provider-stream-failed', provider: 'openrouter', status: res.status });
             subscriber.error(new Error(fullError));
             return;
           }

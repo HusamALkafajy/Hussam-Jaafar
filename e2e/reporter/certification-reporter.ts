@@ -1,6 +1,7 @@
 import { Reporter, TestCase, TestResult, FullResult, FullConfig, Suite } from '@playwright/test/reporter';
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 
 export default class CertificationReporter implements Reporter {
   private startTime!: number;
@@ -37,9 +38,11 @@ export default class CertificationReporter implements Reporter {
     } else {
       this.metrics.failed++;
       this.failures.push({
-        title: test.title,
+        title: `test-title-sha256:${createHash('sha256').update(test.title).digest('hex')}`,
         location: `${test.location.file}:${test.location.line}`,
-        error: result.error?.message || 'Unknown error',
+        // Errors can contain assertion dumps with raw JWTs, cookies, or private AI text.
+        // Preserve correlation without retaining the credential-bearing payload.
+        error: `error-sha256:${createHash('sha256').update(result.error?.message || 'Unknown error').digest('hex')}`,
       });
     }
 

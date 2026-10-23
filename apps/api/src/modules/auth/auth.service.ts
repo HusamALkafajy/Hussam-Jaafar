@@ -7,6 +7,8 @@ import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserRole, AuthProvider, Locale } from '@studyai/types';
 import { db } from '@studyai/database';
+import { assertJwtSecrets } from '../../config/jwt-secrets';
+import { createHash } from 'node:crypto';
 
 type AuthUser = {
   id: string;
@@ -95,6 +97,12 @@ export class AuthService {
   }
 
   async login(user: AuthUser) {
+    const { refreshTokenHash, ...tokens } = await this.issueTokens(user);
+    await this.usersService.updateRefreshTokenHash(user.id, refreshTokenHash);
+    return tokens;
+  }
+
+  private async issueTokens(user: AuthUser) {
     const superAdminEmail = this.configService.get<string>('auth.superAdminEmail');
     if (superAdminEmail && user.email.toLowerCase() === superAdminEmail.toLowerCase() && user.role !== UserRole.ADMIN) {
       const updated = await this.usersService.update(user.id, { role: UserRole.ADMIN });
@@ -102,24 +110,30 @@ export class AuthService {
     }
 
     const payload = { sub: user.id, email: user.email, role: user.role };
+    const accessSecret = this.configService.getOrThrow<string>('auth.jwtSecret');
+    const refreshSecret = this.configService.getOrThrow<string>('auth.jwtRefreshSecret');
+    assertJwtSecrets(accessSecret, refreshSecret, this.configService.get<string>('NODE_ENV') === 'production');
     const accessToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.getOrThrow<string>('auth.jwtSecret'),
+      secret: accessSecret,
       expiresIn: this.configService.get<string>('auth.jwtAccessExpiration') as any,
     });
 
     const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('auth.jwtRefreshSecret'),
+      secret: refreshSecret,
+      jwtid: uuidv4(),
       expiresIn: this.configService.get<string>('auth.jwtRefreshExpiration') as any,
     });
 
 
     const salt = await bcrypt.genSalt(12);
-    const refreshTokenHash = await bcrypt.hash(refreshToken, salt);
-    await this.usersService.updateRefreshTokenHash(user.id, refreshTokenHash);
+    // bcrypt truncates inputs after 72 bytes. Bind the entire signed JWT,
+    // including its per-issuance JTI, using a fixed-length digest first.
+    const refreshTokenHash = await bcrypt.hash(this.refreshTokenDigest(refreshToken), salt);
 
     return {
       accessToken,
       refreshToken,
+      refreshTokenHash,
       user: {
         id: user.id,
         email: user.email,
@@ -134,7 +148,16 @@ export class AuthService {
   async refresh(refreshToken: string) {
     try {
       const user = await this.getUserForRefreshToken(refreshToken);
-      return this.login(user);
+      const { refreshTokenHash, ...tokens } = await this.issueTokens(user);
+      const rotated = await this.usersService.rotateRefreshTokenHash(
+        user.id,
+        user.refreshTokenHash,
+        refreshTokenHash,
+      );
+      if (!rotated) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+      return tokens;
     } catch (e) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -269,11 +292,15 @@ export class AuthService {
     response.clearCookie('csrf_token', { path: '/' });
   }
 
-  private async getUserForRefreshToken(refreshToken: string): Promise<AuthUser> {
+  private refreshTokenDigest(refreshToken: string): string {
+    return createHash('sha256').update(refreshToken, 'utf8').digest('hex');
+  }
+
+  private async getUserForRefreshToken(refreshToken: string): Promise<AuthUser & { refreshTokenHash: string }> {
     let payload: { sub: string };
     try {
       payload = await this.jwtService.verifyAsync(refreshToken, {
-        secret: this.configService.get<string>('auth.jwtRefreshSecret'),
+        secret: this.configService.getOrThrow<string>('auth.jwtRefreshSecret'),
       });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -284,18 +311,18 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+    const isMatch = await bcrypt.compare(this.refreshTokenDigest(refreshToken), user.refreshTokenHash);
     if (!isMatch) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    return user;
+    return { ...user, refreshTokenHash: user.refreshTokenHash };
   }
 
   private async sendVerificationEmail(email: string, name: string, token: string) {
     const url = `${this.configService.get<string>('FRONTEND_URL')}/verify-email?token=${token}`;
     // Do not log tokens or full verification URLs. Log an event instead.
-    this.logger.log(`Verification email prepared for ${email}`);
+    this.logger.log({ event: 'auth.verification-email-prepared' });
 
     if (this.transporter) {
       try {
@@ -307,7 +334,7 @@ export class AuthService {
           html: `<p>Hello ${name},</p><p>Please verify your email by clicking <a href="${url}">here</a>.</p>`,
         });
       } catch (e) {
-        this.logger.error(`Failed to send verification email to ${email}: ${e.message}`);
+        this.logger.error({ event: 'auth.verification-email-failed' });
       }
     }
   }
@@ -315,7 +342,7 @@ export class AuthService {
   private async sendResetEmail(email: string, name: string, token: string) {
     const url = `${this.configService.get<string>('FRONTEND_URL')}/reset-password?token=${token}`;
     // Do not log tokens or full reset URLs. Log an event instead.
-    this.logger.log(`Password reset email prepared for ${email}`);
+    this.logger.log({ event: 'auth.password-reset-email-prepared' });
 
     if (this.transporter) {
       const from = this.configService.get<string>('SMTP_FROM') || 'StudyAI <noreply@studyai.com>';

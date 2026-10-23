@@ -20,7 +20,7 @@ async function runTest() {
 
   console.log('API Key Status:', apiKey ? 'CONFIGURED' : 'MISSING (Running in Mock Mode)');
   console.log('Target Model:', model);
-  console.log('Base URL:', process.env.OPENROUTER_BASE_URL || defaultBaseUrl);
+  console.log('OpenRouter endpoint configuration present:', Boolean(process.env.OPENROUTER_BASE_URL || defaultBaseUrl));
 
   const configService = new ConfigService({
     ai: {

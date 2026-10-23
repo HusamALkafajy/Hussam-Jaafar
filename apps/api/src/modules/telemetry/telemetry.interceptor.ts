@@ -28,7 +28,9 @@ export class TelemetryInterceptor implements NestInterceptor {
     const ctx = context.switchToHttp();
     const request = ctx.getRequest<Request>();
     const response = ctx.getResponse<Response>();
-    const { method, url } = request;
+    const { method } = request;
+    // Never put raw URLs, queries, opaque path tokens or provider errors in logs/metrics.
+    const url = typeof request.route?.path === 'string' ? request.route.path : '[unmatched-route]';
     const startTime = Date.now();
 
     const normalizedPath = this.normalizePath(url);
@@ -78,7 +80,7 @@ export class TelemetryInterceptor implements NestInterceptor {
           this.httpRequestDuration.labels(method, normalizedPath).observe(duration);
         } catch (e) {}
 
-        this.logger.error(`[KPI_ERROR] ${method} ${url} ${statusCode} ${duration}s user=${userId} err=${error.message}`);
+        this.logger.error(`[KPI_ERROR] ${method} ${url} ${statusCode} ${duration}s user=${userId}`);
         
         if (statusCode === '429') {
           this.logger.warn(`[KPI_QUOTA_EXHAUSTION] user=${userId} hit rate/quota limits at ${url}.`);

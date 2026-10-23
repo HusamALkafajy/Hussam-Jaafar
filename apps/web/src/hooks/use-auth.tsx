@@ -13,14 +13,14 @@ import React, {
   useCallback,
 } from 'react';
 import { api, setAccessToken, onAuthExpired } from '../lib/api-client';
-import { UserProfileResponse, RegisterDto } from '@studyai/types';
+import { UserProfileResponse, RegisterDto, UserRole } from '@studyai/types';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 // ─── Context Type ─────────────────────────────────────────────────────────────
 
 interface AuthContextType {
   user: UserProfileResponse | null;
-  /** true while initial refresh or an auth action is in flight */
+  /** true while initial refresh, profile revalidation or an auth action is in flight */
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: RegisterDto) => Promise<void>;
@@ -36,6 +36,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfileResponse | null>(null);
   // Starts true: protected routes must NOT redirect until refresh resolves
   const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(true);
+  const setAuthLoading = useCallback((nextLoading: boolean) => {
+    loadingRef.current = nextLoading;
+    setLoading(nextLoading);
+  }, []);
   const router = useRouter();
 
   // Generation counter: incremented on logout/new login.
@@ -57,15 +62,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ── checkSession (used externally, e.g. settings page) ──────────────────
   const checkSession = useCallback(async () => {
+    if (loadingRef.current) return;
+    const myGeneration = generationRef.current;
+    setAuthLoading(true);
     try {
-      const data = await api.get<{ user: UserProfileResponse }>('/auth/me');
-      setUser(data.user);
+      const profile = await api.get<UserProfileResponse | null>('/users/profile');
+      if (generationRef.current !== myGeneration) return;
+      const validProfile = profile !== null &&
+        typeof profile === 'object' &&
+        typeof profile.id === 'string' &&
+        profile.id.trim().length > 0 &&
+        Object.values(UserRole).includes(profile.role);
+      setUser(validProfile ? profile : null);
     } catch {
-      setUser(null);
+      if (generationRef.current === myGeneration) setUser(null);
     } finally {
-      setLoading(false);
+      if (generationRef.current === myGeneration) setAuthLoading(false);
     }
-  }, []);
+  }, [setAuthLoading]);
 
   // ── Initial page-load session restoration via /auth/refresh ─────────────
   const refreshSession = useCallback(async () => {
@@ -83,10 +97,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
     } finally {
       if (generationRef.current === myGeneration) {
-        setLoading(false);
+        setAuthLoading(false);
       }
     }
-  }, []);
+  }, [setAuthLoading]);
 
   // ── Mount: fire refresh once ─────────────────────────────────────────────
   useEffect(() => {
@@ -102,11 +116,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       generationRef.current += 1;
       setAccessToken(undefined);
       setUser(null);
-      setLoading(false);
+      setAuthLoading(false);
       router.push('/login');
     });
     return unsubscribe;
-  }, [router]);
+  }, [router, setAuthLoading]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -132,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── Login ─────────────────────────────────────────────────────────────────
 
   const login = async (email: string, password: string) => {
-    setLoading(true);
+    setAuthLoading(true);
     const myGeneration = (generationRef.current += 1);
     try {
       const csrf = getCsrfToken();
@@ -150,14 +164,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (generationRef.current === myGeneration) setUser(null);
       throw e;
     } finally {
-      if (generationRef.current === myGeneration) setLoading(false);
+      if (generationRef.current === myGeneration) setAuthLoading(false);
     }
   };
 
   // ── Register ──────────────────────────────────────────────────────────────
 
   const register = async (registerData: RegisterDto) => {
-    setLoading(true);
+    setAuthLoading(true);
     const myGeneration = (generationRef.current += 1);
     try {
       const csrf = getCsrfToken();
@@ -175,7 +189,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (generationRef.current === myGeneration) setUser(null);
       throw e;
     } finally {
-      if (generationRef.current === myGeneration) setLoading(false);
+      if (generationRef.current === myGeneration) setAuthLoading(false);
     }
   };
 
@@ -183,8 +197,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     // Advance generation immediately so any in-flight refresh result is discarded
-    generationRef.current += 1;
-    setLoading(true);
+    const myGeneration = (generationRef.current += 1);
+    setAuthLoading(true);
     try {
       const csrf = getCsrfToken();
       await api.post(
@@ -195,10 +209,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.warn('Logout API failed, clearing local state', e);
     } finally {
-      setAccessToken(undefined);
-      setUser(null);
-      setLoading(false);
-      router.push('/login');
+      if (generationRef.current === myGeneration) {
+        setAccessToken(undefined);
+        setUser(null);
+        setAuthLoading(false);
+        router.push('/login');
+      }
     }
   };
 

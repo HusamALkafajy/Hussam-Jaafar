@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 /**
  * 05-core-journey.spec.ts — Core User Journey Suite
  *
@@ -31,7 +32,7 @@ test.describe('05 · Core Journey — Full E2E Certification', () => {
     // ── Step 1: Register ─────────────────────────────────────────────────
     const uid = Date.now().toString(36);
     const email = `e2e-journey-${uid}@test-studyai.local`;
-    const password = 'TestPass123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     await page.goto('/register');
     await page.locator('#firstName').fill('Journey');

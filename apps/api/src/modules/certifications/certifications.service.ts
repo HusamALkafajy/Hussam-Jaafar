@@ -16,10 +16,9 @@ export class CertificationsService {
       return existing[0];
     }
 
-    const timestamp = Date.now().toString();
-    const secret = 'studyai-certification-salt';
-    const hashInput = `${userId}-${pathId}-${timestamp}-${secret}`;
-    const certificateHash = crypto.createHash('sha256').update(hashInput).digest('hex');
+    // Legacy column name: this is an opaque database lookup ID, not an authentication signature.
+    // Existing IDs remain verifiable through the unchanged database lookup; no migration is needed.
+    const certificateHash = crypto.randomBytes(32).toString('hex');
     const verificationUrl = `/certifications/verify/${certificateHash}`;
 
     const [record] = await db

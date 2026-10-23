@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 /**
  * 01-auth.spec.ts — Authentication Suite
  *
@@ -31,7 +32,7 @@ test.describe('01 · Authentication', () => {
 
     const uid = Date.now().toString(36);
     const email = `e2e-reg-${uid}@test-studyai.local`;
-    const password = 'TestPass123!';
+    const password = randomBytes(24).toString('hex') + 'Aa1!';
 
     await page.locator('#firstName').fill('E2E');
     await page.locator('#lastName').fill('Tester');
