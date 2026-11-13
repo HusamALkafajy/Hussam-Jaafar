@@ -1,0 +1,96 @@
+studyai-p0-v2-clean/
+|-- .github/
+|   `-- workflows/
+|-- .governance/
+|-- apps/
+|   |-- api/
+|   |   |-- apps/
+|   |   |   `-- api/
+|   |   |-- src/
+|   |   |   |-- common/
+|   |   |   |-- config/
+|   |   |   `-- modules/
+|   |   `-- test/
+|   `-- web/
+|       |-- __tests__/
+|       |   `-- VirtualReader/
+|       |-- public/
+|       |-- scripts/
+|       `-- src/
+|           |-- app/
+|           |-- components/
+|           |-- config/
+|           |-- hooks/
+|           |-- i18n/
+|           |-- lib/
+|           `-- mocks/
+|-- docker/
+|-- docs/
+|   |-- deployment/
+|   `-- documents/
+|-- e2e/
+|   |-- fixtures/
+|   |   `-- files/
+|   |-- helpers/
+|   |-- reporter/
+|   `-- tests/
+|       |-- negative/
+|       |-- performance/
+|       |-- recovery/
+|       |-- regression/
+|       `-- security/
+|-- packages/
+|   |-- ast/
+|   |   |-- scripts/
+|   |   `-- src/
+|   |       |-- __tests__/
+|   |       |-- builder/
+|   |       |-- manifest/
+|   |       |-- reconciler/
+|   |       `-- rules/
+|   |-- database/
+|   |   |-- scripts/
+|   |   `-- src/
+|   |       |-- migrations/
+|   |       |-- query/
+|   |       |-- repository/
+|   |       `-- schema/
+|   |-- domain/
+|   |   `-- src/
+|   |       |-- adaptive/
+|   |       |-- analytics/
+|   |       |-- assessment/
+|   |       |-- events/
+|   |       |-- integration/
+|   |       |-- revision/
+|   |       |-- security/
+|   |       |-- strategies/
+|   |       `-- workflow/
+|   |-- infrastructure/
+|   |   |-- prisma/
+|   |   |   `-- migrations/
+|   |   `-- src/
+|   |       |-- adapters/
+|   |       |-- cache/
+|   |       |-- composition/
+|   |       |-- config/
+|   |       |-- events/
+|   |       |-- governance/
+|   |       |-- health/
+|   |       |-- logging/
+|   |       |-- observability/
+|   |       |-- queues/
+|   |       |-- redis/
+|   |       |-- repositories/
+|   |       |-- storage/
+|   |       `-- workers/
+|   `-- types/
+|       `-- src/
+|-- scripts/
+|-- AUDIT_REPORT.md
+|-- package.json
+|-- pnpm-lock.yaml
+|-- pnpm-workspace.yaml
+|-- StudyAI_Current_State_Verification.md
+|-- StudyAI_MVP_Completion_Plan.md
+`-- turbo.json
