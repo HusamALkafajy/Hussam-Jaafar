@@ -1,0 +1,35 @@
+# StudyAI — Retained Historical Error Evidence
+
+Classification: HISTORICAL recorded failure; not a current reproduction.
+
+## Source identity
+- Repository: HusamALkafajy/Hussam-Jaafar, Candidate A.
+- Source log, relative to the repository root: packages/database/.turbo/turbo-test.log
+- Original log SHA-256: e2d59abd7a1a14181a307862a227ad7435e6f920765d7ed9a35bb065df3df735
+- Original log size: 5,572 bytes.
+- Original log modification time (UTC): 2026-08-16T19:06:18.6723134Z.
+- Repository HEAD at handoff: 7eb3b6b815ae235d940be422a347b67fa8ff32a6.
+- The log does not bind its recorded execution to that HEAD.
+
+## Relevant recorded error
+Error: DATABASE_URL must be supplied through the environment.
+
+- Component: @studyai/database test-suite initialization.
+- Recorded source location: packages/database/src/client.ts:8:9.
+- The retained log records five failed test suites.
+- This is evidence of the recorded test environment's missing configuration, not proof of a current product defect.
+
+## Timestamp and recency limitations
+- The log contains the start time 22:06:08, without a complete date or timezone.
+- Its filesystem modification timestamp is not independently established as the execution timestamp.
+- It was the latest located failure-bearing log among the 21 retained logs reviewed during discovery.
+- Newer retained build/lint logs were not substituted for this actual failure.
+- Absolute latest error chronology: UNKNOWN.
+- Current reproducibility: UNKNOWN.
+- Latest unresolved error: UNKNOWN.
+
+## Preservation and sanitization
+- This is a selected text derivative, not the full original log.
+- Private absolute user paths, ANSI formatting and unrelated log contents are omitted.
+- No database connection-string value, credential, token or private key is included.
+- No tests, services, migrations or database operations were executed to prepare this handoff.
